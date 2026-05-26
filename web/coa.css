@@ -1,0 +1,128 @@
+body {
+  margin: 0;
+  background: #f5f5f3;
+  font-family: Georgia, serif;
+  color: #111;
+}
+
+.coa {
+  max-width: 900px;
+  margin: 60px auto;
+  padding: 80px;
+  background: white;
+  text-align: center;
+}
+
+.coa-logo {
+  width: 180px;
+  height: auto;
+  margin-bottom: 40px;
+}
+
+h1 {
+  font-size: 48px;
+  font-weight: normal;
+  margin-bottom: 20px;
+}
+
+.intro {
+  max-width: 650px;
+  margin: 0 auto 60px;
+  line-height: 1.8;
+  font-size: 18px;
+}
+
+.details {
+  border-top: 1px solid #ddd;
+  border-bottom: 1px solid #ddd;
+  padding: 40px 0;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  padding: 18px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row span {
+  opacity: 0.7;
+}
+
+.description {
+  margin-top: 60px;
+  text-align: left;
+}
+
+.description h2 {
+  font-weight: normal;
+  margin-bottom: 20px;
+}
+
+.description p {
+  line-height: 1.9;
+}
+
+.signature-area {
+  display: flex;
+  justify-content: space-between;
+  gap: 60px;
+  margin-top: 100px;
+}
+
+.signature-line {
+  width: 280px;
+  border-bottom: 1px solid #111;
+  margin-bottom: 10px;
+}
+
+.signature-area p {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+@media print {
+  body {
+    background: white;
+  }
+
+  .coa {
+    margin: 0;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 768px) {
+
+  .coa {
+    padding: 35px;
+    margin: 20px;
+  }
+
+  .row {
+    display: block;
+    text-align: left;
+  }
+
+  .row strong {
+    display: block;
+    margin-top: 8px;
+  }
+
+  .signature-area {
+    display: block;
+  }
+
+  .signature-area div {
+    margin-bottom: 50px;
+  }
+
+  .signature-line {
+    width: 100%;
+  }
+
+}
