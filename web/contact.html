@@ -36,6 +36,42 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     <a href="mailto:contact@sylvaarsstudio.com" class="email-link">
       contact@sylvaarsstudio.com
     </a>
+
+    <form name="contact" method="POST" data-netlify="true" class="contact-form">
+
+  <input type="hidden" name="form-name" value="contact">
+
+  <label>
+    Name
+    <input type="text" name="name" required>
+  </label>
+
+  <label>
+    Email
+    <input type="email" name="email" required>
+  </label>
+
+  <label>
+    Inquiry Type
+    <select name="inquiry-type" required>
+      <option value="">Select one</option>
+      <option value="Original Artwork">Original Artwork</option>
+      <option value="Commission">Commission</option>
+      <option value="Collaboration">Collaboration</option>
+      <option value="General Inquiry">General Inquiry</option>
+    </select>
+  </label>
+
+  <label>
+    Message
+    <textarea name="message" rows="6" required></textarea>
+  </label>
+
+  <button type="submit" class="button">
+    Send Inquiry
+  </button>
+
+</form>
 <div class="social-links">
 
   <a href="https://instagram.com/sylvaarsstudio" target="_blank">
