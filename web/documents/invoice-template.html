@@ -19,8 +19,8 @@
       </div>
 
       <div class="invoice-meta">
-        <p><strong>Invoice No:</strong> SSA-0001</p>
-        <p><strong>Date:</strong> Month Day, Year</p>
+        <p><strong>Invoice No:</strong> <span data-field="invoiceId">SSA-0001</span></p>
+        <p><strong>Date:</strong> <span data-field="issueDate">Month Day, Year</span></p>
         <p><strong>Status:</strong> Balance Due</p>
       </div>
     </header>
@@ -37,10 +37,10 @@
 
       <div>
         <h2>Client</h2>
-        <p><strong>Name:</strong> [Client Name]</p>
-        <p><strong>Email:</strong> [Client Email]</p>
-        <p><strong>Phone:</strong> [Client Phone]</p>
-        <p><strong>Address:</strong> [Client Address]</p>
+        <p><strong>Name:</strong> <span data-field="clientName">[Client Name]</span></p>
+        <p><strong>Email:</strong> <span data-field="clientEmail">[Client Email]</span></p>
+        <p><strong>Phone:</strong> <span data-field="clientPhone">[Client Phone]</span></p>
+        <p><strong>Address:</strong> <span data-field="clientAddress">[Client Address]</span></p>
       </div>
 
     </section>
@@ -51,23 +51,23 @@
       <table>
         <tr>
           <th>Title</th>
-          <td>Before the Crossing</td>
+          <td data-field="artworkTitle">Before the Crossing</td>
         </tr>
         <tr>
           <th>Medium</th>
-          <td>Acrylic on canvas</td>
+          <td data-field="medium">Acrylic on canvas</td>
         </tr>
         <tr>
           <th>Dimensions</th>
-          <td>24 × 36 in</td>
+          <td data-field="dimensions">24 × 36 in</td>
         </tr>
         <tr>
           <th>Year</th>
-          <td>2025</td>
+          <td data-field="year">2025</td>
         </tr>
         <tr>
           <th>Description</th>
-          <td>Original painting created by Sylva Ars Studio.</td>
+          <td data-field="notes">Original painting created by Sylva Ars Studio.</td>
         </tr>
       </table>
     </section>
@@ -80,7 +80,7 @@
 
       <div class="amount">
         <p>Amount Due</p>
-        <h3>$0.00</h3>
+        <h3 data-field="amount">$0.00</h3>
       </div>
     </section>
 

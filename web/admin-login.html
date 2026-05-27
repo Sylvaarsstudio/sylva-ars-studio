@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Admin Login | Sylva Ars Studio</title>
+
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+
+<body>
+
+  <main class="admin-login-page">
+
+    <form class="admin-login-card" method="POST" action="/admin-login">
+      <img src="images/logo.png" alt="Sylva Ars Studio Logo" class="admin-login-logo">
+
+      <h1>Studio Admin</h1>
+      <p>Internal access for Sylva Ars Studio operations.</p>
+
+      <input type="hidden" name="redirect" id="redirect-to" value="/admin/dashboard.html">
+
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+
+      <p class="login-error" id="login-error">
+        Incorrect password. Please try again.
+      </p>
+
+      <button type="submit" class="admin-button">
+        Enter Admin
+      </button>
+
+      <a href="index.html" class="admin-link">
+        Back to Website
+      </a>
+    </form>
+
+  </main>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const redirect = params.get("redirect");
+    const error = params.get("error");
+
+    if (redirect && redirect.startsWith("/admin/")) {
+      document.querySelector("#redirect-to").value = redirect;
+    }
+
+    if (error) {
+      document.querySelector("#login-error").classList.add("is-visible");
+    }
+  </script>
+
+</body>
+</html>

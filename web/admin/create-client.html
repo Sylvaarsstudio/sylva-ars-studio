@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Create Client | Sylva Ars Studio</title>
+
+  <link rel="stylesheet" href="../css/admin.css">
+</head>
+
+<body>
+
+  <main class="admin-page">
+
+    <header class="admin-header">
+      <h1>Create Client</h1>
+      <p>Internal client intake form for future invoices, agreements, and commission records.</p>
+    </header>
+
+    <form class="admin-form">
+
+      <label>
+        Client Name
+        <input type="text" name="client-name">
+      </label>
+
+      <label>
+        Email
+        <input type="email" name="client-email">
+      </label>
+
+      <label>
+        Phone
+        <input type="tel" name="client-phone">
+      </label>
+
+      <label>
+        Address
+        <textarea name="client-address" rows="4"></textarea>
+      </label>
+
+      <label>
+        Client Type
+        <select name="client-type">
+          <option value="">Select one</option>
+          <option value="Collector">Collector</option>
+          <option value="Commission Client">Commission Client</option>
+          <option value="Gallery / Organization">Gallery / Organization</option>
+          <option value="General Contact">General Contact</option>
+        </select>
+      </label>
+
+      <label>
+        Notes
+        <textarea name="client-notes" rows="5"></textarea>
+      </label>
+
+      <button type="button" class="admin-button">
+        Save Client
+      </button>
+
+      <a href="dashboard.html" class="admin-link">
+        Back to Dashboard
+      </a>
+
+    </form>
+
+  </main>
+
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Generate Documents | Sylva Ars Studio</title>
+
+  <link rel="stylesheet" href="../css/admin.css">
+</head>
+
+
+
+<body>
+
+  <main class="admin-page">
+
+    <header class="admin-header">
+      <h1>Generate Documents</h1>
+      <p>Create studio documents for sales, commissions, invoices, and certificates.</p>
+    </header>
+
+    <section class="document-workspace">
+
+      <form class="admin-form" id="document-form">
+
+        <label>
+          Document Type
+          <select name="document-type">
+            <option value="invoice-template.html">Invoice</option>
+            <option value="coa-template.html">Certificate of Authenticity</option>
+            <option value="artwork-sales-agreement.html">Artwork Sales Agreement</option>
+            <option value="commission-agreement.html">Commission Agreement</option>
+          </select>
+        </label>
+
+        <label>
+          Client Name
+          <input type="text" name="clientName">
+        </label>
+
+        <label>
+          Client Email
+          <input type="email" name="clientEmail">
+        </label>
+
+        <label>
+          Client Phone
+          <input type="tel" name="clientPhone">
+        </label>
+
+        <label>
+          Client Address
+          <textarea name="clientAddress" rows="3"></textarea>
+        </label>
+
+        <label>
+          Artwork / Project Title
+          <input type="text" name="artworkTitle">
+        </label>
+
+        <label>
+          Medium
+          <input type="text" name="medium">
+        </label>
+
+        <label>
+          Dimensions
+          <input type="text" name="dimensions">
+        </label>
+
+        <label>
+          Year
+          <input type="text" name="year">
+        </label>
+
+        <label>
+          Invoice ID
+          <input type="text" name="invoiceId" placeholder="SSA-0001">
+        </label>
+
+        <label>
+          Certificate ID
+          <input type="text" name="certificateId" placeholder="SSA-COA-0001">
+        </label>
+
+        <label>
+          Amount
+          <input type="text" name="amount" placeholder="$0.00">
+        </label>
+
+        <label>
+          Deposit Amount
+          <input type="text" name="depositAmount" placeholder="$0.00">
+        </label>
+
+        <label>
+          Estimated Completion
+          <input type="text" name="estimatedDate">
+        </label>
+
+        <label>
+          Notes / Description
+          <textarea name="notes" rows="5"></textarea>
+        </label>
+
+        <div class="admin-actions">
+          <button type="button" class="admin-button" id="load-document">
+            Load Document
+          </button>
+
+          <button type="button" class="admin-button" id="print-document">
+            Create PDF
+          </button>
+
+          <a href="dashboard.html" class="admin-link">
+            Back to Dashboard
+          </a>
+        </div>
+
+        <p class="export-status" id="export-status" aria-live="polite"></p>
+
+      </form>
+
+      <section class="document-live-preview" aria-label="Live document preview">
+        <iframe
+          id="document-frame"
+          title="Live document preview"
+          src="../documents/invoice-template.html">
+        </iframe>
+      </section>
+
+    </section>
+
+  </main>
+<script src="../js/admin.js"></script>
+</body>
+</html>
