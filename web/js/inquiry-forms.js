@@ -166,15 +166,24 @@ function initNetlifyRequestBridge() {
 
       try {
         const requestData = buildStructuredRequest(form);
-
-        await submitToNetlifyForms(form);
         const result = await submitToRequestFunction(requestData);
+        const requestId = result.requestId;
+
+        if (!requestId) {
+          throw new Error("Request received, but no reference ID was returned.");
+        }
 
         setFormStatus(
           form,
-          `Request received. Reference ID: ${result.requestId}`,
+          `Request received. Reference ID: ${requestId}`,
           "success"
         );
+
+        try {
+          await submitToNetlifyForms(form);
+        } catch (netlifyFormsError) {
+          console.warn("Netlify Forms submission failed.", netlifyFormsError);
+        }
 
         form.reset();
         initArtworkPrefill();
