@@ -2,8 +2,11 @@
 <html lang="en">
 
 <head>
- <link rel="stylesheet" href="css/main.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Contact | Sylva Ars Studio</title>
+
+  <link rel="stylesheet" href="css/main.css">
 
   <link
 rel="stylesheet"
@@ -37,9 +40,15 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
       contact@sylvaarsstudio.com
     </a>
 
+    <div class="inquiry-actions">
+      <a href="artwork-inquiry.html" class="button">Artwork Inquiry</a>
+      <a href="commission-request.html" class="button">Commission Request</a>
+    </div>
+
     <form name="contact" method="POST" data-netlify="true" class="contact-form">
 
   <input type="hidden" name="form-name" value="contact">
+  <input type="hidden" name="form-type" value="general-contact">
 
   <label>
     Name
@@ -86,6 +95,9 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     <i class="fa-brands fa-facebook-f"></i>
   </a>
 
- 
-
 </div>
+
+  </section>
+
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Artwork Inquiry | Sylva Ars Studio</title>
+
+  <link rel="stylesheet" href="css/main.css">
+</head>
+
+<body>
+
+  <nav class="navbar">
+    <a href="index.html">Home</a>
+    <a href="collection.html">Collection</a>
+    <a href="about.html">About</a>
+    <a href="contact.html">Contact</a>
+  </nav>
+
+  <section class="contact-page">
+
+    <img src="images/logo.png" alt="Sylva Ars Studio Logo" class="logo">
+
+    <h1>Artwork Inquiry</h1>
+
+    <p>
+      Use this form to ask about an original artwork, availability,
+      purchase details, or shipping.
+    </p>
+
+    <form
+      name="artwork-inquiry"
+      method="POST"
+      data-netlify="true"
+      data-netlify-honeypot="bot-field"
+      class="contact-form">
+
+      <input type="hidden" name="form-name" value="artwork-inquiry">
+      <input type="hidden" name="form-type" value="artwork-inquiry">
+
+      <p class="hidden-field">
+        <label>
+          Do not fill this out if you are human
+          <input name="bot-field">
+        </label>
+      </p>
+
+      <label>
+        Client Name
+        <input type="text" name="client-name" autocomplete="name" required>
+      </label>
+
+      <label>
+        Email
+        <input type="email" name="email" autocomplete="email" required>
+      </label>
+
+      <label>
+        Phone Optional
+        <input type="tel" name="phone" autocomplete="tel">
+      </label>
+
+      <label>
+        Artwork Title
+        <input type="text" name="artwork-title" required>
+      </label>
+
+      <label>
+        Shipping Location
+        <input type="text" name="shipping-location" placeholder="City, state, country" required>
+      </label>
+
+      <label>
+        Preferred Contact Method
+        <select name="preferred-contact-method" required>
+          <option value="">Select one</option>
+          <option value="Email">Email</option>
+          <option value="Phone">Phone</option>
+          <option value="Text message">Text message</option>
+        </select>
+      </label>
+
+      <label>
+        Message
+        <textarea name="message" rows="6" required></textarea>
+      </label>
+
+      <button type="submit" class="button">
+        Send Artwork Inquiry
+      </button>
+
+    </form>
+
+  </section>
+
+</body>
+</html>

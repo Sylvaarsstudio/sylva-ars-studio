@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Commission Request | Sylva Ars Studio</title>
+
+  <link rel="stylesheet" href="css/main.css">
+</head>
+
+<body>
+
+  <nav class="navbar">
+    <a href="index.html">Home</a>
+    <a href="collection.html">Collection</a>
+    <a href="about.html">About</a>
+    <a href="contact.html">Contact</a>
+  </nav>
+
+  <section class="contact-page">
+
+    <img src="images/logo.png" alt="Sylva Ars Studio Logo" class="logo">
+
+    <h1>Commission Request</h1>
+
+    <p>
+      Share the idea, timeline, and practical details for a possible
+      commissioned artwork.
+    </p>
+
+    <form
+      name="commission-request"
+      method="POST"
+      data-netlify="true"
+      data-netlify-honeypot="bot-field"
+      class="contact-form">
+
+      <input type="hidden" name="form-name" value="commission-request">
+      <input type="hidden" name="form-type" value="commission-request">
+
+      <p class="hidden-field">
+        <label>
+          Do not fill this out if you are human
+          <input name="bot-field">
+        </label>
+      </p>
+
+      <label>
+        Client Name
+        <input type="text" name="client-name" autocomplete="name" required>
+      </label>
+
+      <label>
+        Email
+        <input type="email" name="email" autocomplete="email" required>
+      </label>
+
+      <label>
+        Phone Optional
+        <input type="tel" name="phone" autocomplete="tel">
+      </label>
+
+      <label>
+        Desired Subject / Theme
+        <input type="text" name="desired-subject-theme" required>
+      </label>
+
+      <label>
+        Size Preference
+        <input type="text" name="size-preference" placeholder="Example: 12 x 16 in, 24 x 36 in">
+      </label>
+
+      <label>
+        Budget Range
+        <select name="budget-range" required>
+          <option value="">Select one</option>
+          <option value="Under $500">Under $500</option>
+          <option value="$500 - $1,000">$500 - $1,000</option>
+          <option value="$1,000 - $2,500">$1,000 - $2,500</option>
+          <option value="$2,500+">$2,500+</option>
+          <option value="Not sure yet">Not sure yet</option>
+        </select>
+      </label>
+
+      <label>
+        Timeline
+        <input type="text" name="timeline" placeholder="Example: flexible, by September, holiday gift" required>
+      </label>
+
+      <label>
+        Shipping Location
+        <input type="text" name="shipping-location" placeholder="City, state, country" required>
+      </label>
+
+      <label>
+        Reference Notes
+        <textarea name="reference-notes" rows="5"></textarea>
+      </label>
+
+      <label>
+        Message
+        <textarea name="message" rows="6" required></textarea>
+      </label>
+
+      <button type="submit" class="button">
+        Send Commission Request
+      </button>
+
+    </form>
+
+  </section>
+
+</body>
+</html>

@@ -333,6 +333,14 @@ h2 {
   opacity: 0.6;
 }
 
+.inquiry-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 10px;
+}
+
 .social-links {
   display: flex;
   justify-content: center;
@@ -380,6 +388,10 @@ h2 {
 
 .contact-form textarea {
   resize: vertical;
+}
+
+.hidden-field {
+  display: none;
 }
 
 
@@ -495,6 +507,10 @@ h2 {
 
   .social-links a {
     font-size: 22px;
+  }
+
+  .inquiry-actions {
+    display: block;
   }
 
   .artwork-page {
