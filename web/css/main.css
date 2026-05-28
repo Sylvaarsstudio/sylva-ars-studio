@@ -333,12 +333,28 @@ h2 {
   opacity: 0.6;
 }
 
-.inquiry-actions {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 18px;
+.inquiry-selector {
+  max-width: 600px;
+  margin: 40px auto 0;
+  text-align: left;
+}
+
+.inquiry-selector label {
+  display: block;
+  font-size: 15px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.inquiry-selector select {
+  width: 100%;
   margin-top: 10px;
+  padding: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  background: transparent;
+  font-family: Georgia, serif;
+  font-size: 16px;
+  color: #111;
 }
 
 .social-links {
@@ -509,8 +525,8 @@ h2 {
     font-size: 22px;
   }
 
-  .inquiry-actions {
-    display: block;
+  .inquiry-selector {
+    max-width: 100%;
   }
 
   .artwork-page {

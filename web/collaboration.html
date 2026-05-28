@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Artwork Inquiry | Sylva Ars Studio</title>
+  <title>Collaboration | Sylva Ars Studio</title>
 
   <link rel="stylesheet" href="css/main.css">
 </head>
@@ -22,22 +22,22 @@
 
     <img src="images/logo.png" alt="Sylva Ars Studio Logo" class="logo">
 
-    <h1>Artwork Inquiry</h1>
+    <h1>Collaboration</h1>
 
     <p>
-      Use this form to ask about an original artwork, availability,
-      purchase details, or shipping.
+      Use this form for creative partnerships, exhibitions,
+      editorial projects, or studio collaborations.
     </p>
 
     <form
-      name="artwork-inquiry"
+      name="collaboration"
       method="POST"
       data-netlify="true"
       data-netlify-honeypot="bot-field"
       class="contact-form">
 
-      <input type="hidden" name="form-name" value="artwork-inquiry">
-      <input type="hidden" name="form-type" value="artwork-inquiry">
+      <input type="hidden" name="form-name" value="collaboration">
+      <input type="hidden" name="form-type" value="collaboration">
 
       <p class="hidden-field">
         <label>
@@ -62,23 +62,25 @@
       </label>
 
       <label>
-        Artwork Title
-        <input type="text" name="artwork-title" required>
+        Organization / Project
+        <input type="text" name="organization-project">
       </label>
 
       <label>
-        Shipping Location
-        <input type="text" name="shipping-location" placeholder="City, state, country" required>
-      </label>
-
-      <label>
-        Preferred Contact Method
-        <select name="preferred-contact-method" required>
+        Collaboration Type
+        <select name="collaboration-type" required>
           <option value="">Select one</option>
-          <option value="Email">Email</option>
-          <option value="Phone">Phone</option>
-          <option value="Text message">Text message</option>
+          <option value="Exhibition">Exhibition</option>
+          <option value="Editorial / Press">Editorial / Press</option>
+          <option value="Brand / Creative Project">Brand / Creative Project</option>
+          <option value="Gallery / Organization">Gallery / Organization</option>
+          <option value="Other">Other</option>
         </select>
+      </label>
+
+      <label>
+        Timeline
+        <input type="text" name="timeline" placeholder="Example: flexible, this fall, specific date">
       </label>
 
       <label>
@@ -87,14 +89,12 @@
       </label>
 
       <button type="submit" class="button">
-        Send Artwork Inquiry
+        Send Collaboration Inquiry
       </button>
 
     </form>
 
   </section>
-
-  <script src="js/inquiry-forms.js"></script>
 
 </body>
 </html>

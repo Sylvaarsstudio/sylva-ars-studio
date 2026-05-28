@@ -40,9 +40,16 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
       contact@sylvaarsstudio.com
     </a>
 
-    <div class="inquiry-actions">
-      <a href="artwork-inquiry.html" class="button">Artwork Inquiry</a>
-      <a href="commission-request.html" class="button">Commission Request</a>
+    <div class="inquiry-selector">
+      <label>
+        Inquiry Type
+        <select id="inquiry-router">
+          <option value="contact">Contact / General Inquiry</option>
+          <option value="artwork-inquiry">Artwork Inquiry</option>
+          <option value="commission-request">Commission Request</option>
+          <option value="collaboration">Collaboration</option>
+        </select>
+      </label>
     </div>
 
     <form name="contact" method="POST" data-netlify="true" class="contact-form">
@@ -58,17 +65,6 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
   <label>
     Email
     <input type="email" name="email" required>
-  </label>
-
-  <label>
-    Inquiry Type
-    <select name="inquiry-type" required>
-      <option value="">Select one</option>
-      <option value="Original Artwork">Original Artwork</option>
-      <option value="Commission">Commission</option>
-      <option value="Collaboration">Collaboration</option>
-      <option value="General Inquiry">General Inquiry</option>
-    </select>
   </label>
 
   <label>
@@ -99,5 +95,6 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
 
   </section>
 
+<script src="js/inquiry-forms.js"></script>
 </body>
 </html>
