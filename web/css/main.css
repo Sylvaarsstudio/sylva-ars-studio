@@ -410,6 +410,28 @@ h2 {
   display: none;
 }
 
+.form-status {
+  margin-top: 24px;
+  font-size: 16px;
+  line-height: 1.6;
+  text-align: center;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.form-status.success {
+  color: #245c38;
+}
+
+.form-status.error {
+  color: #8d1f1f;
+}
+
+button[disabled] {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 
 /* =========================
    Animation

@@ -5,6 +5,8 @@ const inquiryRoutes = {
   collaboration: "collaboration.html"
 };
 
+const requestEndpoint = "/.netlify/functions/create-request";
+
 function initInquiryRouter() {
   const router = document.querySelector("#inquiry-router");
 
@@ -46,6 +48,149 @@ async function getArtworkTitleFromSlug(slug) {
   }
 }
 
+function toCamelCase(value) {
+  return value.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+function getFieldValue(formData, ...names) {
+  for (const name of names) {
+    const value = formData.get(name);
+
+    if (value) {
+      return String(value).trim();
+    }
+  }
+
+  return "";
+}
+
+function createStatusElement(form) {
+  const existingStatus = form.querySelector(".form-status");
+
+  if (existingStatus) {
+    return existingStatus;
+  }
+
+  const status = document.createElement("p");
+  status.className = "form-status";
+  status.setAttribute("aria-live", "polite");
+  form.append(status);
+
+  return status;
+}
+
+function setFormStatus(form, message, type = "") {
+  const status = createStatusElement(form);
+  status.textContent = message;
+  status.className = `form-status ${type}`.trim();
+}
+
+function setFormLoading(form, isLoading) {
+  const button = form.querySelector('button[type="submit"]');
+
+  if (!button) {
+    return;
+  }
+
+  if (!button.dataset.defaultText) {
+    button.dataset.defaultText = button.textContent;
+  }
+
+  button.disabled = isLoading;
+  button.textContent = isLoading ? "Sending..." : button.dataset.defaultText;
+}
+
+function buildStructuredRequest(form) {
+  const formData = new FormData(form);
+  const request = {};
+
+  formData.forEach((value, key) => {
+    if (key === "bot-field" || key === "form-name") {
+      return;
+    }
+
+    request[toCamelCase(key)] = String(value).trim();
+  });
+
+  request.formType = getFieldValue(formData, "form-type", "form-name");
+  request.clientName = getFieldValue(formData, "client-name", "name");
+  request.clientEmail = getFieldValue(formData, "email", "client-email");
+  request.clientPhone = getFieldValue(formData, "phone", "client-phone");
+
+  return request;
+}
+
+async function submitToNetlifyForms(form) {
+  const formData = new FormData(form);
+
+  await fetch(window.location.pathname, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams(formData).toString()
+  });
+}
+
+async function submitToRequestFunction(requestData) {
+  const response = await fetch(requestEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(requestData)
+  });
+
+  const result = await response.json();
+
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Unable to process request.");
+  }
+
+  return result;
+}
+
+function initNetlifyRequestBridge() {
+  const forms = document.querySelectorAll('form[data-netlify="true"]');
+
+  forms.forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      if (!form.reportValidity()) {
+        return;
+      }
+
+      setFormLoading(form, true);
+      setFormStatus(form, "Sending your request...");
+
+      try {
+        const requestData = buildStructuredRequest(form);
+
+        await submitToNetlifyForms(form);
+        const result = await submitToRequestFunction(requestData);
+
+        setFormStatus(
+          form,
+          `Request received. Reference ID: ${result.requestId}`,
+          "success"
+        );
+
+        form.reset();
+        initArtworkPrefill();
+      } catch (error) {
+        setFormStatus(
+          form,
+          error.message || "Something went wrong. Please try again.",
+          "error"
+        );
+      } finally {
+        setFormLoading(form, false);
+      }
+    });
+  });
+}
+
 async function initArtworkPrefill() {
   const artworkInput = document.querySelector('input[name="artwork-title"]');
 
@@ -65,3 +210,4 @@ async function initArtworkPrefill() {
 
 initInquiryRouter();
 initArtworkPrefill();
+initNetlifyRequestBridge();
