@@ -28,25 +28,27 @@
 
       <h1>{{title}}</h1>
 
-      <p class="art-medium">
+      <p class="art-medium artwork-meta">
         {{year}} · {{medium}}
       </p>
 
       <p>
-        {{shortDescription}}
+        {{artworkDescription}}
       </p>
 
-      <p>
+      <p class="artwork-meta">
         <strong>Dimensions:</strong> {{dimensions}}
       </p>
 
-      <p>
-        Part of the <strong>{{collection}}</strong> collection.
-      </p>
-
-      <p class="art-status">
+      <p class="art-status artwork-meta">
         {{status}}
       </p>
+
+      {{#certificateId}}
+      <p class="artwork-meta">
+        <strong>Certificate ID:</strong> {{certificateId}}
+      </p>
+      {{/certificateId}}
 
       <a href="../artwork-inquiry.html?artwork={{slug}}" class="button">Inquire</a>
       <a href="../collection.html" class="back-link">Back to Collection</a>

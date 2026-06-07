@@ -20,10 +20,7 @@ const requiredFields = [
   "collection",
   "image",
   "altText",
-  "shortDescription",
-  "longDescription",
   "priceStatus",
-  "certificateId",
   "seoTitle",
   "seoDescription"
 ];
@@ -48,8 +45,29 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+function isPresent(value) {
+  return String(value ?? "").trim() !== "";
+}
+
+function firstPresent(...values) {
+  return values.find(isPresent) ?? "";
+}
+
+function withTemplateFields(artwork) {
+  return {
+    ...artwork,
+    collectionDescription: firstPresent(artwork.shortDescription, artwork.longDescription),
+    artworkDescription: firstPresent(artwork.longDescription, artwork.shortDescription)
+  };
+}
+
 function renderTemplate(template, artwork) {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+  const withConditionals = template.replace(
+    /\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g,
+    (_, key, content) => (isPresent(artwork[key]) ? content : "")
+  );
+
+  return withConditionals.replace(/\{\{(\w+)\}\}/g, (_, key) => {
     return escapeHtml(artwork[key] ?? "");
   });
 }
@@ -181,7 +199,7 @@ function generateArtworkPages(artworks) {
 
   artworks.forEach((artwork) => {
     const outputPath = path.join(artworksDir, `${artwork.slug}.html`);
-    writeFile(outputPath, renderTemplate(template, artwork));
+    writeFile(outputPath, renderTemplate(template, withTemplateFields(artwork)));
     console.log(`Generated artwork page: web/artworks/${artwork.slug}.html`);
   });
 }
@@ -209,7 +227,7 @@ function removeOldGeneratedArtworkPages() {
 function updateCollectionPage(artworks) {
   const collectionPath = path.join(webDir, "collection.html");
   const template = readFile(path.join(templatesDir, "collection-item-template.html"));
-  const itemsHtml = artworks.map((artwork) => renderTemplate(template, artwork)).join("\n\n");
+  const itemsHtml = artworks.map((artwork) => renderTemplate(template, withTemplateFields(artwork))).join("\n\n");
   const currentHtml = readFile(collectionPath);
   const updatedHtml = replaceGeneratedSection(currentHtml, "ARTWORKS", itemsHtml);
 
@@ -221,7 +239,7 @@ function updateHomePage(artworks) {
   const indexPath = path.join(webDir, "index.html");
   const template = readFile(path.join(templatesDir, "home-artwork-template.html"));
   const featuredArtworks = artworks.filter((artwork) => artwork.featuredOnHome !== false);
-  const itemsHtml = featuredArtworks.map((artwork) => renderTemplate(template, artwork)).join("\n\n");
+  const itemsHtml = featuredArtworks.map((artwork) => renderTemplate(template, withTemplateFields(artwork))).join("\n\n");
   const currentHtml = readFile(indexPath);
   const updatedHtml = replaceGeneratedSection(currentHtml, "HOME_ARTWORKS", itemsHtml);
 
