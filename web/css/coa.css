@@ -86,17 +86,92 @@ h1 {
 }
 
 @media print {
+  @page {
+    size: Letter;
+    margin: 0.5in;
+  }
+
+  html,
   body {
     background: white;
+    margin: 0;
+    padding: 0;
+    width: auto;
+    min-height: 0;
+  }
+
+  * {
+    box-sizing: border-box;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
   .coa {
+    width: auto;
+    max-width: none;
     margin: 0;
+    padding: 0;
     box-shadow: none;
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .coa-logo {
+    width: 1.35in;
+    margin-bottom: 0.22in;
+  }
+
+  h1 {
+    margin: 0 0 0.14in;
+    font-size: 34pt;
+    line-height: 1.1;
+  }
+
+  .intro {
+    max-width: 6.2in;
+    margin: 0 auto 0.34in;
+    font-size: 12pt;
+    line-height: 1.45;
+  }
+
+  .details {
+    padding: 0.2in 0;
+  }
+
+  .row {
+    padding: 0.09in 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .description {
+    margin-top: 0.34in;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .description h2 {
+    margin: 0 0 0.1in;
+  }
+
+  .description p {
+    margin: 0;
+    line-height: 1.45;
+  }
+
+  .signature-area {
+    gap: 0.6in;
+    margin-top: 0.48in;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .signature-line {
+    width: 2.4in;
   }
 }
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
 
   .coa {
     padding: 35px;

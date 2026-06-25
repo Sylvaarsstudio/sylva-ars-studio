@@ -126,10 +126,120 @@ footer {
 }
 
 /* =========================
+   Print Layout
+========================= */
+
+@media print {
+  @page {
+    size: Letter;
+    margin: 0.5in;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    width: auto;
+    min-height: 0;
+    background: white;
+  }
+
+  * {
+    box-sizing: border-box;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .document {
+    width: auto;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .document-header {
+    margin-bottom: 0.32in;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .document-logo {
+    width: 1.35in;
+  }
+
+  .document-header h1 {
+    font-size: 28pt;
+    line-height: 1.15;
+  }
+
+  .document-header p {
+    margin: 0.06in 0 0;
+  }
+
+  .section {
+    margin-bottom: 0.28in;
+  }
+
+  .section h2 {
+    margin: 0 0 0.1in;
+    padding-bottom: 0.06in;
+    font-size: 16pt;
+  }
+
+  .section p {
+    margin: 0 0 0.08in;
+    line-height: 1.45;
+    orphans: 3;
+    widows: 3;
+  }
+
+  .two-columns {
+    gap: 0.45in;
+  }
+
+  th,
+  td {
+    padding: 0.08in 0;
+  }
+
+  tr,
+  .signature-area,
+  footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .signature-area {
+    gap: 0.6in;
+    margin-top: 0.42in;
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .signature-area + .signature-area {
+    margin-top: 0.24in;
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+
+  .signature-line {
+    height: 0.28in;
+    margin-bottom: 0.08in;
+  }
+
+  footer {
+    margin-top: 0.4in;
+  }
+}
+
+/* =========================
    Responsive
 ========================= */
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
 
   .document {
     padding: 30px 20px;
