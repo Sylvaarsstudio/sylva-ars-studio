@@ -57,7 +57,7 @@ function saveArtworkDescriptionOverride(slug, description) {
   }
 }
 
-function getArtworkDescription(artwork = {}) {
+function getAdminArtworkDescription(artwork = {}) {
   const overrides = getArtworkOverrides();
   const savedDescription = artwork.slug ? overrides[artwork.slug]?.artworkDescription : "";
   const mergedArtwork = {
@@ -133,7 +133,7 @@ function loadSelectedArtwork() {
   }
 
   setFormValue("artworkTitle", artwork.title);
-  setFormValue("artworkDescription", getArtworkDescription(artwork));
+  setFormValue("artworkDescription", getAdminArtworkDescription(artwork));
   setFormValue("medium", artwork.medium);
   setFormValue("dimensions", artwork.dimensions);
   setFormValue("year", artwork.year);
@@ -167,16 +167,8 @@ function getFormValues() {
   return values;
 }
 
-function injectValues() {
-  const previewDocument = documentFrame.contentDocument;
-
-  if (!previewDocument) {
-    return;
-  }
-
-  const values = getFormValues();
-
-  previewDocument.querySelectorAll("[data-field]").forEach((element) => {
+function applyValuesToDocument(targetDocument, values = getFormValues()) {
+  targetDocument.querySelectorAll("[data-field]").forEach((element) => {
     const field = element.dataset.field;
     const value = values[field];
 
@@ -187,7 +179,23 @@ function injectValues() {
     element.textContent = value || element.dataset.defaultValue;
   });
 
-  previewDocument.defaultView?.applyDocumentDate?.(previewDocument);
+  targetDocument.defaultView?.applyDocumentDate?.(targetDocument);
+
+  if (!targetDocument.defaultView?.applyDocumentDate) {
+    targetDocument.querySelectorAll("[data-current-date]").forEach((element) => {
+      element.textContent = values.issueDate;
+    });
+  }
+}
+
+function injectValues() {
+  const previewDocument = getPreviewDocument();
+
+  if (!previewDocument) {
+    return;
+  }
+
+  applyValuesToDocument(previewDocument);
 }
 
 function loadSelectedDocument() {
@@ -195,14 +203,33 @@ function loadSelectedDocument() {
   documentFrame.src = `${documentsPath}${template}`;
 }
 
-function getPrintableDocumentHtml() {
-  const previewDocument = documentFrame.contentDocument;
+function getPreviewDocument() {
+  return documentFrame.contentDocument || documentFrame.contentWindow?.document || null;
+}
 
-  if (!previewDocument) {
+async function getPrintableDocumentHtml() {
+  const previewDocument = getPreviewDocument();
+  let clonedDocument = null;
+
+  if (previewDocument?.documentElement) {
+    clonedDocument = previewDocument.documentElement.cloneNode(true);
+  } else {
+    const response = await fetch(documentFrame.src);
+
+    if (!response.ok) {
+      throw new Error(`Unable to load printable document: ${documentFrame.src}`);
+    }
+
+    const templateHtml = await response.text();
+    const parsedDocument = new DOMParser().parseFromString(templateHtml, "text/html");
+    applyValuesToDocument(parsedDocument);
+    clonedDocument = parsedDocument.documentElement;
+  }
+
+  if (!clonedDocument) {
     return "";
   }
 
-  const clonedDocument = previewDocument.documentElement.cloneNode(true);
   const base = clonedDocument.ownerDocument.createElement("base");
   base.href = new URL(documentsPath, window.location.href).href;
 
@@ -215,26 +242,57 @@ function getPrintableDocumentHtml() {
   return `<!DOCTYPE html>\n${clonedDocument.outerHTML}`;
 }
 
-function createPdfFromCurrentDocument() {
-  injectValues();
+function setExportStatus(message, options = {}) {
+  if (!exportStatus) {
+    return;
+  }
 
-  const printableHtml = getPrintableDocumentHtml();
+  if (options.html) {
+    exportStatus.innerHTML = message;
+    return;
+  }
+
+  exportStatus.textContent = message;
+}
+
+async function createPdfFromCurrentDocument() {
+  setExportStatus("Preparing printable document...");
+
+  let printableHtml = "";
+
+  try {
+    injectValues();
+    printableHtml = await getPrintableDocumentHtml();
+  } catch (error) {
+    console.error(error);
+    setExportStatus("The document could not be prepared. Check the preview and try again.");
+    return;
+  }
 
   if (!printableHtml) {
-    exportStatus.textContent = "The document is still loading. Try again in a moment.";
+    setExportStatus("The document is still loading. Try again in a moment.");
     return;
   }
 
   const pdfBlob = new Blob([printableHtml], { type: "text/html" });
   const pdfUrl = URL.createObjectURL(pdfBlob);
-  const pdfWindow = window.open(pdfUrl, "_blank");
+  let pdfWindow = null;
+
+  try {
+    pdfWindow = window.open(pdfUrl, "_blank");
+  } catch (error) {
+    console.error(error);
+  }
 
   if (!pdfWindow) {
-    exportStatus.innerHTML = `Your browser blocked the PDF window. <a href="${pdfUrl}" target="_blank" rel="noopener">Open the printable document</a>, then choose Print and Save as PDF.`;
+    setExportStatus(
+      `Your browser blocked the PDF window. <a href="${pdfUrl}" target="_blank" rel="noopener">Open the printable document</a>, then choose Print and Save as PDF.`,
+      { html: true }
+    );
     return;
   }
 
-  exportStatus.textContent = "Opened the printable document. In the print dialog, choose Save as PDF.";
+  setExportStatus("Opened the printable document. In the print dialog, choose Save as PDF.");
 
   let printStarted = false;
 
@@ -248,10 +306,12 @@ function createPdfFromCurrentDocument() {
     pdfWindow.print();
   };
 
-  pdfWindow.addEventListener("load", printDocument, { once: true });
+  pdfWindow.addEventListener?.("load", printDocument, { once: true });
   window.setTimeout(printDocument, 800);
   window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
 }
+
+window.createPdfFromCurrentDocument = createPdfFromCurrentDocument;
 
 documentFrame.addEventListener("load", injectValues);
 
