@@ -39,6 +39,13 @@ body {
   margin-top: 50px;
 }
 
+.document-intro {
+  max-width: 760px;
+  margin: 50px 0 0;
+  font-size: 18px;
+  line-height: 1.7;
+}
+
 .two-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -106,8 +113,48 @@ footer {
   opacity: 0.7;
 }
 
+.document-authorization {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: end;
+  gap: 80px;
+  margin-top: 80px;
+}
+
+.signature-block,
+.date-block {
+  text-align: center;
+}
+
+.signature-image {
+  display: block;
+  width: 260px;
+  max-height: 108px;
+  margin: -18px auto -12px;
+  object-fit: contain;
+}
+
+.document-date {
+  min-height: 24px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.signature-line {
+  width: 230px;
+  border-bottom: 1px solid #111;
+  margin: 0 auto 10px;
+}
+
+.document-authorization p {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
 .invoice-logo {
-  width: 180px;
+  width: 207px;
   height: auto;
   object-fit: contain;
 }
@@ -151,7 +198,14 @@ footer {
   }
 
   .invoice-logo {
-    width: 1.35in;
+    width: 1.55in;
+  }
+
+  .document-intro {
+    max-width: 6.2in;
+    margin: 0.28in 0 0;
+    font-size: 12pt;
+    line-height: 1.45;
   }
 
   .section {
@@ -177,9 +231,32 @@ footer {
   }
 
   tr,
-  .payment {
+  .payment,
+  .document-authorization {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .document-authorization {
+    gap: 0.6in;
+    margin-top: 0.34in;
+  }
+
+  .signature-image {
+    width: 2.35in;
+    max-height: 0.92in;
+    margin: -0.16in auto -0.1in;
+  }
+
+  .document-date {
+    min-height: 0.22in;
+    margin-bottom: 0.07in;
+    font-size: 10.5pt;
+  }
+
+  .signature-line {
+    width: 2.25in;
+    margin: 0 auto 0.08in;
   }
 
   footer {
@@ -196,7 +273,8 @@ footer {
 
   .invoice-header,
   .two-columns,
-  .payment {
+  .payment,
+  .document-authorization {
     display: block;
   }
 
@@ -204,5 +282,18 @@ footer {
   .amount {
     text-align: left;
     margin-top: 30px;
+  }
+
+  .signature-block,
+  .date-block {
+    margin-bottom: 50px;
+  }
+
+  .signature-image {
+    max-width: 86%;
+  }
+
+  .signature-line {
+    width: 100%;
   }
 }
