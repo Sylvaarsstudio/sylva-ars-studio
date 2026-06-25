@@ -143,6 +143,26 @@ h2 {
   object-fit: contain;
 }
 
+.site-footer {
+  padding: 0 20px 32px;
+  text-align: center;
+}
+
+.studio-access {
+  color: black;
+  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  opacity: 0.3;
+  text-decoration: none;
+  transition: opacity 250ms ease;
+}
+
+.studio-access:hover,
+.studio-access:focus {
+  opacity: 0.6;
+}
+
 /* =========================
    About
 ========================= */

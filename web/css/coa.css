@@ -69,6 +69,7 @@ h1 {
 
 .signature-area {
   display: flex;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 60px;
   margin-top: 100px;
@@ -82,9 +83,9 @@ h1 {
 
 .signature-image {
   display: block;
-  width: 170px;
-  max-height: 70px;
-  margin: 0 auto -6px;
+  width: 260px;
+  max-height: 108px;
+  margin: -18px auto -12px;
   object-fit: contain;
 }
 
@@ -183,15 +184,15 @@ h1 {
 
   .signature-area {
     gap: 0.6in;
-    margin-top: 0.48in;
+    margin-top: 0.34in;
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
   .signature-image {
-    width: 1.55in;
-    max-height: 0.62in;
-    margin-bottom: -0.04in;
+    width: 2.35in;
+    max-height: 0.92in;
+    margin: -0.16in auto -0.1in;
   }
 
   .document-date {
@@ -231,7 +232,7 @@ h1 {
   }
 
   .signature-image {
-    max-width: 70%;
+    max-width: 86%;
   }
 
   .signature-line {
