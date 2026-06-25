@@ -30,7 +30,7 @@ body {
 }
 
 .document-logo {
-  width: 200px;
+  width: 207px;
   height: auto;
 }
 
@@ -43,6 +43,13 @@ body {
 .document-header p {
   margin-top: 10px;
   opacity: 0.7;
+}
+
+.document-intro {
+  max-width: 760px;
+  margin: 0 0 50px;
+  font-size: 18px;
+  line-height: 1.7;
 }
 
 /* =========================
@@ -108,10 +115,51 @@ th {
   margin-top: 80px;
 }
 
+.document-authorization {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: end;
+  gap: 80px;
+  margin-top: 80px;
+}
+
+.signature-block,
+.date-block {
+  text-align: center;
+}
+
+.signature-image {
+  display: block;
+  width: 260px;
+  max-height: 108px;
+  margin: -18px auto -12px;
+  object-fit: contain;
+}
+
+.document-date {
+  min-height: 24px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+}
+
 .signature-line {
   border-bottom: 1px solid black;
   margin-bottom: 10px;
   height: 40px;
+}
+
+.document-authorization .signature-line {
+  width: 230px;
+  height: auto;
+  margin: 0 auto 10px;
+}
+
+.signature-area p,
+.document-authorization p {
+  font-size: 14px;
+  opacity: 0.7;
 }
 
 /* =========================
@@ -167,7 +215,7 @@ footer {
   }
 
   .document-logo {
-    width: 1.35in;
+    width: 1.55in;
   }
 
   .document-header h1 {
@@ -177,6 +225,13 @@ footer {
 
   .document-header p {
     margin: 0.06in 0 0;
+  }
+
+  .document-intro {
+    max-width: 6.2in;
+    margin: 0 0 0.28in;
+    font-size: 12pt;
+    line-height: 1.45;
   }
 
   .section {
@@ -207,6 +262,7 @@ footer {
 
   tr,
   .signature-area,
+  .document-authorization,
   footer {
     break-inside: avoid;
     page-break-inside: avoid;
@@ -219,15 +275,38 @@ footer {
     page-break-after: avoid;
   }
 
+  .document-authorization {
+    gap: 0.6in;
+    margin-top: 0.34in;
+  }
+
   .signature-area + .signature-area {
     margin-top: 0.24in;
     break-before: avoid-page;
     page-break-before: avoid;
   }
 
+  .signature-image {
+    width: 2.35in;
+    max-height: 0.92in;
+    margin: -0.16in auto -0.1in;
+  }
+
+  .document-date {
+    min-height: 0.22in;
+    margin-bottom: 0.07in;
+    font-size: 10.5pt;
+  }
+
   .signature-line {
     height: 0.28in;
     margin-bottom: 0.08in;
+  }
+
+  .document-authorization .signature-line {
+    width: 2.25in;
+    height: auto;
+    margin: 0 auto 0.08in;
   }
 
   footer {
@@ -257,9 +336,18 @@ footer {
   }
 
   .two-columns,
-  .signature-area {
+  .signature-area,
+  .document-authorization {
     grid-template-columns: 1fr;
     gap: 40px;
+  }
+
+  .signature-image {
+    max-width: 86%;
+  }
+
+  .document-authorization .signature-line {
+    width: 100%;
   }
 
   th,

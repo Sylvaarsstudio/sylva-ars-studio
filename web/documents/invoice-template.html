@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invoice | Sylva Ars Studio</title>
   <link rel="stylesheet" href="../css/invoice.css">
+  <script src="../js/document-utils.js" defer></script>
 </head>
 
 <body>
@@ -20,10 +21,14 @@
 
       <div class="invoice-meta">
         <p><strong>Invoice No:</strong> <span data-field="invoiceId">SSA-0001</span></p>
-        <p><strong>Date:</strong> <span data-field="issueDate">Month Day, Year</span></p>
+        <p><strong>Date:</strong> <span data-field="issueDate" data-current-date>Month Day, Year</span></p>
         <p><strong>Status:</strong> Balance Due</p>
       </div>
     </header>
+
+    <p class="document-intro">
+      This document summarizes the artwork, client information, payment details, and studio authorization for this transaction.
+    </p>
 
     <section class="section two-columns">
 
@@ -85,9 +90,30 @@
     </section>
 
     <section class="section">
+      <h2>Description</h2>
+      <p data-field="artworkDescription">
+        Original artwork created by Sylva Ars Studio. This piece forms part of the studio’s exploration of memory, migration, emotional transition, and visual storytelling.
+      </p>
+    </section>
+
+    <section class="section">
       <h2>Terms</h2>
       <p>All sales are final.</p>
       <p>Copyright remains with the artist unless otherwise agreed in writing.</p>
+    </section>
+
+    <section class="document-authorization">
+      <div class="signature-block">
+        <img src="../images/signature.png" alt="Authorized Signature" class="signature-image">
+        <div class="signature-line"></div>
+        <p>Authorized Signature</p>
+      </div>
+
+      <div class="date-block">
+        <div class="document-date" data-current-date></div>
+        <div class="signature-line"></div>
+        <p>Date of Issue</p>
+      </div>
     </section>
 
     <footer>

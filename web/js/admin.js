@@ -179,9 +179,10 @@ function applyValuesToDocument(targetDocument, values = getFormValues()) {
     element.textContent = value || element.dataset.defaultValue;
   });
 
-  targetDocument.defaultView?.applyDocumentDate?.(targetDocument);
+  const applyDate = targetDocument.defaultView?.applyDocumentDate || window.applyDocumentDate;
+  applyDate?.(targetDocument);
 
-  if (!targetDocument.defaultView?.applyDocumentDate) {
+  if (!applyDate) {
     targetDocument.querySelectorAll("[data-current-date]").forEach((element) => {
       element.textContent = values.issueDate;
     });
