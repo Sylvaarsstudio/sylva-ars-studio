@@ -46,11 +46,13 @@ function getFormValues() {
     values[field] = input ? input.value.trim() : "";
   });
 
-  values.issueDate = new Date().toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric"
-  });
+  values.issueDate = window.formatDocumentDate
+    ? window.formatDocumentDate()
+    : new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric"
+    });
 
   values.amount = formatMoney(values.amount);
   values.depositAmount = formatMoney(values.depositAmount);
@@ -77,6 +79,8 @@ function injectValues() {
 
     element.textContent = value || element.dataset.defaultValue;
   });
+
+  previewDocument.defaultView?.applyDocumentDate?.(previewDocument);
 }
 
 function loadSelectedDocument() {
