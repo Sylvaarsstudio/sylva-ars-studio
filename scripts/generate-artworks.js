@@ -72,6 +72,10 @@ function renderTemplate(template, artwork) {
   });
 }
 
+function escapeScriptJson(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 function parseMarkdownArtwork(filePath) {
   const file = readFile(filePath);
   const frontmatterMatch = file.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -237,9 +241,14 @@ function updateCollectionPage(artworks) {
 
 function updateHomePage(artworks) {
   const indexPath = path.join(webDir, "index.html");
-  const template = readFile(path.join(templatesDir, "home-artwork-template.html"));
   const featuredArtworks = artworks.filter((artwork) => artwork.featuredOnHome !== false);
-  const itemsHtml = featuredArtworks.map((artwork) => renderTemplate(template, withTemplateFields(artwork))).join("\n\n");
+  const showcaseArtworks = featuredArtworks.map((artwork) => ({
+    slug: artwork.slug,
+    title: artwork.title,
+    image: artwork.image,
+    altText: artwork.altText
+  }));
+  const itemsHtml = `    <script type="application/json" id="home-artworks-data">${escapeScriptJson(showcaseArtworks)}</script>`;
   const currentHtml = readFile(indexPath);
   const updatedHtml = replaceGeneratedSection(currentHtml, "HOME_ARTWORKS", itemsHtml);
 
