@@ -81,14 +81,6 @@ h1 {
   text-align: center;
 }
 
-.signature-image {
-  display: block;
-  width: 260px;
-  max-height: 108px;
-  margin: -18px auto -12px;
-  object-fit: contain;
-}
-
 .document-date {
   min-height: 24px;
   margin-bottom: 8px;
@@ -189,12 +181,6 @@ h1 {
     page-break-inside: avoid;
   }
 
-  .signature-image {
-    width: 2.35in;
-    max-height: 0.92in;
-    margin: -0.16in auto -0.1in;
-  }
-
   .document-date {
     min-height: 0.22in;
     margin-bottom: 0.07in;
@@ -229,10 +215,6 @@ h1 {
 
   .signature-area > div {
     margin-bottom: 50px;
-  }
-
-  .signature-image {
-    max-width: 86%;
   }
 
   .signature-line {
