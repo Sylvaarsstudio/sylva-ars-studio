@@ -151,6 +151,7 @@ body {
 .admin-form input,
 .admin-form select,
 .admin-form textarea {
+  box-sizing: border-box;
   width: 100%;
   margin-top: 10px;
   padding: 14px;
@@ -182,6 +183,7 @@ body {
 
 .payment-editor-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -198,24 +200,35 @@ body {
 }
 
 .payment-entry {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
 }
 
 .payment-entry-title {
-  margin: 0 0 14px;
+  margin: 0 0 20px;
   font-size: 14px;
 }
 
 .payment-entry label {
-  margin-bottom: 16px;
+  min-width: 0;
+  margin: 0;
 }
 
 .payment-entry-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 20px;
+  row-gap: 20px;
+}
+
+.payment-entry-grid input {
+  min-height: 48px;
+  margin-top: 9px;
+}
+
+.remove-payment {
+  margin-top: 20px;
 }
 
 .invoice-calculation-summary {
@@ -331,7 +344,24 @@ body {
     grid-template-columns: 1fr;
   }
 
+}
+
+@media (max-width: 560px) {
+  .admin-form {
+    padding: 26px 20px;
+  }
+
+  .invoice-fields,
+  .payment-entry {
+    padding: 18px;
+  }
+
   .payment-entry-grid {
     grid-template-columns: 1fr;
+  }
+
+  .payment-editor-header .add-payment,
+  .remove-payment {
+    width: 100%;
   }
 }

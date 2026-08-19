@@ -36,9 +36,16 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
       collaborations, or commissions:
     </p>
 
-    <a href="mailto:contact@sylvaarsstudio.com" class="email-link">
-      contact@sylvaarsstudio.com
+    <a href="mailto:contact@sylvaarsstudio.com" class="email-link" data-business-field="email">
     </a>
+
+    <address class="business-contact">
+      <strong data-business-field="name"></strong>
+      <span data-business-field="addressLine1"></span>
+      <span data-business-field="addressLine2"></span>
+      <a data-business-field="phone"></a>
+      <a data-business-field="website"></a>
+    </address>
 
     <div class="inquiry-selector">
       <label>
@@ -95,6 +102,7 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
 
   </section>
 
+<script src="js/business-info.js"></script>
 <script src="js/inquiry-forms.js"></script>
 </body>
 </html>

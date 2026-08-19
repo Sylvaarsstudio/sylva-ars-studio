@@ -106,6 +106,52 @@ function getPayments() {
     .filter((payment) => window.InvoiceUtils.toCents(payment.amount) > 0);
 }
 
+function applyAutomaticPaymentNotes(totals) {
+  if (!paymentList || !window.InvoiceUtils) {
+    return;
+  }
+
+  let cumulativePaymentsCents = 0;
+
+  paymentList.querySelectorAll(".payment-entry").forEach((entry, index) => {
+    const amountInput = entry.querySelector('[data-payment-field="amount"]');
+    const noteInput = entry.querySelector('[data-payment-field="note"]');
+    const paymentAmountCents = window.InvoiceUtils.toCents(amountInput?.value);
+    const previousCumulativeCents = cumulativePaymentsCents;
+    cumulativePaymentsCents += paymentAmountCents;
+
+    let automaticNote = "";
+
+    if (
+      index === 0 &&
+      totals.artworkPriceCents > 0 &&
+      paymentAmountCents * 2 === totals.artworkPriceCents
+    ) {
+      automaticNote = "50% Deposit";
+    } else if (
+      paymentAmountCents > 0 &&
+      totals.amountDueCents > 0 &&
+      previousCumulativeCents < totals.amountDueCents &&
+      cumulativePaymentsCents >= totals.amountDueCents
+    ) {
+      automaticNote = "Final Payment";
+    }
+
+    if (!noteInput) {
+      return;
+    }
+
+    const previousAutomaticNote = noteInput.dataset.automaticPaymentNote || "";
+    const currentNote = noteInput.value.trim();
+    const canUpdateAutomatically = !currentNote || currentNote === previousAutomaticNote;
+
+    if (canUpdateAutomatically) {
+      noteInput.value = automaticNote;
+      noteInput.dataset.automaticPaymentNote = automaticNote;
+    }
+  });
+}
+
 function updateInvoiceFieldsVisibility() {
   const isInvoice = documentSelect?.value === "invoice-template.html";
 
@@ -275,6 +321,8 @@ function getFormValues() {
   values.artworkDescription = window.getArtworkDescription
     ? window.getArtworkDescription({ artworkDescription: values.artworkDescription })
     : values.artworkDescription;
+  const selectedArtwork = artworks.find((artwork) => artwork.slug === values.artworkSlug);
+  values.invoiceDescription = selectedArtwork?.shortDescription?.trim() || values.artworkDescription;
 
   if (window.InvoiceUtils) {
     values.payments = getPayments();
@@ -283,6 +331,9 @@ function getFormValues() {
       salesTaxRate: values.salesTaxRate,
       payments: values.payments
     });
+
+    applyAutomaticPaymentNotes(totals);
+    values.payments = getPayments();
 
     values.artworkPrice = window.InvoiceUtils.formatCents(totals.artworkPriceCents);
     values.salesTaxLabel = `PA Sales Tax (${window.InvoiceUtils.formatTaxRate(totals.salesTaxRate)}%)`;
@@ -349,6 +400,30 @@ function applyValuesToDocument(targetDocument, values = getFormValues()) {
   });
 
   renderPaymentHistory(targetDocument, values.payments);
+
+  const clientFields = ["clientName", "clientEmail", "clientPhone", "clientAddress"];
+  const hasClientInformation = clientFields.some((field) => Boolean(values[field]));
+
+  clientFields.forEach((field) => {
+    const row = targetDocument.querySelector(`[data-client-row="${field}"]`);
+
+    if (row) {
+      row.hidden = !values[field];
+    }
+  });
+
+  const clientSection = targetDocument.querySelector("[data-client-section]");
+  const partiesSection = targetDocument.querySelector("[data-parties-section]");
+
+  if (clientSection) {
+    clientSection.hidden = !hasClientInformation;
+  }
+
+  partiesSection?.classList.toggle("client-hidden", !hasClientInformation);
+
+  const applyBusinessInformation =
+    targetDocument.defaultView?.SylvaArsBusiness?.apply || window.SylvaArsBusiness?.apply;
+  applyBusinessInformation?.(targetDocument);
 
   const voluntaryRow = targetDocument.querySelector("[data-voluntary-row]");
 
