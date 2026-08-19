@@ -165,6 +165,104 @@ body {
   resize: vertical;
 }
 
+.invoice-fields {
+  margin: 0 0 30px;
+  padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.invoice-fields legend,
+.payment-editor h2,
+.invoice-calculation-summary h2 {
+  font-size: 16px;
+  font-weight: normal;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.payment-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.payment-editor-header h2 {
+  margin: 0;
+}
+
+.add-payment,
+.remove-payment {
+  padding: 10px 14px;
+}
+
+.payment-entry {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.payment-entry-title {
+  margin: 0 0 14px;
+  font-size: 14px;
+}
+
+.payment-entry label {
+  margin-bottom: 16px;
+}
+
+.payment-entry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+
+.invoice-calculation-summary {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.invoice-calculation-summary h2 {
+  margin: 0 0 12px;
+}
+
+.invoice-calculation-summary dl {
+  margin: 0;
+}
+
+.invoice-calculation-summary dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.invoice-calculation-summary dt,
+.invoice-calculation-summary dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.invoice-calculation-summary dd {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.invoice-calculation-summary .calculated-status {
+  font-weight: bold;
+}
+
+.invoice-fields[hidden] {
+  display: none;
+}
+
+.admin-form [hidden] {
+  display: none;
+}
+
 .admin-actions {
   display: flex;
   flex-wrap: wrap;
@@ -230,6 +328,10 @@ body {
   }
 
   .document-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-entry-grid {
     grid-template-columns: 1fr;
   }
 }

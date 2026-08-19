@@ -105,6 +105,51 @@ td {
   margin: 10px 0 0;
 }
 
+.summary-table th {
+  width: auto;
+}
+
+.summary-table td {
+  width: 35%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.amount-due-row th,
+.amount-due-row td,
+.status-row th,
+.status-row td {
+  font-weight: bold;
+  opacity: 1;
+}
+
+.payment-history-table {
+  font-size: 14px;
+}
+
+.payment-history-table th,
+.payment-history-table td {
+  width: auto;
+  padding-right: 14px;
+  vertical-align: top;
+}
+
+.payment-history-table th:nth-child(3),
+.payment-history-table td:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.payment-history-table th:last-child,
+.payment-history-table td:last-child {
+  padding-right: 0;
+}
+
+.empty-payment-history {
+  text-align: center;
+  opacity: 0.65;
+}
+
 footer {
   margin-top: 80px;
   border-top: 1px solid #ddd;
@@ -224,6 +269,9 @@ footer {
 
   tr,
   .payment,
+  .financial-summary,
+  .payment-history,
+  .payment-totals,
   .document-authorization {
     break-inside: avoid;
     page-break-inside: avoid;
