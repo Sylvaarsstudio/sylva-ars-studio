@@ -263,6 +263,10 @@ function populateArtworkOptions() {
   });
 }
 
+function getSelectedArtwork(slug = artworkSelect?.value) {
+  return artworks.find((artwork) => artwork.slug === slug);
+}
+
 async function loadArtworks() {
   if (!artworkSelect) {
     return;
@@ -284,10 +288,24 @@ async function loadArtworks() {
 
 function loadSelectedArtwork() {
   const slug = artworkSelect?.value;
-  const artwork = artworks.find((item) => item.slug === slug);
+  const artwork = getSelectedArtwork(slug);
+  const yearInput = form.elements.year;
 
   if (!artwork) {
+    if (yearInput) {
+      if (yearInput.readOnly) {
+        yearInput.value = "";
+      }
+
+      yearInput.readOnly = false;
+    }
+
+    injectValues();
     return;
+  }
+
+  if (yearInput) {
+    yearInput.readOnly = true;
   }
 
   setFormValue("artworkTitle", artwork.title);
@@ -321,7 +339,12 @@ function getFormValues() {
   values.artworkDescription = window.getArtworkDescription
     ? window.getArtworkDescription({ artworkDescription: values.artworkDescription })
     : values.artworkDescription;
-  const selectedArtwork = artworks.find((artwork) => artwork.slug === values.artworkSlug);
+  const selectedArtwork = getSelectedArtwork(values.artworkSlug);
+
+  if (selectedArtwork) {
+    values.year = String(selectedArtwork.year ?? "").trim();
+  }
+
   values.invoiceDescription = selectedArtwork?.shortDescription?.trim() || values.artworkDescription;
 
   if (window.InvoiceUtils) {
@@ -392,7 +415,7 @@ function applyValuesToDocument(targetDocument, values = getFormValues()) {
     const field = element.dataset.field;
     const value = values[field];
 
-    if (!element.dataset.defaultValue) {
+    if (!("defaultValue" in element.dataset)) {
       element.dataset.defaultValue = element.textContent;
     }
 
