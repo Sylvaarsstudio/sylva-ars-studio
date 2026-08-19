@@ -21,8 +21,8 @@
 
       <div class="invoice-meta">
         <p><strong>Invoice No:</strong> <span data-field="invoiceId">SSA-0001</span></p>
-        <p><strong>Date:</strong> <span data-field="issueDate" data-current-date>Month Day, Year</span></p>
-        <p><strong>Status:</strong> Balance Due</p>
+        <p><strong>Date Issued:</strong> <span data-field="issueDate" data-current-date>Month Day, Year</span></p>
+        <p><strong>Status:</strong> <span data-field="status">UNPAID</span></p>
       </div>
     </header>
 
@@ -71,22 +71,73 @@
           <td data-field="year">2025</td>
         </tr>
         <tr>
-          <th>Description</th>
+          <th>Notes</th>
           <td data-field="notes">Original painting created by Sylva Ars Studio.</td>
         </tr>
       </table>
     </section>
 
-    <section class="section payment">
-      <div>
-        <h2>Payment</h2>
-        <p><strong>Payment Status:</strong> Balance Due</p>
-      </div>
+    <section class="section financial-summary">
+      <h2>Financial Summary</h2>
 
-      <div class="amount">
-        <p>Amount Due</p>
-        <h3 data-field="amount">$0.00</h3>
-      </div>
+      <table class="summary-table">
+        <tr>
+          <th>Artwork Price</th>
+          <td data-field="artworkPrice">$0.00</td>
+        </tr>
+        <tr>
+          <th data-field="salesTaxLabel">PA Sales Tax (0%)</th>
+          <td data-field="salesTaxAmount">$0.00</td>
+        </tr>
+        <tr class="amount-due-row">
+          <th>Amount Due</th>
+          <td data-field="amountDue">$0.00</td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="section payment-history">
+      <h2>Payment History</h2>
+
+      <table class="payment-history-table">
+        <thead>
+          <tr>
+            <th>Payment</th>
+            <th>Date</th>
+            <th>Amount</th>
+            <th>Method</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody id="payment-history-body">
+          <tr>
+            <td colspan="5" class="empty-payment-history">No payments received.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section payment-totals">
+      <h2>Payment Summary</h2>
+
+      <table class="summary-table">
+        <tr>
+          <th>Total Amount Received</th>
+          <td data-field="totalReceived">$0.00</td>
+        </tr>
+        <tr data-voluntary-row hidden>
+          <th>Voluntary Additional Payment</th>
+          <td data-field="voluntaryAdditionalPayment">$0.00</td>
+        </tr>
+        <tr>
+          <th>Balance Due</th>
+          <td data-field="balanceDue">$0.00</td>
+        </tr>
+        <tr class="status-row">
+          <th>Status</th>
+          <td data-field="status">UNPAID</td>
+        </tr>
+      </table>
     </section>
 
     <section class="section">

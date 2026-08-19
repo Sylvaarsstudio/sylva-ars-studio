@@ -5,6 +5,9 @@ const documentFrame = document.querySelector("#document-frame");
 const loadButton = document.querySelector("#load-document");
 const printButton = document.querySelector("#print-document");
 const exportStatus = document.querySelector("#export-status");
+const invoiceFields = document.querySelector("#invoice-fields");
+const paymentList = document.querySelector("#payment-list");
+const addPaymentButton = document.querySelector("#add-payment");
 
 const documentsPath = "../documents/";
 const artworksPath = "../data/artworks.json";
@@ -22,6 +25,8 @@ const fields = [
   "dimensions",
   "year",
   "invoiceId",
+  "artworkPrice",
+  "salesTaxRate",
   "certificateId",
   "amount",
   "depositAmount",
@@ -30,6 +35,113 @@ const fields = [
 ];
 
 let artworks = [];
+
+function createPaymentEntry(payment = {}) {
+  const entry = document.createElement("section");
+  entry.className = "payment-entry";
+
+  entry.innerHTML = `
+    <p class="payment-entry-title"></p>
+    <div class="payment-entry-grid">
+      <label>
+        Payment Date
+        <input type="date" data-payment-field="date">
+      </label>
+      <label>
+        Payment Amount
+        <input type="number" min="0" step="0.01" placeholder="0.00" data-payment-field="amount">
+      </label>
+      <label>
+        Payment Method
+        <input type="text" placeholder="Cash, card, check, transfer…" data-payment-field="method">
+      </label>
+      <label>
+        Optional Note
+        <input type="text" data-payment-field="note">
+      </label>
+    </div>
+    <button type="button" class="admin-button remove-payment">Remove Payment</button>
+  `;
+
+  Object.entries(payment).forEach(([field, value]) => {
+    const input = entry.querySelector(`[data-payment-field="${field}"]`);
+
+    if (input) {
+      input.value = value;
+    }
+  });
+
+  entry.querySelector(".remove-payment")?.addEventListener("click", () => {
+    entry.remove();
+    renumberPaymentEntries();
+    injectValues();
+  });
+
+  paymentList?.append(entry);
+  renumberPaymentEntries();
+}
+
+function renumberPaymentEntries() {
+  paymentList?.querySelectorAll(".payment-entry").forEach((entry, index) => {
+    const title = entry.querySelector(".payment-entry-title");
+
+    if (title) {
+      title.textContent = `Payment ${index + 1}`;
+    }
+  });
+}
+
+function getPayments() {
+  if (!paymentList || !window.InvoiceUtils) {
+    return [];
+  }
+
+  return Array.from(paymentList.querySelectorAll(".payment-entry"))
+    .map((entry) => ({
+      date: entry.querySelector('[data-payment-field="date"]')?.value || "",
+      amount: entry.querySelector('[data-payment-field="amount"]')?.value || "",
+      method: entry.querySelector('[data-payment-field="method"]')?.value.trim() || "",
+      note: entry.querySelector('[data-payment-field="note"]')?.value.trim() || ""
+    }))
+    .filter((payment) => window.InvoiceUtils.toCents(payment.amount) > 0);
+}
+
+function updateInvoiceFieldsVisibility() {
+  const isInvoice = documentSelect?.value === "invoice-template.html";
+
+  if (invoiceFields) {
+    invoiceFields.hidden = !isInvoice;
+  }
+
+  document.querySelectorAll(".legacy-financial-field").forEach((field) => {
+    field.hidden = isInvoice;
+  });
+}
+
+function updateAdminCalculationSummary(values, totals) {
+  const outputValues = {
+    salesTaxAmount: values.salesTaxAmount,
+    amountDue: values.amountDue,
+    totalReceived: values.totalReceived,
+    voluntaryAdditionalPayment: values.voluntaryAdditionalPayment,
+    balanceDue: values.balanceDue,
+    status: values.status
+  };
+
+  Object.entries(outputValues).forEach(([field, value]) => {
+    const output = form.querySelector(`[data-calculated-output="${field}"]`);
+
+    if (output) {
+      output.textContent = value;
+    }
+  });
+
+  const voluntaryRow = form.querySelector("[data-admin-voluntary-row]");
+
+  if (voluntaryRow) {
+    voluntaryRow.hidden = totals.voluntaryAdditionalPaymentCents <= 0;
+  }
+}
 
 function getArtworkOverrides() {
   try {
@@ -164,7 +276,64 @@ function getFormValues() {
     ? window.getArtworkDescription({ artworkDescription: values.artworkDescription })
     : values.artworkDescription;
 
+  if (window.InvoiceUtils) {
+    values.payments = getPayments();
+    const totals = window.InvoiceUtils.calculateInvoiceTotals({
+      artworkPrice: values.artworkPrice,
+      salesTaxRate: values.salesTaxRate,
+      payments: values.payments
+    });
+
+    values.artworkPrice = window.InvoiceUtils.formatCents(totals.artworkPriceCents);
+    values.salesTaxLabel = `PA Sales Tax (${window.InvoiceUtils.formatTaxRate(totals.salesTaxRate)}%)`;
+    values.salesTaxAmount = window.InvoiceUtils.formatCents(totals.salesTaxCents);
+    values.amountDue = window.InvoiceUtils.formatCents(totals.amountDueCents);
+    values.totalReceived = window.InvoiceUtils.formatCents(totals.totalReceivedCents);
+    values.voluntaryAdditionalPayment = window.InvoiceUtils.formatCents(
+      totals.voluntaryAdditionalPaymentCents
+    );
+    values.hasVoluntaryAdditionalPayment = totals.voluntaryAdditionalPaymentCents > 0;
+    values.balanceDue = window.InvoiceUtils.formatCents(totals.balanceDueCents);
+    values.status = totals.status;
+    updateAdminCalculationSummary(values, totals);
+  }
+
   return values;
+}
+
+function renderPaymentHistory(targetDocument, payments = []) {
+  const paymentBody = targetDocument.querySelector("#payment-history-body");
+
+  if (!paymentBody) {
+    return;
+  }
+
+  paymentBody.replaceChildren();
+
+  if (!payments.length) {
+    const row = paymentBody.insertRow();
+    const cell = row.insertCell();
+    cell.colSpan = 5;
+    cell.className = "empty-payment-history";
+    cell.textContent = "No payments received.";
+    return;
+  }
+
+  payments.forEach((payment, index) => {
+    const row = paymentBody.insertRow();
+    const values = [
+      `Payment ${index + 1}`,
+      payment.date || "—",
+      window.InvoiceUtils.formatCents(window.InvoiceUtils.toCents(payment.amount)),
+      payment.method || "—",
+      payment.note || "—"
+    ];
+
+    values.forEach((value) => {
+      const cell = row.insertCell();
+      cell.textContent = value;
+    });
+  });
 }
 
 function applyValuesToDocument(targetDocument, values = getFormValues()) {
@@ -178,6 +347,14 @@ function applyValuesToDocument(targetDocument, values = getFormValues()) {
 
     element.textContent = value || element.dataset.defaultValue;
   });
+
+  renderPaymentHistory(targetDocument, values.payments);
+
+  const voluntaryRow = targetDocument.querySelector("[data-voluntary-row]");
+
+  if (voluntaryRow) {
+    voluntaryRow.hidden = !values.hasVoluntaryAdditionalPayment;
+  }
 
   const applyDate = targetDocument.defaultView?.applyDocumentDate || window.applyDocumentDate;
   applyDate?.(targetDocument);
@@ -201,6 +378,7 @@ function injectValues() {
 
 function loadSelectedDocument() {
   const template = documentSelect.value;
+  updateInvoiceFieldsVisibility();
   documentFrame.src = `${documentsPath}${template}`;
 }
 
@@ -314,6 +492,10 @@ async function createPdfFromCurrentDocument() {
 
 window.createPdfFromCurrentDocument = createPdfFromCurrentDocument;
 
+addPaymentButton?.addEventListener("click", () => {
+  createPaymentEntry();
+});
+
 documentFrame.addEventListener("load", injectValues);
 
 form.addEventListener("input", injectValues);
@@ -336,3 +518,5 @@ printButton.addEventListener("click", () => {
 });
 
 loadArtworks();
+createPaymentEntry();
+updateInvoiceFieldsVisibility();

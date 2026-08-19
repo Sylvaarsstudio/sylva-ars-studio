@@ -92,17 +92,70 @@
           <input type="text" name="invoiceId" placeholder="SSA-0001">
         </label>
 
+        <fieldset class="invoice-fields" id="invoice-fields">
+          <legend>Invoice Financials</legend>
+
+          <label>
+            Artwork Price
+            <input type="number" name="artworkPrice" min="0" step="0.01" placeholder="0.00">
+          </label>
+
+          <label>
+            Sales Tax Rate (%)
+            <input type="number" name="salesTaxRate" min="0" step="0.0001" value="6">
+          </label>
+
+          <div class="payment-editor">
+            <div class="payment-editor-header">
+              <h2>Payment History</h2>
+              <button type="button" class="admin-button add-payment" id="add-payment">Add Payment</button>
+            </div>
+
+            <div id="payment-list"></div>
+          </div>
+
+          <section class="invoice-calculation-summary" aria-live="polite">
+            <h2>Calculated Totals</h2>
+            <dl>
+              <div>
+                <dt>Sales Tax</dt>
+                <dd data-calculated-output="salesTaxAmount">$0.00</dd>
+              </div>
+              <div>
+                <dt>Amount Due</dt>
+                <dd data-calculated-output="amountDue">$0.00</dd>
+              </div>
+              <div>
+                <dt>Total Amount Received</dt>
+                <dd data-calculated-output="totalReceived">$0.00</dd>
+              </div>
+              <div data-admin-voluntary-row hidden>
+                <dt>Voluntary Additional Payment</dt>
+                <dd data-calculated-output="voluntaryAdditionalPayment">$0.00</dd>
+              </div>
+              <div>
+                <dt>Balance Due</dt>
+                <dd data-calculated-output="balanceDue">$0.00</dd>
+              </div>
+              <div class="calculated-status">
+                <dt>Status</dt>
+                <dd data-calculated-output="status">UNPAID</dd>
+              </div>
+            </dl>
+          </section>
+        </fieldset>
+
         <label>
           Certificate ID
           <input type="text" name="certificateId" placeholder="SSA-COA-0001">
         </label>
 
-        <label>
+        <label class="legacy-financial-field">
           Amount
           <input type="text" name="amount" placeholder="$0.00">
         </label>
 
-        <label>
+        <label class="legacy-financial-field">
           Deposit Amount
           <input type="text" name="depositAmount" placeholder="$0.00">
         </label>
@@ -147,6 +200,7 @@
 
   </main>
 <script src="../js/document-utils.js?v=20260625"></script>
-<script src="../js/admin.js?v=20260625e"></script>
+<script src="../js/invoice-utils.js?v=20260818"></script>
+<script src="../js/admin.js?v=20260818"></script>
 </body>
 </html>
