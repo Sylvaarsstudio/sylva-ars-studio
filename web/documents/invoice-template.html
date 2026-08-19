@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invoice | Sylva Ars Studio</title>
   <link rel="stylesheet" href="../css/invoice.css">
+  <script src="../js/business-info.js" defer></script>
   <script src="../js/document-utils.js" defer></script>
 </head>
 
@@ -30,22 +31,26 @@
       This document summarizes the artwork, client information, payment details, and studio authorization for this transaction.
     </p>
 
-    <section class="section two-columns">
+    <section class="section two-columns" data-parties-section>
 
-      <div>
+      <div class="studio-contact">
         <h2>Studio</h2>
-        <p>Sylva Ars Studio</p>
-        <p>[Business Address]</p>
-        <p>contact@sylvaarsstudio.com</p>
-        <p>sylvaarsstudio.com</p>
+        <p data-business-field="name"></p>
+        <p class="business-address">
+          <span data-business-field="addressLine1"></span><br>
+          <span data-business-field="addressLine2"></span>
+        </p>
+        <p><a data-business-field="phone"></a></p>
+        <p><a data-business-field="email"></a></p>
+        <p><a data-business-field="website"></a></p>
       </div>
 
-      <div>
+      <div data-client-section>
         <h2>Client</h2>
-        <p><strong>Name:</strong> <span data-field="clientName">[Client Name]</span></p>
-        <p><strong>Email:</strong> <span data-field="clientEmail">[Client Email]</span></p>
-        <p><strong>Phone:</strong> <span data-field="clientPhone">[Client Phone]</span></p>
-        <p><strong>Address:</strong> <span data-field="clientAddress">[Client Address]</span></p>
+        <p data-client-row="clientName"><strong>Name:</strong> <span data-field="clientName"></span></p>
+        <p data-client-row="clientEmail"><strong>Email:</strong> <span data-field="clientEmail"></span></p>
+        <p data-client-row="clientPhone"><strong>Phone:</strong> <span data-field="clientPhone"></span></p>
+        <p data-client-row="clientAddress"><strong>Address:</strong> <span data-field="clientAddress"></span></p>
       </div>
 
     </section>
@@ -142,8 +147,8 @@
 
     <section class="section">
       <h2>Description</h2>
-      <p data-field="artworkDescription">
-        Original artwork created by Sylva Ars Studio. This piece forms part of the studio’s exploration of memory, migration, emotional transition, and visual storytelling.
+      <p data-field="invoiceDescription">
+        Original artwork created by Sylva Ars Studio.
       </p>
     </section>
 
