@@ -6,11 +6,30 @@ body {
 }
 
 .coa {
+  --coa-line-color: #8a834f;
   max-width: 900px;
   margin: 60px auto;
   padding: 80px;
+  position: relative;
   background: white;
   text-align: center;
+}
+
+.coa::before,
+.coa::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.coa::before {
+  inset: 18px;
+  border: 2px solid var(--coa-line-color);
+}
+
+.coa::after {
+  inset: 26px;
+  border: 1px solid var(--coa-line-color);
 }
 
 .coa-logo {
@@ -33,7 +52,7 @@ h1 {
 }
 
 .details {
-  border-top: 1px solid #ddd;
+  border-top: 1px solid var(--coa-line-color);
   border-bottom: 1px solid #ddd;
   padding: 40px 0;
 }
@@ -59,8 +78,18 @@ h1 {
 }
 
 .description h2 {
+  display: flex;
+  align-items: center;
+  gap: 22px;
   font-weight: normal;
   margin-bottom: 20px;
+}
+
+.description h2::before,
+.description h2::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--coa-line-color);
 }
 
 .description p {
@@ -103,7 +132,7 @@ h1 {
 @media print {
   @page {
     size: Letter;
-    margin: 0.5in;
+    margin: 0.3in;
   }
 
   html,
@@ -124,11 +153,22 @@ h1 {
   .coa {
     width: auto;
     max-width: none;
+    min-height: 10.4in;
     margin: 0;
-    padding: 0;
+    padding: 0.2in;
     box-shadow: none;
     page-break-after: auto;
     break-after: auto;
+  }
+
+  .coa::before {
+    inset: 0;
+    border-width: 0.75pt;
+  }
+
+  .coa::after {
+    inset: 0.07in;
+    border-width: 0.5pt;
   }
 
   .coa-logo {
@@ -167,6 +207,7 @@ h1 {
 
   .description h2 {
     margin: 0 0 0.1in;
+    gap: 0.18in;
   }
 
   .description p {
