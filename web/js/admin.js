@@ -573,12 +573,42 @@ async function createPdfFromCurrentDocument() {
 
   let printStarted = false;
 
-  const printDocument = () => {
+  const printDocument = async () => {
     if (printStarted) {
       return;
     }
 
     printStarted = true;
+
+    try {
+      if (pdfWindow.document.fonts?.ready) {
+        await pdfWindow.document.fonts.ready;
+      }
+
+      await Promise.all(
+        Array.from(pdfWindow.document.images).map((image) => {
+          if (image.complete) {
+            return image.decode
+              ? image.decode().catch(() => {})
+              : Promise.resolve();
+          }
+
+          return new Promise((resolve) => {
+            image.addEventListener("load", resolve, { once: true });
+            image.addEventListener("error", resolve, { once: true });
+          });
+        })
+      );
+
+      await new Promise((resolve) => {
+        pdfWindow.requestAnimationFrame(() => {
+          pdfWindow.requestAnimationFrame(resolve);
+        });
+      });
+    } catch (error) {
+      console.warn(error);
+    }
+
     pdfWindow.focus();
     pdfWindow.print();
   };

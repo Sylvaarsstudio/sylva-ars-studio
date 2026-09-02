@@ -141,95 +141,49 @@ h1 {
     margin: 0;
     padding: 0;
     width: auto;
-    min-height: 0;
+    min-height: 10.4in;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
   }
 
   * {
-    box-sizing: border-box;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 
   .coa {
-    width: auto;
+    width: 900px;
     max-width: none;
-    min-height: 10.4in;
     margin: 0;
-    padding: 0.2in;
+    padding: 80px;
     box-shadow: none;
+    box-sizing: content-box;
+    /* 7.9in printable width at 96px/in divided by the 1060px Preview width. */
+    zoom: 0.7154716981;
     page-break-after: auto;
     break-after: auto;
-  }
-
-  .coa::before {
-    inset: 0;
-    border-width: 0.75pt;
-  }
-
-  .coa::after {
-    inset: 0.07in;
-    border-width: 0.5pt;
-  }
-
-  .coa-logo {
-    width: 1.55in;
-    margin-bottom: 0.22in;
-  }
-
-  h1 {
-    margin: 0 0 0.14in;
-    font-size: 34pt;
-    line-height: 1.1;
-  }
-
-  .intro {
-    max-width: 6.2in;
-    margin: 0 auto 0.34in;
-    font-size: 12pt;
-    line-height: 1.45;
-  }
-
-  .details {
-    padding: 0.2in 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .row {
-    padding: 0.09in 0;
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
   .description {
-    margin-top: 0.34in;
     break-inside: avoid;
     page-break-inside: avoid;
-  }
-
-  .description h2 {
-    margin: 0 0 0.1in;
-    gap: 0.18in;
-  }
-
-  .description p {
-    margin: 0;
-    line-height: 1.45;
   }
 
   .signature-area {
-    gap: 0.6in;
-    margin-top: 0.34in;
     break-inside: avoid;
     page-break-inside: avoid;
-  }
-
-  .document-date {
-    min-height: 0.22in;
-    margin-bottom: 0.07in;
-    font-size: 10.5pt;
-  }
-
-  .signature-line {
-    width: 2.25in;
   }
 }
 
