@@ -2,6 +2,12 @@
   publish = "web"
   functions = "netlify/functions"
 
+[[redirects]]
+  from = "/api/test-database"
+  to = "/.netlify/functions/test-database"
+  status = 200
+  force = true
+
 [[edge_functions]]
   path = "/admin/*"
   function = "admin-auth"
