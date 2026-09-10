@@ -1,0 +1,15 @@
+{
+  "name": "sylva-ars-studio",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test:database": "node --test tests/database/*.test.mjs"
+  },
+  "dependencies": {
+    "@netlify/database": "^2.0.1"
+  },
+  "devDependencies": {
+    "@netlify/database-dev": "^1.0.1",
+    "pg": "^8.23.0"
+  }
+}
