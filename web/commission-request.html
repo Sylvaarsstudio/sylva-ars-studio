@@ -37,7 +37,7 @@
       class="contact-form">
 
       <input type="hidden" name="form-name" value="commission-request">
-      <input type="hidden" name="form-type" value="commission-request">
+      <input type="hidden" name="form_type" value="commission_request">
 
       <p class="hidden-field">
         <label>
@@ -48,32 +48,32 @@
 
       <label>
         Client Name
-        <input type="text" name="client-name" autocomplete="name" required>
+        <input type="text" name="client_name" autocomplete="name" required>
       </label>
 
       <label>
         Email
-        <input type="email" name="email" autocomplete="email" required>
+        <input type="email" name="client_email" autocomplete="email" required>
       </label>
 
       <label>
         Phone Optional
-        <input type="tel" name="phone" autocomplete="tel">
+        <input type="tel" name="client_phone" autocomplete="tel">
       </label>
 
       <label>
         Desired Subject / Theme
-        <input type="text" name="desired-subject-theme" required>
+        <input type="text" name="artwork_type" required>
       </label>
 
       <label>
         Size Preference
-        <input type="text" name="size-preference" placeholder="Example: 12 x 16 in, 24 x 36 in">
+        <input type="text" name="artwork_size" placeholder="Example: 12 x 16 in, 24 x 36 in">
       </label>
 
       <label>
         Budget Range
-        <select name="budget-range" required>
+        <select name="budget_range" required>
           <option value="">Select one</option>
           <option value="Under $500">Under $500</option>
           <option value="$500 - $1,000">$500 - $1,000</option>
@@ -85,22 +85,22 @@
 
       <label>
         Timeline
-        <input type="text" name="timeline" placeholder="Example: flexible, by September, holiday gift" required>
+        <input type="text" name="estimated_date" placeholder="Example: flexible, by September, holiday gift" required>
       </label>
 
       <label>
         Shipping Location
-        <input type="text" name="shipping-location" placeholder="City, state, country" required>
+        <input type="text" name="shipping_location" placeholder="City, state, country" required>
       </label>
 
       <label>
         Reference Notes
-        <textarea name="reference-notes" rows="5"></textarea>
+        <textarea name="reference_notes" rows="5"></textarea>
       </label>
 
       <label>
         Message
-        <textarea name="message" rows="6" required></textarea>
+        <textarea name="description" rows="6" required></textarea>
       </label>
 
       <button type="submit" class="button">
