@@ -48,10 +48,6 @@ async function getArtworkTitleFromSlug(slug) {
   }
 }
 
-function toCamelCase(value) {
-  return value.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
-}
-
 function getFieldValue(formData, ...names) {
   for (const name of names) {
     const value = formData.get(name);
@@ -109,13 +105,33 @@ function buildStructuredRequest(form) {
       return;
     }
 
-    request[toCamelCase(key)] = String(value).trim();
+    request[key] = String(value).trim();
   });
 
-  request.formType = getFieldValue(formData, "form-type", "form-name");
-  request.clientName = getFieldValue(formData, "client-name", "name");
-  request.clientEmail = getFieldValue(formData, "email", "client-email");
-  request.clientPhone = getFieldValue(formData, "phone", "client-phone");
+  request.form_type = getFieldValue(
+    formData,
+    "form_type",
+    "form-type",
+    "form-name"
+  );
+  request.client_name = getFieldValue(
+    formData,
+    "client_name",
+    "client-name",
+    "name"
+  );
+  request.client_email = getFieldValue(
+    formData,
+    "client_email",
+    "client-email",
+    "email"
+  );
+  request.client_phone = getFieldValue(
+    formData,
+    "client_phone",
+    "client-phone",
+    "phone"
+  );
 
   return request;
 }
@@ -167,7 +183,7 @@ function initNetlifyRequestBridge() {
       try {
         const requestData = buildStructuredRequest(form);
         const result = await submitToRequestFunction(requestData);
-        const requestId = result.requestId;
+        const requestId = result.request_id || result.requestId;
 
         if (!requestId) {
           throw new Error("Request received, but no reference ID was returned.");
@@ -201,7 +217,7 @@ function initNetlifyRequestBridge() {
 }
 
 async function initArtworkPrefill() {
-  const artworkInput = document.querySelector('input[name="artwork-title"]');
+  const artworkInput = document.querySelector('input[name="artwork_title"]');
 
   if (!artworkInput) {
     return;

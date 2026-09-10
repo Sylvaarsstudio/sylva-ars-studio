@@ -37,7 +37,7 @@
       class="contact-form">
 
       <input type="hidden" name="form-name" value="artwork-inquiry">
-      <input type="hidden" name="form-type" value="artwork-inquiry">
+      <input type="hidden" name="form_type" value="artwork_inquiry">
 
       <p class="hidden-field">
         <label>
@@ -48,32 +48,32 @@
 
       <label>
         Client Name
-        <input type="text" name="client-name" autocomplete="name" required>
+        <input type="text" name="client_name" autocomplete="name" required>
       </label>
 
       <label>
         Email
-        <input type="email" name="email" autocomplete="email" required>
+        <input type="email" name="client_email" autocomplete="email" required>
       </label>
 
       <label>
         Phone Optional
-        <input type="tel" name="phone" autocomplete="tel">
+        <input type="tel" name="client_phone" autocomplete="tel">
       </label>
 
       <label>
         Artwork Title
-        <input type="text" name="artwork-title" required>
+        <input type="text" name="artwork_title" required>
       </label>
 
       <label>
         Shipping Location
-        <input type="text" name="shipping-location" placeholder="City, state, country" required>
+        <input type="text" name="shipping_location" placeholder="City, state, country" required>
       </label>
 
       <label>
         Preferred Contact Method
-        <select name="preferred-contact-method" required>
+        <select name="preferred_contact_method" required>
           <option value="">Select one</option>
           <option value="Email">Email</option>
           <option value="Phone">Phone</option>
@@ -83,7 +83,7 @@
 
       <label>
         Message
-        <textarea name="message" rows="6" required></textarea>
+        <textarea name="description" rows="6" required></textarea>
       </label>
 
       <button type="submit" class="button">
