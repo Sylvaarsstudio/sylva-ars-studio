@@ -23,6 +23,22 @@ function hasValidToken(actualToken, expectedToken) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+function getSuppliedToken(event) {
+  const headerToken = event.headers?.["x-database-test-token"];
+
+  if (headerToken) {
+    return headerToken;
+  }
+
+  const contentType = event.headers?.["content-type"] || "";
+
+  if (!contentType.includes("application/x-www-form-urlencoded") || !event.body) {
+    return "";
+  }
+
+  return new URLSearchParams(event.body).get("database_test_token") || "";
+}
+
 async function runCrud(db) {
   const connection = await db.pool.connect();
   const testKey = randomUUID();
@@ -106,7 +122,7 @@ function createHandler(databaseFactory = getDatabase) {
       });
     }
 
-    const suppliedToken = event.headers?.["x-database-test-token"];
+    const suppliedToken = getSuppliedToken(event);
     const expectedToken = process.env.DATABASE_TEST_TOKEN;
 
     if (!hasValidToken(suppliedToken, expectedToken)) {

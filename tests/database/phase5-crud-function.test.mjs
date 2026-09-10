@@ -39,7 +39,8 @@ test("phase 5 rejects a CRUD request without the private token", async () => {
 test("phase 5 completes INSERT, READ, UPDATE, DELETE and cleans up", async () => {
   const response = await handler({
     httpMethod: "POST",
-    headers: { "x-database-test-token": testToken }
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ database_test_token: testToken }).toString()
   });
   const body = JSON.parse(response.body);
 
