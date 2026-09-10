@@ -36,6 +36,15 @@ test("phase 5 rejects a CRUD request without the private token", async () => {
   assert.equal(JSON.parse(response.body).success, false);
 });
 
+test("phase 5 serves a no-cache validation form without exposing a token", async () => {
+  const response = await handler({ httpMethod: "GET", headers: {} });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["Cache-Control"], "no-store");
+  assert.match(response.body, /name="database_test_token"/);
+  assert.doesNotMatch(response.body, new RegExp(testToken));
+});
+
 test("phase 5 completes INSERT, READ, UPDATE, DELETE and cleans up", async () => {
   const response = await handler({
     httpMethod: "POST",

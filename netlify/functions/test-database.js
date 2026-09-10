@@ -12,6 +12,40 @@ function jsonResponse(statusCode, body) {
   };
 }
 
+function testFormResponse() {
+  return {
+    statusCode: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Content-Security-Policy":
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "Referrer-Policy": "no-referrer"
+    },
+    body: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Database validation</title>
+    <style>
+      body { font: 16px system-ui; max-width: 36rem; margin: 4rem auto; padding: 0 1rem; }
+      label, input, button { display: block; width: 100%; box-sizing: border-box; }
+      input, button { margin-top: .5rem; padding: .75rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Database validation</h1>
+    <form method="post" action="/api/test-database">
+      <label for="database-test-token">Private test token</label>
+      <input id="database-test-token" name="database_test_token" type="password" autocomplete="off" required>
+      <button type="submit">Run CRUD validation</button>
+    </form>
+  </body>
+</html>`
+  };
+}
+
 function hasValidToken(actualToken, expectedToken) {
   if (!actualToken || !expectedToken) {
     return false;
@@ -115,6 +149,10 @@ async function runCrud(db) {
 
 function createHandler(databaseFactory = getDatabase) {
   return async function handler(event) {
+    if (event.httpMethod === "GET") {
+      return testFormResponse();
+    }
+
     if (event.httpMethod !== "POST") {
       return jsonResponse(405, {
         success: false,
