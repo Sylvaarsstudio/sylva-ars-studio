@@ -139,8 +139,25 @@
  "certificateId": "SSA-COA-009",
  "seoTitle": "A Shared Legacy | Private Commission | Sylva Ars Studio",
  "seoDescription": "A Shared Legacy is an original acrylic family portrait by Cuban artist Adrian at Sylva Ars Studio, bringing four family members together beyond time, distance, and circumstance."
-}
-]
+},
+{
+ "slug": "still-here",
+ "title": "Still Here",
+ "year": "2026",
+ "medium": "Acrylic on canvas",
+ "dimensions": "15 × 19 in",
+ "status": "Available",
+ "collection": "2026",
+ "image": "still-here.jpg",
+ "altText": "Painting of a white ginger lily inspired by memory, familiarity, and the experience of rediscovering what had once gone unnoticed.",
+ "shortDescription": "A reflection on memory, familiarity, and the quiet ways something can remain present while gradually disappearing from our attention.",
+ "longDescription": "Still Here began with the white ginger lily that grew almost unnoticed in my grandmother’s garden in Cuba. Familiarity had made it nearly invisible to me, and only years later did distance teach me to see what had always been there. The painting reflects on a quiet form of absence: not the moment something disappears, but the moment we stop noticing what remains. It asks how familiarity shapes our attention, and whether seeing again sometimes begins with remembering how to look.",
+ "priceStatus": "Available",
+ "certificateId": "SSA-COA-010",
+ "seoTitle": "Still Here | Available | Sylva Ars Studio",
+ "seoDescription": "Original acrylic painting exploring memory, familiarity, absence, and the things we stop noticing. Discover Still Here by Cuban artist Adrian at Sylva Ars Studio."
+}]
+
 
 
 

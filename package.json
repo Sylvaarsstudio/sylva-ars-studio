@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test:database": "node --test tests/database/*.test.mjs"
+    "test:database": "node --test tests/database/*.test.mjs",
+    "test:studio-notes": "node --test tests/studio-notes/*.test.js"
   },
   "dependencies": {
     "@netlify/database": "^2.0.1"
