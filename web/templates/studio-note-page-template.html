@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!-- AUTO-GENERATED STUDIO NOTE PAGE - DO NOT EDIT MANUALLY -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{title}} | Sylva Ars Studio</title>
+  <link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+  <nav class="navbar">
+    <a href="../index.html">Home</a>
+    <a href="../collection.html">Collection</a>
+    <a href="../about.html">About</a>
+    <a href="../contact.html">Contact</a>
+  </nav>
+
+  <main class="studio-note-page">
+    <article class="studio-note" data-status="{{status}}">
+      <header class="studio-note-header">
+        <p class="studio-note-kicker">Studio Notes</p>
+        <h1>{{title}}</h1>
+        <p class="studio-note-meta">
+          <time datetime="{{date}}">{{date}}</time>
+          {{#artwork}}<span>Artwork · {{artwork}}</span>{{/artwork}}
+        </p>
+      </header>
+
+      <div class="studio-note-body">
+{{{bodyHtml}}}
+      </div>
+    </article>
+  </main>
+  <script src="../js/studio-notes.js" defer></script>
+</body>
+</html>

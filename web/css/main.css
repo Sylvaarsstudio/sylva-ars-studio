@@ -449,6 +449,206 @@ h2 {
 }
 
 /* =========================
+   Studio Notes
+========================= */
+
+.studio-note-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 90px 40px 160px;
+}
+
+.studio-note-header {
+  max-width: 760px;
+  margin: 0 auto 130px;
+  text-align: center;
+}
+
+.studio-note-kicker {
+  margin: 0 0 28px;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.studio-note-header h1 {
+  margin: 0;
+  font-size: clamp(44px, 6vw, 72px);
+  font-weight: normal;
+  line-height: 1.08;
+}
+
+.studio-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 24px;
+  margin: 28px 0 0;
+  font-size: 14px;
+  letter-spacing: 0.8px;
+  line-height: 1.6;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.studio-note-body {
+  display: grid;
+  gap: clamp(100px, 14vw, 180px);
+}
+
+.studio-note-section {
+  display: grid;
+  align-items: start;
+  column-gap: clamp(56px, 8vw, 120px);
+}
+
+.studio-note-section--media-left {
+  grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
+}
+
+.studio-note-section--media-right {
+  grid-template-columns: minmax(280px, 0.88fr) minmax(0, 1.12fr);
+}
+
+.studio-note-section--media-left .studio-note-copy {
+  padding-top: clamp(36px, 6vw, 84px);
+}
+
+.studio-note-section--media-right .studio-note-media {
+  grid-column: 2;
+  justify-self: end;
+}
+
+.studio-note-section--media-right .studio-note-copy {
+  grid-row: 1;
+  grid-column: 1;
+  padding-top: clamp(64px, 9vw, 118px);
+}
+
+.studio-note-section--media-center,
+.studio-note-section--text-only {
+  display: block;
+}
+
+.studio-note-section--media-center .studio-note-media {
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.studio-note-section--media-center .studio-note-copy {
+  max-width: 680px;
+  margin: 54px auto 0;
+}
+
+.studio-note-section--text-only .studio-note-copy {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.studio-note-section--media-only.studio-note-section--media-left .studio-note-media {
+  justify-self: start;
+}
+
+.studio-note-copy {
+  max-width: 620px;
+  font-size: 19px;
+  line-height: 1.9;
+}
+
+.studio-note-copy p {
+  margin: 0 0 28px;
+}
+
+.studio-note-copy h2,
+.studio-note-copy h3 {
+  margin: 48px 0 20px;
+  font-weight: normal;
+  line-height: 1.3;
+}
+
+.studio-note-copy h2 {
+  font-size: 30px;
+}
+
+.studio-note-copy h3 {
+  font-size: 25px;
+}
+
+.studio-note-media {
+  width: 100%;
+  margin: 0;
+}
+
+.studio-note-media--small {
+  max-width: 320px;
+}
+
+.studio-note-media--medium {
+  max-width: 520px;
+}
+
+.studio-note-media--large {
+  max-width: 760px;
+}
+
+.studio-note-media--wide {
+  max-width: 1100px;
+}
+
+.studio-note-media img,
+.studio-note-media video {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+}
+
+.studio-note-media figcaption {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.65;
+}
+
+.studio-note-related-artwork {
+  max-width: 480px;
+  margin: 10px auto 0;
+}
+
+.studio-note-related-artwork figure {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: end;
+  gap: 24px;
+  margin: 0;
+}
+
+.studio-note-related-artwork img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.studio-note-related-artwork h2 {
+  margin: 0 0 14px;
+  font-size: 20px;
+  font-weight: normal;
+  line-height: 1.3;
+}
+
+.studio-note-related-artwork a {
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.studio-note-related-artwork a:hover,
+.studio-note-related-artwork a:focus {
+  opacity: 0.6;
+}
+
+/* =========================
    Contact
 ========================= */
 
@@ -731,6 +931,64 @@ button[disabled] {
 
   .artwork-main-image {
     width: 100%;
+  }
+
+  .studio-note-page {
+    padding: 54px 20px 100px;
+  }
+
+  .studio-note-header {
+    margin-bottom: 80px;
+  }
+
+  .studio-note-kicker {
+    margin-bottom: 22px;
+  }
+
+  .studio-note-body {
+    gap: 82px;
+  }
+
+  .studio-note-section,
+  .studio-note-section--media-left,
+  .studio-note-section--media-right {
+    display: flex;
+    flex-direction: column;
+    gap: 34px;
+  }
+
+  .studio-note-section--media-left .studio-note-copy,
+  .studio-note-section--media-right .studio-note-copy,
+  .studio-note-section--media-center .studio-note-copy {
+    width: 100%;
+    max-width: 680px;
+    margin: 0 auto;
+    padding-top: 0;
+  }
+
+  .studio-note-section .studio-note-media {
+    align-self: center;
+    order: 0;
+  }
+
+  .studio-note-section .studio-note-copy {
+    order: 1;
+  }
+
+  .studio-note-media--wide,
+  .studio-note-media--large,
+  .studio-note-media--medium {
+    max-width: 100%;
+  }
+
+  .studio-note-copy {
+    font-size: 17px;
+    line-height: 1.8;
+  }
+
+  .studio-note-related-artwork figure {
+    grid-template-columns: 120px 1fr;
+    gap: 20px;
   }
 
   .home-showcase {
