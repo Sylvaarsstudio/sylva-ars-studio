@@ -16,6 +16,7 @@
   <nav class="navbar">
     <a href="../index.html">Home</a>
     <a href="../collection.html">Collection</a>
+    <a href="../studio-notes/">Studio Notes</a>
     <a href="../about.html">About</a>
     <a href="../contact.html">Contact</a>
   </nav>
@@ -49,6 +50,10 @@
         <strong>Certificate ID:</strong> {{certificateId}}
       </p>
       {{/certificateId}}
+
+{{#studioNoteUrl}}
+      <a href="{{studioNoteUrl}}" class="artwork-studio-note-link">Read the story behind {{title}} <span aria-hidden="true">→</span></a>
+{{/studioNoteUrl}}
 
       <a href="../artwork-inquiry.html?artwork={{slug}}" class="button">Inquire</a>
       <a href="../collection.html" class="back-link">Back to Collection</a>

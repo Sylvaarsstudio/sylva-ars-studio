@@ -1,5 +1,9 @@
 const fs = require("fs");
 const path = require("path");
+const {
+  buildPublishedNoteByArtworkSlug,
+  readAndValidateNotes
+} = require("./generate-studio-notes");
 
 const rootDir = path.resolve(__dirname, "..");
 const webDir = path.join(rootDir, "web");
@@ -53,11 +57,15 @@ function firstPresent(...values) {
   return values.find(isPresent) ?? "";
 }
 
-function withTemplateFields(artwork) {
+function withTemplateFields(artwork, notesByArtworkSlug = new Map()) {
+  const studioNote = notesByArtworkSlug.get(artwork.slug);
+
   return {
     ...artwork,
     collectionDescription: firstPresent(artwork.shortDescription, artwork.longDescription),
-    artworkDescription: firstPresent(artwork.longDescription, artwork.shortDescription)
+    artworkDescription: firstPresent(artwork.longDescription, artwork.shortDescription),
+    studioNoteTitle: studioNote ? studioNote.title : "",
+    studioNoteUrl: studioNote ? `../studio-notes/${studioNote.slug}.html` : ""
   };
 }
 
@@ -196,14 +204,14 @@ function replaceGeneratedSection(content, markerName, generatedHtml) {
   ].join("");
 }
 
-function generateArtworkPages(artworks) {
+function generateArtworkPages(artworks, notesByArtworkSlug) {
   const template = readFile(path.join(templatesDir, "artwork-page-template.html"));
 
   ensureDirectory(artworksDir);
 
   artworks.forEach((artwork) => {
     const outputPath = path.join(artworksDir, `${artwork.slug}.html`);
-    writeFile(outputPath, renderTemplate(template, withTemplateFields(artwork)));
+    writeFile(outputPath, renderTemplate(template, withTemplateFields(artwork, notesByArtworkSlug)));
     console.log(`Generated artwork page: web/artworks/${artwork.slug}.html`);
   });
 }
@@ -264,12 +272,23 @@ function main() {
   }
 
   validateArtworks(artworks);
+  const notesByArtworkSlug = buildPublishedNoteByArtworkSlug(readAndValidateNotes());
   removeOldGeneratedArtworkPages();
-  generateArtworkPages(artworks);
+  generateArtworkPages(artworks, notesByArtworkSlug);
   updateCollectionPage(artworks);
   updateHomePage(artworks);
 
   console.log(`Done. Generated ${artworks.length} artworks.`);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  loadArtworks,
+  main,
+  renderTemplate,
+  validateArtworks,
+  withTemplateFields
+};

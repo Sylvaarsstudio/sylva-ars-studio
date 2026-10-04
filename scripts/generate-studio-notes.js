@@ -6,8 +6,10 @@ const WEB_DIR = path.join(ROOT_DIR, 'web');
 const NOTES_DIR = path.join(WEB_DIR, 'data', 'studio-notes-md');
 const ARTWORKS_PATH = path.join(WEB_DIR, 'data', 'artworks.json');
 const TEMPLATE_PATH = path.join(WEB_DIR, 'templates', 'studio-note-page-template.html');
+const INDEX_TEMPLATE_PATH = path.join(WEB_DIR, 'templates', 'studio-notes-index-template.html');
 const OUTPUT_DIR = path.join(WEB_DIR, 'studio-notes');
 const GENERATED_MARKER = '<!-- AUTO-GENERATED STUDIO NOTE PAGE - DO NOT EDIT MANUALLY -->';
+const INDEX_GENERATED_MARKER = '<!-- AUTO-GENERATED STUDIO NOTES INDEX - DO NOT EDIT MANUALLY -->';
 const REQUIRED_FIELDS = ['slug', 'title', 'date', 'status'];
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SECTION_POSITIONS = new Set(['text-only', 'media-left', 'media-right', 'media-center']);
@@ -388,6 +390,22 @@ function renderEditorialContent(markdown, options = {}) {
   return renderedBlocks.join('\n');
 }
 
+function extractRelatedArtworkSlug(markdown, fileName) {
+  let relatedArtworkSlug = '';
+
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].startsWith('::')) continue;
+
+    const directive = parseDirective(lines[index], fileName, index + 1);
+    if (directive.name === 'artwork') {
+      relatedArtworkSlug = directive.attributes.slug || '';
+    }
+  }
+
+  return relatedArtworkSlug;
+}
+
 function loadArtworkIndex(artworksPath = ARTWORKS_PATH) {
   let artworks;
   try {
@@ -412,31 +430,74 @@ function loadArtworkIndex(artworksPath = ARTWORKS_PATH) {
   return index;
 }
 
-function renderTemplate(template, note) {
-  const rawBodyToken = '{{{bodyHtml}}}';
-  const rawBodySentinel = '__STUDIO_NOTE_BODY_HTML__';
-  const tokenCount = template.split(rawBodyToken).length - 1;
+function renderTemplateWithRawField(template, data, rawField) {
+  const rawToken = `{{{${rawField}}}}`;
+  const rawSentinel = `__STUDIO_NOTES_RAW_${rawField.toUpperCase()}__`;
+  const tokenCount = template.split(rawToken).length - 1;
   if (tokenCount !== 1) {
-    throw new Error(`Template must contain exactly one ${rawBodyToken} token.`);
+    throw new Error(`Template must contain exactly one ${rawToken} token.`);
   }
 
-  let output = template.replace(rawBodyToken, rawBodySentinel);
+  let output = template.replace(rawToken, rawSentinel);
   output = output.replace(
     /\{\{#([A-Za-z][A-Za-z0-9_]*)\}\}([\s\S]*?)\{\{\/\1\}\}/g,
-    (fullMatch, key, content) => (note[key] ? content : '')
+    (fullMatch, key, content) => (data[key] ? content : '')
   );
   output = output.replace(/\{\{([A-Za-z][A-Za-z0-9_]*)\}\}/g, (fullMatch, key) => {
-    if (!Object.prototype.hasOwnProperty.call(note, key)) {
+    if (!Object.prototype.hasOwnProperty.call(data, key)) {
       throw new Error(`Template references unknown field "${key}".`);
     }
-    return escapeHtml(note[key]);
+    return escapeHtml(data[key]);
   });
 
   if (/\{\{[^}]+\}\}/.test(output)) {
     throw new Error('Template contains an unresolved placeholder.');
   }
 
-  return output.replace(rawBodySentinel, note.bodyHtml);
+  return output.replace(rawSentinel, data[rawField]);
+}
+
+function renderTemplate(template, note) {
+  return renderTemplateWithRawField(template, note, 'bodyHtml');
+}
+
+function getPublishedNotes(notes) {
+  return notes.filter((note) => note.status === 'published');
+}
+
+function buildPublishedNoteByArtworkSlug(notes) {
+  const notesByArtworkSlug = new Map();
+
+  for (const note of getPublishedNotes(notes)) {
+    if (!note.relatedArtworkSlug) continue;
+    if (notesByArtworkSlug.has(note.relatedArtworkSlug)) {
+      throw new Error(
+        `Multiple published Studio Notes reference artwork "${note.relatedArtworkSlug}".`
+      );
+    }
+    notesByArtworkSlug.set(note.relatedArtworkSlug, note);
+  }
+
+  return notesByArtworkSlug;
+}
+
+function renderIndexEntries(notes) {
+  return getPublishedNotes(notes).map((note) => {
+    return `<article class="studio-notes-index-entry">
+  <div class="studio-notes-index-visual" aria-hidden="true"></div>
+  <div class="studio-notes-index-copy">
+    <p class="studio-notes-index-date">${escapeHtml(note.date)}</p>
+    <h2><a href="${escapeHtml(note.slug)}.html">${escapeHtml(note.title)}</a></h2>
+    <a class="studio-notes-index-link" href="${escapeHtml(note.slug)}.html">Read note <span aria-hidden="true">→</span></a>
+  </div>
+</article>`;
+  }).join('\n');
+}
+
+function renderIndexTemplate(template, notes) {
+  return renderTemplateWithRawField(template, {
+    entriesHtml: renderIndexEntries(notes)
+  }, 'entriesHtml');
 }
 
 function validatePublishedAsset(assetPath, fileName, lineNumber) {
@@ -480,6 +541,7 @@ function readAndValidateNotes() {
       artwork: typeof metadata.artwork === 'string' ? metadata.artwork : '',
       date: metadata.date,
       status: metadata.status,
+      relatedArtworkSlug: extractRelatedArtworkSlug(body, fileName),
       bodyHtml: renderEditorialContent(body, {
         fileName,
         artworkIndex,
@@ -514,6 +576,19 @@ function validateExistingTargets(notes) {
       throw new Error(`Refusing to overwrite manual Studio Note page: ${targetPath}`);
     }
   }
+
+  const indexPath = path.join(OUTPUT_DIR, 'index.html');
+  if (!fs.existsSync(indexPath)) return;
+
+  const stats = fs.lstatSync(indexPath);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error(`Refusing to overwrite non-regular Studio Notes index: ${indexPath}`);
+  }
+
+  const existing = fs.readFileSync(indexPath, 'utf8');
+  if (!existing.includes(INDEX_GENERATED_MARKER)) {
+    throw new Error(`Refusing to overwrite manual Studio Notes index: ${indexPath}`);
+  }
 }
 
 function findGeneratedPages() {
@@ -537,14 +612,19 @@ function main(options = {}) {
   const log = options.log || console.log;
   const notes = readAndValidateNotes();
   const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
+  const indexTemplate = fs.readFileSync(INDEX_TEMPLATE_PATH, 'utf8');
   if (!template.includes(GENERATED_MARKER)) {
     throw new Error('Studio Note template is missing the generated-page marker.');
+  }
+  if (!indexTemplate.includes(INDEX_GENERATED_MARKER)) {
+    throw new Error('Studio Notes index template is missing the generated-page marker.');
   }
 
   const pages = notes.map((note) => ({
     fileName: `${note.slug}.html`,
     html: renderTemplate(template, note)
   }));
+  const indexHtml = renderIndexTemplate(indexTemplate, notes);
   validateExistingTargets(notes);
   const generatedPages = findGeneratedPages();
 
@@ -554,6 +634,8 @@ function main(options = {}) {
     fs.writeFileSync(path.join(OUTPUT_DIR, page.fileName), `${page.html.trimEnd()}\n`, 'utf8');
     log(`Generated web/studio-notes/${page.fileName}`);
   }
+  fs.writeFileSync(path.join(OUTPUT_DIR, 'index.html'), `${indexHtml.trimEnd()}\n`, 'utf8');
+  log('Generated web/studio-notes/index.html');
   log(`Generated ${pages.length} Studio Note page(s).`);
 }
 
@@ -567,13 +649,18 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildPublishedNoteByArtworkSlug,
   escapeHtml,
+  extractRelatedArtworkSlug,
+  getPublishedNotes,
   loadArtworkIndex,
   main,
   parseAttributes,
   parseMarkdownNote,
   readAndValidateNotes,
   renderEditorialContent,
+  renderIndexEntries,
+  renderIndexTemplate,
   renderMarkdown,
   renderTemplate
 };
