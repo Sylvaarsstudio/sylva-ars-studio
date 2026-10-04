@@ -448,6 +448,21 @@ h2 {
   opacity: 0.7;
 }
 
+.artwork-studio-note-link {
+  display: block;
+  width: fit-content;
+  margin: 34px 0 4px;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  text-decoration: none;
+}
+
+.artwork-studio-note-link:hover,
+.artwork-studio-note-link:focus {
+  opacity: 0.6;
+}
+
 /* =========================
    Studio Notes
 ========================= */
@@ -645,6 +660,87 @@ h2 {
 
 .studio-note-related-artwork a:hover,
 .studio-note-related-artwork a:focus {
+  opacity: 0.6;
+}
+
+.studio-notes-index {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 90px 40px 160px;
+}
+
+.studio-notes-index-header {
+  max-width: 1120px;
+  margin: 0 auto 110px;
+}
+
+.studio-notes-index-header h1 {
+  margin: 0;
+  font-size: clamp(44px, 6vw, 72px);
+  font-weight: normal;
+  line-height: 1.08;
+}
+
+.studio-notes-index-list {
+  display: grid;
+  max-width: 1120px;
+  margin: 0 auto;
+  gap: clamp(100px, 14vw, 180px);
+}
+
+.studio-notes-index-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.7fr);
+  grid-template-areas: "visual copy";
+  align-items: center;
+  gap: clamp(48px, 8vw, 110px);
+}
+
+.studio-notes-index-entry:nth-child(even) {
+  grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
+  grid-template-areas: "copy visual";
+}
+
+.studio-notes-index-visual {
+  grid-area: visual;
+  min-height: clamp(320px, 52vw, 700px);
+}
+
+.studio-notes-index-copy {
+  grid-area: copy;
+  max-width: 360px;
+}
+
+.studio-notes-index-date {
+  margin: 0 0 20px;
+  font-size: 13px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.studio-notes-index-copy h2 {
+  margin: 0 0 26px;
+  font-size: clamp(30px, 4vw, 48px);
+  font-weight: normal;
+  line-height: 1.15;
+}
+
+.studio-notes-index-copy h2 a,
+.studio-notes-index-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.studio-notes-index-link {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.studio-notes-index-copy h2 a:hover,
+.studio-notes-index-copy h2 a:focus,
+.studio-notes-index-link:hover,
+.studio-notes-index-link:focus {
   opacity: 0.6;
 }
 
@@ -935,6 +1031,30 @@ button[disabled] {
 
   .studio-note-page {
     padding: 54px 20px 100px;
+  }
+
+  .studio-notes-index {
+    padding: 54px 20px 100px;
+  }
+
+  .studio-notes-index-header {
+    margin-bottom: 72px;
+  }
+
+  .studio-notes-index-list {
+    gap: 90px;
+  }
+
+  .studio-notes-index-entry,
+  .studio-notes-index-entry:nth-child(even) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 34px;
+  }
+
+  .studio-notes-index-copy {
+    max-width: 520px;
   }
 
   .studio-note-header {

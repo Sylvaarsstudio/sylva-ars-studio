@@ -5,16 +5,22 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  buildPublishedNoteByArtworkSlug,
+  getPublishedNotes,
   loadArtworkIndex,
   main,
   parseMarkdownNote,
+  readAndValidateNotes,
   renderEditorialContent,
+  renderIndexEntries,
   renderMarkdown
 } = require('../../scripts/generate-studio-notes');
+const { withTemplateFields } = require('../../scripts/generate-artworks');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const STILL_HERE_SOURCE = path.join(ROOT_DIR, 'web', 'data', 'studio-notes-md', 'still-here.md');
 const STILL_HERE_OUTPUT = path.join(ROOT_DIR, 'web', 'studio-notes', 'still-here.html');
+const INDEX_OUTPUT = path.join(ROOT_DIR, 'web', 'studio-notes', 'index.html');
 const ARTWORKS_PATH = path.join(ROOT_DIR, 'web', 'data', 'artworks.json');
 
 function sha256(value) {
@@ -135,6 +141,53 @@ test('resolves related artwork from artworks.json and rejects a missing slug', (
   );
 });
 
+test('includes only published notes in the index with correct links', () => {
+  const notes = [
+    {
+      slug: 'published-note',
+      title: 'Published Note',
+      date: '2026',
+      status: 'published'
+    },
+    {
+      slug: 'draft-note',
+      title: 'Draft Note',
+      date: '2027',
+      status: 'draft'
+    }
+  ];
+
+  assert.deepEqual(getPublishedNotes(notes).map((note) => note.slug), ['published-note']);
+  const html = renderIndexEntries(notes);
+  assert.match(html, /href="published-note\.html"/);
+  assert.match(html, /Read note/);
+  assert.match(html, /class="studio-notes-index-visual" aria-hidden="true"/);
+  assert.doesNotMatch(html, /<img|\bsrc=/);
+  assert.doesNotMatch(html, /Draft Note|draft-note/);
+});
+
+test('resolves the published artwork-to-note relationship without duplicate metadata', () => {
+  const notes = readAndValidateNotes();
+  const notesByArtworkSlug = buildPublishedNoteByArtworkSlug(notes);
+  const stillHereNote = notesByArtworkSlug.get('still-here');
+
+  assert.equal(stillHereNote.slug, 'still-here');
+  assert.equal(stillHereNote.title, 'Still Here');
+  assert.equal('representativeImageSrc' in stillHereNote, false);
+
+  const artworkFields = withTemplateFields({ slug: 'still-here' }, notesByArtworkSlug);
+  assert.equal(artworkFields.studioNoteTitle, 'Still Here');
+  assert.equal(artworkFields.studioNoteUrl, '../studio-notes/still-here.html');
+
+  assert.throws(
+    () => buildPublishedNoteByArtworkSlug([
+      { slug: 'first', title: 'First', status: 'published', relatedArtworkSlug: 'still-here' },
+      { slug: 'second', title: 'Second', status: 'published', relatedArtworkSlug: 'still-here' }
+    ]),
+    /Multiple published Studio Notes reference artwork "still-here"/
+  );
+});
+
 test('rejects duplicate media, duplicate artwork, and malformed closures', () => {
   assert.throws(
     () => renderEditorialContent(`::section position="media-left"
@@ -180,10 +233,13 @@ test('generation is idempotent and does not alter the Still Here source', { conc
   const sourceBefore = fs.readFileSync(STILL_HERE_SOURCE);
   main({ log: () => {} });
   const firstOutput = fs.readFileSync(STILL_HERE_OUTPUT);
+  const firstIndexOutput = fs.readFileSync(INDEX_OUTPUT);
   main({ log: () => {} });
   const secondOutput = fs.readFileSync(STILL_HERE_OUTPUT);
+  const secondIndexOutput = fs.readFileSync(INDEX_OUTPUT);
   const sourceAfter = fs.readFileSync(STILL_HERE_SOURCE);
 
   assert.equal(sha256(firstOutput), sha256(secondOutput));
+  assert.equal(sha256(firstIndexOutput), sha256(secondIndexOutput));
   assert.equal(sha256(sourceBefore), sha256(sourceAfter));
 });
