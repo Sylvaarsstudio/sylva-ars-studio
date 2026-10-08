@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, test } from "node:test";
-import { createRequire } from "node:module";
 
 import { NetlifyDB } from "@netlify/database-dev";
 import { getDatabase } from "@netlify/database";
+import createRequestHandler, {
+  createHandler
+} from "../../netlify/functions/create-request.mjs";
 
-const require = createRequire(import.meta.url);
-const { createHandler } = require("../../netlify/functions/create-request.js");
+const functionUrl = "http://localhost/.netlify/functions/create-request";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -34,10 +35,13 @@ after(async () => {
 });
 
 function submit(payload) {
-  return handler({
-    httpMethod: "POST",
+  return handler(new Request(functionUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
     body: JSON.stringify(payload)
-  });
+  }));
 }
 
 function validPayload(overrides = {}) {
@@ -60,9 +64,12 @@ async function getInquiry(id) {
 
 test("phase 7 creates and returns a real contact inquiry", async () => {
   const response = await submit(validPayload());
-  const body = JSON.parse(response.body);
+  const body = await response.json();
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(typeof createRequestHandler, "function");
+  assert.equal(response instanceof Response, true);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/json");
   assert.equal(body.success, true);
   assert.match(body.id, uuidPattern);
   assert.equal(body.request_id, body.id);
@@ -91,9 +98,9 @@ test("phase 7 creates an artwork inquiry", async () => {
     shipping_location: "  New York, NY  ",
     preferred_contact_method: "  Email  "
   }));
-  const body = JSON.parse(response.body);
+  const body = await response.json();
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.status, 200);
   const inquiry = await getInquiry(body.id);
   assert.equal(inquiry.form_type, "artwork_inquiry");
   assert.equal(inquiry.artwork_title, "Still Here");
@@ -113,9 +120,9 @@ test("phase 7 stores commission request fields", async () => {
     shipping_location: "Miami, FL",
     reference_notes: "Use the supplied photographs."
   }));
-  const body = JSON.parse(response.body);
+  const body = await response.json();
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.status, 200);
   const inquiry = await getInquiry(body.id);
   assert.equal(inquiry.artwork_subject, "Family portrait");
   assert.equal(inquiry.artwork_size, "24 x 36 in");
@@ -134,9 +141,9 @@ test("phase 7 stores collaboration fields", async () => {
     estimated_date: "flexible",
     occasion: "national_holiday"
   }));
-  const body = JSON.parse(response.body);
+  const body = await response.json();
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.status, 200);
   const inquiry = await getInquiry(body.id);
   assert.equal(inquiry.organization_project, "Museum exhibition");
   assert.equal(inquiry.collaboration_type, "Exhibition");
@@ -159,9 +166,9 @@ test("phase 7 converts none and empty optional fields to NULL", async () => {
     organization_project: "",
     collaboration_type: ""
   }));
-  const body = JSON.parse(response.body);
+  const body = await response.json();
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.status, 200);
   const inquiry = await getInquiry(body.id);
   assert.equal(inquiry.client_phone, null);
   assert.equal(inquiry.artwork_title, null);
@@ -184,9 +191,9 @@ for (const [field, value] of [
 ]) {
   test(`phase 7 rejects an empty ${field}`, async () => {
     const response = await submit(validPayload({ [field]: value }));
-    const body = JSON.parse(response.body);
+    const body = await response.json();
 
-    assert.equal(response.statusCode, 400);
+    assert.equal(response.status, 400);
     assert.equal(body.success, false);
     assert.match(body.message, new RegExp(field));
 
@@ -199,27 +206,40 @@ for (const [field, value] of [
 
 test("phase 7 rejects an invalid form type", async () => {
   const response = await submit(validPayload({ form_type: "newsletter" }));
-  const body = JSON.parse(response.body);
+  const body = await response.json();
 
-  assert.equal(response.statusCode, 400);
+  assert.equal(response.status, 400);
   assert.equal(body.success, false);
   assert.equal(body.message, "Unsupported form_type.");
 });
 
 test("phase 7 rejects an invalid estimated date", async () => {
   const response = await submit(validPayload({ estimated_date: "next_week" }));
-  const body = JSON.parse(response.body);
+  const body = await response.json();
 
-  assert.equal(response.statusCode, 400);
+  assert.equal(response.status, 400);
   assert.equal(body.success, false);
   assert.equal(body.message, "Unsupported estimated_date.");
 });
 
 test("phase 7 rejects an invalid occasion", async () => {
   const response = await submit(validPayload({ occasion: "anniversary" }));
-  const body = JSON.parse(response.body);
+  const body = await response.json();
 
-  assert.equal(response.statusCode, 400);
+  assert.equal(response.status, 400);
   assert.equal(body.success, false);
   assert.equal(body.message, "Unsupported occasion.");
+});
+
+test("phase 7 modern function rejects GET with a JSON Response", async () => {
+  const response = await handler(new Request(functionUrl));
+  const body = await response.json();
+
+  assert.equal(response instanceof Response, true);
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("content-type"), "application/json");
+  assert.deepEqual(body, {
+    success: false,
+    message: "Method not allowed. Use POST."
+  });
 });

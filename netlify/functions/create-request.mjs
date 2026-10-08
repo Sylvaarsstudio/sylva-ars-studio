@@ -1,4 +1,4 @@
-const { getDatabase } = require("@netlify/database");
+import { getDatabase } from "@netlify/database";
 
 const allowedFormTypes = new Set([
   "contact",
@@ -42,22 +42,12 @@ const optionalTextFields = [
 ];
 
 function jsonResponse(statusCode, body) {
-  return {
-    statusCode,
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  };
+  return Response.json(body, { status: statusCode });
 }
 
-function parseJsonBody(body) {
-  if (!body) {
-    return null;
-  }
-
+async function parseJsonBody(request) {
   try {
-    return JSON.parse(body);
+    return await request.json();
   } catch {
     return null;
   }
@@ -204,15 +194,15 @@ async function insertInquiry(db, data) {
 }
 
 function createHandler(databaseFactory = getDatabase) {
-  return async function handler(event) {
-    if (event.httpMethod !== "POST") {
+  return async function handler(request) {
+    if (request.method !== "POST") {
       return jsonResponse(405, {
         success: false,
         message: "Method not allowed. Use POST."
       });
     }
 
-    const rawData = parseJsonBody(event.body);
+    const rawData = await parseJsonBody(request);
     const data = rawData && typeof rawData === "object" && !Array.isArray(rawData)
       ? normalizePayload(rawData)
       : rawData;
@@ -251,6 +241,5 @@ function createHandler(databaseFactory = getDatabase) {
   };
 }
 
-exports.createHandler = createHandler;
-exports.handler = createHandler();
-exports.insertInquiry = insertInquiry;
+export { createHandler, insertInquiry };
+export default createHandler();
