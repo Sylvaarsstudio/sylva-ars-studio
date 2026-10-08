@@ -167,9 +167,13 @@ async function submitToRequestFunction(requestData) {
 }
 
 function initNetlifyRequestBridge() {
-  const forms = document.querySelectorAll('form[data-netlify="true"]');
+  const forms = document.querySelectorAll("form.contact-form");
 
   forms.forEach((form) => {
+    if (!form.querySelector('input[name="form_type"]')) {
+      return;
+    }
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
 
