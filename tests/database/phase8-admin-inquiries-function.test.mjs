@@ -107,6 +107,8 @@ function request(method = "GET", path = "", body, cookie = sessionCookie) {
 }
 
 test("phase 8 exposes only admin-scoped custom paths", () => {
+  assert.equal(Array.isArray(config.path), true);
+  assert.equal(config.path.every((path) => typeof path === "string"), true);
   assert.deepEqual(config.path, [
     "/admin/api/inquiries",
     "/admin/api/inquiries/:id"

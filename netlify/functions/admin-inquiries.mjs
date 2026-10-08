@@ -307,7 +307,7 @@ function createHandler({
 }
 
 export const config = {
-  path: [API_PATH, `${API_PATH}/:id`]
+  path: ["/admin/api/inquiries", "/admin/api/inquiries/:id"]
 };
 
 export {
