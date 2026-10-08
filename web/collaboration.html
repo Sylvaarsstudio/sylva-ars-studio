@@ -81,7 +81,31 @@
 
       <label>
         Timeline
-        <input type="text" name="estimated_date" placeholder="Example: flexible, this fall, specific date">
+        <select name="estimated_date">
+          <option value="">Select one</option>
+          <option value="flexible">Flexible / No specific deadline</option>
+          <option value="within_1_month">Within 1 month</option>
+          <option value="within_2_months">Within 2 months</option>
+          <option value="within_3_months">Within 3 months</option>
+        </select>
+      </label>
+
+      <label>
+        Specific Occasion Optional
+        <select name="occasion">
+          <option value="none">None</option>
+          <option value="birthday">Birthday</option>
+          <option value="valentines_day">Valentine's Day</option>
+          <option value="mothers_day">Mother's Day</option>
+          <option value="fathers_day">Father's Day</option>
+          <option value="graduation">Graduation</option>
+          <option value="wedding_anniversary">Wedding / Anniversary</option>
+          <option value="halloween">Halloween</option>
+          <option value="thanksgiving">Thanksgiving</option>
+          <option value="christmas_holiday">Christmas / Holiday Season</option>
+          <option value="national_holiday">National Holiday / Patriotic Holiday</option>
+          <option value="other">Other</option>
+        </select>
       </label>
 
       <label>

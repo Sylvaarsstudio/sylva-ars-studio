@@ -1,3 +1,5 @@
+const { getDatabase } = require("@netlify/database");
+
 const allowedFormTypes = new Set([
   "contact",
   "artwork_inquiry",
@@ -5,10 +7,39 @@ const allowedFormTypes = new Set([
   "collaboration"
 ]);
 
-const formTypeAliases = {
-  "artwork-inquiry": "artwork_inquiry",
-  "commission-request": "commission_request"
-};
+const allowedEstimatedDates = new Set([
+  "flexible",
+  "within_1_month",
+  "within_2_months",
+  "within_3_months"
+]);
+
+const allowedOccasions = new Set([
+  "birthday",
+  "valentines_day",
+  "mothers_day",
+  "fathers_day",
+  "graduation",
+  "wedding_anniversary",
+  "halloween",
+  "thanksgiving",
+  "christmas_holiday",
+  "national_holiday",
+  "other"
+]);
+
+const optionalTextFields = [
+  "client_phone",
+  "artwork_title",
+  "artwork_subject",
+  "artwork_size",
+  "budget_range",
+  "shipping_location",
+  "preferred_contact_method",
+  "reference_notes",
+  "organization_project",
+  "collaboration_type"
+];
 
 function jsonResponse(statusCode, body) {
   return {
@@ -18,16 +49,6 @@ function jsonResponse(statusCode, body) {
     },
     body: JSON.stringify(body)
   };
-}
-
-function createRequestId(date = new Date()) {
-  const year = date.getUTCFullYear();
-  const timestamp = date
-    .toISOString()
-    .replace(/[-:.TZ]/g, "")
-    .slice(4);
-
-  return `SSA-REQ-${year}-${timestamp}`;
 }
 
 function parseJsonBody(body) {
@@ -53,20 +74,43 @@ function toSnakeCase(value) {
     .toLowerCase();
 }
 
-function normalizeFormType(value) {
-  const formType = String(value || "").trim();
-  return formTypeAliases[formType] || formType;
+function normalizeRequiredText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeOptionalText(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized || null;
 }
 
 function normalizePayload(data) {
-  const payload = {};
+  const source = {};
 
   for (const [key, value] of Object.entries(data)) {
-    payload[toSnakeCase(key)] =
-      typeof value === "string" ? value.trim() : value;
+    source[toSnakeCase(key)] = value;
   }
 
-  payload.form_type = normalizeFormType(payload.form_type);
+  const payload = {
+    form_type: normalizeRequiredText(source.form_type),
+    client_name: normalizeRequiredText(source.client_name),
+    client_email: normalizeRequiredText(source.client_email),
+    message: normalizeRequiredText(source.message),
+    estimated_date: normalizeOptionalText(source.estimated_date),
+    occasion: normalizeOptionalText(source.occasion)
+  };
+
+  for (const field of optionalTextFields) {
+    payload[field] = normalizeOptionalText(source[field]);
+  }
+
+  if (payload.occasion === "none") {
+    payload.occasion = null;
+  }
+
   return payload;
 }
 
@@ -91,50 +135,122 @@ function validateRequest(data) {
     return "Missing required field: client_email.";
   }
 
+  if (!hasText(data.message)) {
+    return "Missing required field: message.";
+  }
+
+  if (
+    data.estimated_date !== null &&
+    !allowedEstimatedDates.has(data.estimated_date)
+  ) {
+    return "Unsupported estimated_date.";
+  }
+
+  if (data.occasion !== null && !allowedOccasions.has(data.occasion)) {
+    return "Unsupported occasion.";
+  }
+
   return "";
 }
 
-function normalizeRequest(data, requestId) {
-  return {
-    request_id: requestId,
-    received_at: new Date().toISOString(),
-    form_type: data.form_type,
-    client_name: data.client_name,
-    client_email: data.client_email,
-    client_phone: data.client_phone || "",
-    payload: data
+async function insertInquiry(db, data) {
+  const inserted = await db.pool.query(
+    `INSERT INTO inquiries (
+       source_submission_id,
+       form_type,
+       client_name,
+       client_email,
+       client_phone,
+       artwork_title,
+       artwork_subject,
+       artwork_size,
+       budget_range,
+       estimated_date,
+       occasion,
+       shipping_location,
+       preferred_contact_method,
+       reference_notes,
+       organization_project,
+       collaboration_type,
+       message
+     )
+     VALUES (
+       $1, $2, $3, $4, $5, $6, $7, $8, $9,
+       $10, $11, $12, $13, $14, $15, $16, $17
+     )
+     RETURNING id, status, created_at`,
+    [
+      null,
+      data.form_type,
+      data.client_name,
+      data.client_email,
+      data.client_phone,
+      data.artwork_title,
+      data.artwork_subject,
+      data.artwork_size,
+      data.budget_range,
+      data.estimated_date,
+      data.occasion,
+      data.shipping_location,
+      data.preferred_contact_method,
+      data.reference_notes,
+      data.organization_project,
+      data.collaboration_type,
+      data.message
+    ]
+  );
+
+  return inserted.rows[0];
+}
+
+function createHandler(databaseFactory = getDatabase) {
+  return async function handler(event) {
+    if (event.httpMethod !== "POST") {
+      return jsonResponse(405, {
+        success: false,
+        message: "Method not allowed. Use POST."
+      });
+    }
+
+    const rawData = parseJsonBody(event.body);
+    const data = rawData && typeof rawData === "object" && !Array.isArray(rawData)
+      ? normalizePayload(rawData)
+      : rawData;
+    const validationError = validateRequest(data);
+
+    if (validationError) {
+      return jsonResponse(400, {
+        success: false,
+        message: validationError
+      });
+    }
+
+    try {
+      const inquiry = await insertInquiry(databaseFactory(), data);
+
+      return jsonResponse(200, {
+        success: true,
+        message: "Request received",
+        id: inquiry.id,
+        request_id: inquiry.id,
+        status: inquiry.status,
+        created_at: inquiry.created_at
+      });
+    } catch (error) {
+      console.error("Inquiry database insert failed.", {
+        form_type: data.form_type,
+        error_type: error?.name || "Error",
+        error_code: error?.code || "unknown"
+      });
+
+      return jsonResponse(500, {
+        success: false,
+        message: "Unable to save request."
+      });
+    }
   };
 }
 
-exports.handler = async function handler(event) {
-  if (event.httpMethod !== "POST") {
-    return jsonResponse(405, {
-      success: false,
-      message: "Method not allowed. Use POST."
-    });
-  }
-
-  const rawData = parseJsonBody(event.body);
-  const data = rawData && typeof rawData === "object" && !Array.isArray(rawData)
-    ? normalizePayload(rawData)
-    : rawData;
-  const validationError = validateRequest(data);
-
-  if (validationError) {
-    return jsonResponse(400, {
-      success: false,
-      message: validationError
-    });
-  }
-
-  const requestId = createRequestId();
-  const structuredRequest = normalizeRequest(data, requestId);
-
-  console.log("Sylva Ars Studio request received:", structuredRequest);
-
-  return jsonResponse(200, {
-    success: true,
-    message: "Request received",
-    request_id: requestId
-  });
-};
+exports.createHandler = createHandler;
+exports.handler = createHandler();
+exports.insertInquiry = insertInquiry;
