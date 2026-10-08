@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Inquiries | Sylva Ars Studio Admin</title>
+
+  <link rel="stylesheet" href="../css/admin.css">
+</head>
+
+<body>
+
+  <main class="admin-page admin-inquiries-page">
+
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Inquiries</h1>
+        <p>Review incoming requests and update their workflow status.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="dashboard.html" class="admin-link">Dashboard</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <section class="inquiry-toolbar" aria-label="Inquiry filters">
+      <p class="inquiry-count"><strong id="inquiry-count">0</strong> inquiries</p>
+
+      <label>
+        Status
+        <select id="inquiry-status-filter">
+          <option value="all">All</option>
+          <option value="new">New</option>
+          <option value="reviewing">Reviewing</option>
+          <option value="replied">Replied</option>
+          <option value="accepted">Accepted</option>
+          <option value="declined">Declined</option>
+          <option value="closed">Closed</option>
+        </select>
+      </label>
+
+      <label>
+        Form type
+        <select id="inquiry-form-type-filter">
+          <option value="all">All</option>
+          <option value="contact">Contact</option>
+          <option value="artwork_inquiry">Artwork Inquiry</option>
+          <option value="commission_request">Commission Request</option>
+          <option value="collaboration">Collaboration</option>
+        </select>
+      </label>
+    </section>
+
+    <p class="admin-notice" id="inquiry-list-status" aria-live="polite"></p>
+
+    <div class="inquiry-workspace">
+      <section class="inquiry-list-panel" aria-label="Inquiry list">
+        <div class="inquiry-table-wrap">
+          <table class="inquiry-table">
+            <thead>
+              <tr>
+                <th scope="col">Received</th>
+                <th scope="col">Type</th>
+                <th scope="col">Name</th>
+                <th scope="col">Email</th>
+                <th scope="col">Status</th>
+                <th scope="col">ID</th>
+              </tr>
+            </thead>
+            <tbody id="inquiry-list"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="inquiry-detail-panel" id="inquiry-detail" aria-live="polite" hidden>
+        <div class="inquiry-detail-heading">
+          <h2>Inquiry detail</h2>
+          <button type="button" class="admin-text-button" id="close-inquiry-detail">Close</button>
+        </div>
+
+        <div id="inquiry-detail-fields"></div>
+
+        <form class="inquiry-status-form" id="inquiry-status-form">
+          <label>
+            Status
+            <select id="inquiry-status" name="status">
+              <option value="new">New</option>
+              <option value="reviewing">Reviewing</option>
+              <option value="replied">Replied</option>
+              <option value="accepted">Accepted</option>
+              <option value="declined">Declined</option>
+              <option value="closed">Closed</option>
+            </select>
+          </label>
+          <button type="submit" class="admin-button">Update Status</button>
+        </form>
+
+        <p class="admin-notice" id="inquiry-detail-status" aria-live="polite"></p>
+      </section>
+    </div>
+
+  </main>
+
+  <script src="../js/admin-inquiries.js"></script>
+</body>
+</html>
