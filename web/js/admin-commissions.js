@@ -19,10 +19,12 @@
     "width",
     "height",
     "price",
-    "required_deposit",
-    "deposit_amount",
     "sales_tax",
     "shipping",
+    "total",
+    "required_deposit",
+    "deposit_amount",
+    "amount_paid",
     "balance",
     "status",
     "estimated_completion",
@@ -39,10 +41,12 @@
     width: "Width (in)",
     height: "Height (in)",
     price: "Price",
-    required_deposit: "Required Deposit (50%)",
-    deposit_amount: "Deposit Amount",
     sales_tax: "Sales Tax",
     shipping: "Shipping",
+    total: "Total",
+    required_deposit: "Required Deposit (50%)",
+    deposit_amount: "Deposit Amount",
+    amount_paid: "Amount Paid",
     balance: "Balance",
     status: "Status",
     estimated_completion: "Estimated Completion",
@@ -51,10 +55,12 @@
   };
   const moneyFields = new Set([
     "price",
-    "required_deposit",
-    "deposit_amount",
     "sales_tax",
     "shipping",
+    "total",
+    "required_deposit",
+    "deposit_amount",
+    "amount_paid",
     "balance"
   ]);
 
@@ -190,6 +196,11 @@
   function renderDetailMarkup(commission) {
     const detail = {
       ...commission,
+      total: (
+        toCents(commission.price)
+        + toCents(commission.sales_tax)
+        + toCents(commission.shipping)
+      ) / 100,
       required_deposit: Math.round(toCents(commission.price) / 2) / 100
     };
 
@@ -213,6 +224,41 @@
     return (statusTransitions[status] || []).map((nextStatus) =>
       `<option value="${escapeHtml(nextStatus)}">${escapeHtml(formatLabel(nextStatus))}</option>`
     ).join("");
+  }
+
+  function sortPayments(payments) {
+    return [...payments].sort((left, right) => {
+      const leftDate = left.payment_date ? String(left.payment_date).slice(0, 10) : "";
+      const rightDate = right.payment_date ? String(right.payment_date).slice(0, 10) : "";
+
+      if (leftDate !== rightDate) {
+        if (!leftDate) return 1;
+        if (!rightDate) return -1;
+        return rightDate.localeCompare(leftDate);
+      }
+
+      const createdDifference = String(right.created_at).localeCompare(String(left.created_at));
+      return createdDifference || Number(right.id) - Number(left.id);
+    });
+  }
+
+  function renderPaymentsMarkup(payments) {
+    if (!payments.length) {
+      return '<tr><td colspan="8" class="inquiry-empty">No payments recorded.</td></tr>';
+    }
+
+    return sortPayments(payments).map((payment) => `
+      <tr>
+        <td>${payment.payment_date ? escapeHtml(formatDateOnly(payment.payment_date)) : "—"}</td>
+        <td>${escapeHtml(formatLabel(payment.payment_type))}</td>
+        <td>${escapeHtml(formatCurrency(payment.amount))}</td>
+        <td>${escapeHtml(formatCurrency(payment.sales_tax))}</td>
+        <td>${hasContent(payment.payment_method) ? escapeHtml(payment.payment_method) : "—"}</td>
+        <td>${escapeHtml(formatLabel(payment.status))}</td>
+        <td>${hasContent(payment.external_reference) ? escapeHtml(payment.external_reference) : "—"}</td>
+        <td>${hasContent(payment.notes) ? escapeHtml(payment.notes) : "—"}</td>
+      </tr>
+    `).join("");
   }
 
   function readRequired(form, field, label) {
@@ -284,6 +330,37 @@
     };
   }
 
+  function buildPaymentPayload(form, requestId) {
+    const amount = String(form.elements.namedItem("amount").value || "").trim();
+    const salesTax = String(form.elements.namedItem("sales_tax").value || "").trim() || "0";
+
+    if (!/^\d+(?:\.\d{1,2})?$/.test(amount) || toCents(amount) <= 0) {
+      throw new Error("Amount must be greater than 0 with no more than 2 decimals.");
+    }
+
+    if (!/^\d+(?:\.\d{1,2})?$/.test(salesTax)) {
+      throw new Error("Sales tax must be 0 or greater with no more than 2 decimals.");
+    }
+
+    if (toCents(salesTax) > toCents(amount)) {
+      throw new Error("Sales tax cannot exceed amount.");
+    }
+
+    return {
+      request_id: requestId,
+      payment_type: readRequired(form, "payment_type", "Payment type"),
+      amount,
+      sales_tax: salesTax,
+      payment_method:
+        String(form.elements.namedItem("payment_method").value || "").trim() || null,
+      payment_date:
+        String(form.elements.namedItem("payment_date").value || "").trim() || null,
+      external_reference:
+        String(form.elements.namedItem("external_reference").value || "").trim() || null,
+      notes: String(form.elements.namedItem("notes").value || "").trim() || null
+    };
+  }
+
   async function fetchJson(fetchImplementation, url, options) {
     const response = await fetchImplementation(url, options);
 
@@ -306,7 +383,11 @@
     return body;
   }
 
-  function createApp(documentObject, fetchImplementation) {
+  function createApp(
+    documentObject,
+    fetchImplementation,
+    uuidFactory = () => globalObject.crypto.randomUUID()
+  ) {
     const elements = {
       count: documentObject.querySelector("#commission-count"),
       list: documentObject.querySelector("#commission-list"),
@@ -318,6 +399,12 @@
       closeDetail: documentObject.querySelector("#close-commission-detail"),
       editCommission: documentObject.querySelector("#edit-commission"),
       changeStatus: documentObject.querySelector("#change-commission-status"),
+      payments: documentObject.querySelector("#commission-payments"),
+      paymentList: documentObject.querySelector("#payment-list"),
+      paymentStatus: documentObject.querySelector("#payment-status"),
+      recordPayment: documentObject.querySelector("#record-payment"),
+      paymentForm: documentObject.querySelector("#payment-form"),
+      cancelPayment: documentObject.querySelector("#cancel-payment"),
       statusForm: documentObject.querySelector("#commission-status-form"),
       cancelStatus: documentObject.querySelector("#cancel-commission-status"),
       statusConfirmation:
@@ -346,6 +433,8 @@
     let commissions = [];
     let selectedCommission = null;
     let pendingStatus = null;
+    let payments = [];
+    let paymentRequestId = null;
 
     function showError(element, error) {
       element.textContent = error.message || "An unexpected error occurred.";
@@ -355,6 +444,24 @@
     function renderList() {
       elements.list.innerHTML = renderListMarkup(commissions);
       elements.count.textContent = String(commissions.length);
+    }
+
+    function renderPayments() {
+      elements.paymentList.innerHTML = renderPaymentsMarkup(payments);
+    }
+
+    function mergeCommissionFinancials(financials) {
+      selectedCommission = {
+        ...selectedCommission,
+        ...financials
+      };
+      commissions = commissions.map((commission) =>
+        String(commission.id) === String(selectedCommission.id)
+          ? { ...commission, ...financials }
+          : commission
+      );
+      renderList();
+      elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
     }
 
     function updateFinancialPreview() {
@@ -427,6 +534,38 @@
       }
     }
 
+    async function loadPayments() {
+      if (!selectedCommission) {
+        payments = [];
+        renderPayments();
+        return [];
+      }
+
+      elements.paymentStatus.textContent = "Loading payments…";
+      elements.paymentStatus.classList?.remove("is-error");
+
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/payments`
+        );
+        payments = body.payments || [];
+
+        if (body.commission) {
+          mergeCommissionFinancials(body.commission);
+        }
+
+        renderPayments();
+        elements.paymentStatus.textContent = "";
+        return payments;
+      } catch (error) {
+        payments = [];
+        renderPayments();
+        showError(elements.paymentStatus, error);
+        return [];
+      }
+    }
+
     async function openDetail(id) {
       elements.createPanel.hidden = true;
       elements.detail.hidden = false;
@@ -442,6 +581,7 @@
         elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
         showReadOnlyDetail();
         elements.detailStatus.textContent = "";
+        await loadPayments();
         return selectedCommission;
       } catch (error) {
         selectedCommission = null;
@@ -457,6 +597,7 @@
       }
 
       const form = elements.editForm;
+      cancelPayment();
       form.elements.namedItem("title").value = selectedCommission.title;
       form.elements.namedItem("description").value = selectedCommission.description;
       form.elements.namedItem("medium").value = selectedCommission.medium;
@@ -493,6 +634,7 @@
       }
 
       const transitions = statusTransitions[selectedCommission.status] || [];
+      cancelPayment();
       const select = elements.statusForm.elements.namedItem("status");
       select.innerHTML = renderStatusOptions(selectedCommission.status);
       select.value = transitions[0] || "";
@@ -541,6 +683,7 @@
 
     function openCreate() {
       elements.detail.hidden = true;
+      cancelPayment();
       elements.createPanel.hidden = false;
       elements.createForm.reset();
       elements.createForm.elements.namedItem("sales_tax_rate").value = "0.06";
@@ -583,6 +726,8 @@
         elements.createPanel.hidden = true;
         elements.detail.hidden = false;
         elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
+        payments = [];
+        renderPayments();
         showReadOnlyDetail();
         elements.detailStatus.textContent = "Commission created.";
         return selectedCommission;
@@ -688,6 +833,76 @@
       }
     }
 
+    function openPayment() {
+      if (!selectedCommission) {
+        return null;
+      }
+
+      if (!paymentRequestId) {
+        paymentRequestId = uuidFactory();
+      }
+
+      elements.paymentForm.reset();
+      elements.paymentForm.elements.namedItem("payment_type").value = "deposit";
+      elements.paymentForm.elements.namedItem("sales_tax").value = "0";
+      elements.paymentForm.hidden = false;
+      elements.paymentStatus.textContent = "";
+      elements.paymentStatus.classList?.remove("is-error");
+      return paymentRequestId;
+    }
+
+    function cancelPayment() {
+      elements.paymentForm.hidden = true;
+      paymentRequestId = null;
+    }
+
+    async function submitPayment(event) {
+      event?.preventDefault();
+
+      if (!selectedCommission || !paymentRequestId) {
+        return null;
+      }
+
+      let payload;
+
+      try {
+        payload = buildPaymentPayload(elements.paymentForm, paymentRequestId);
+      } catch (error) {
+        showError(elements.paymentStatus, error);
+        return null;
+      }
+
+      elements.paymentStatus.textContent = "Recording payment…";
+      elements.paymentStatus.classList?.remove("is-error");
+
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/payments`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+          }
+        );
+        payments = sortPayments([
+          body.payment,
+          ...payments.filter((payment) => String(payment.id) !== String(body.payment.id))
+        ]);
+        mergeCommissionFinancials(body.commission);
+        renderPayments();
+        elements.paymentForm.hidden = true;
+        paymentRequestId = null;
+        elements.paymentStatus.textContent = "Payment recorded.";
+        return body.payment;
+      } catch (error) {
+        showError(elements.paymentStatus, error);
+        return null;
+      }
+    }
+
     function bindEvents() {
       elements.list.addEventListener("click", (event) => {
         const button = event.target.closest?.("[data-commission-id]");
@@ -699,6 +914,9 @@
       elements.newCommission.addEventListener("click", openCreate);
       elements.editCommission.addEventListener("click", openEdit);
       elements.changeStatus.addEventListener("click", openStatus);
+      elements.recordPayment.addEventListener("click", openPayment);
+      elements.paymentForm.addEventListener("submit", submitPayment);
+      elements.cancelPayment.addEventListener("click", cancelPayment);
       elements.statusForm.addEventListener("submit", prepareStatusConfirmation);
       elements.cancelStatus.addEventListener("click", cancelStatus);
       elements.confirmStatus.addEventListener("click", submitStatus);
@@ -738,6 +956,10 @@
         elements.detail.hidden = true;
         elements.detailFields.innerHTML = "";
         elements.detailStatus.textContent = "";
+        elements.paymentStatus.textContent = "";
+        payments = [];
+        renderPayments();
+        cancelPayment();
         selectedCommission = null;
         showReadOnlyDetail();
       });
@@ -746,18 +968,22 @@
     return {
       bindEvents,
       cancelEdit,
+      cancelPayment,
       cancelStatus,
       cancelStatusConfirmation,
       closeCreate,
       loadClients,
       loadList,
+      loadPayments,
       openCreate,
       openDetail,
       openEdit,
+      openPayment,
       openStatus,
       prepareStatusConfirmation,
       submitCreate,
       submitEdit,
+      submitPayment,
       submitStatus,
       updateEditFinancialPreview,
       updateFinancialPreview
@@ -769,6 +995,7 @@
     CLIENTS_API_PATH,
     buildCreatePayload,
     buildEditPayload,
+    buildPaymentPayload,
     calculateFinancialPreview,
     createApp,
     fetchJson,
@@ -777,6 +1004,7 @@
     renderClientOptions,
     renderDetailMarkup,
     renderListMarkup,
+    renderPaymentsMarkup,
     renderStatusOptions,
     statusTransitions
   };

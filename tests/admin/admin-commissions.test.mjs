@@ -7,12 +7,14 @@ const require = createRequire(import.meta.url);
 const {
   buildCreatePayload,
   buildEditPayload,
+  buildPaymentPayload,
   calculateFinancialPreview,
   createApp,
   formatCurrency,
   inferSalesTaxRate,
   renderDetailMarkup,
   renderListMarkup,
+  renderPaymentsMarkup,
   renderStatusOptions,
   statusTransitions
 } = require("../../web/js/admin-commissions.js");
@@ -28,7 +30,14 @@ const formFields = [
   "sales_tax_rate",
   "shipping",
   "estimated_completion",
-  "status"
+  "status",
+  "payment_type",
+  "amount",
+  "sales_tax",
+  "payment_method",
+  "payment_date",
+  "external_reference",
+  "notes"
 ];
 
 function createClassList() {
@@ -86,6 +95,8 @@ function createDocument() {
   const form = createFormElement();
   const editForm = createFormElement();
   const statusForm = createFormElement();
+  const paymentForm = createFormElement();
+  paymentForm.hidden = true;
   const elements = {
     "#commission-count": createElement(),
     "#commission-list": createElement(),
@@ -97,6 +108,12 @@ function createDocument() {
     "#close-commission-detail": createElement(),
     "#edit-commission": createElement(),
     "#change-commission-status": createElement(),
+    "#commission-payments": createElement(),
+    "#payment-list": createElement(),
+    "#payment-status": createElement(),
+    "#record-payment": createElement(),
+    "#payment-form": paymentForm,
+    "#cancel-payment": createElement(),
     "#commission-status-form": statusForm,
     "#cancel-commission-status": createElement(),
     "#commission-status-confirmation": createElement(),
@@ -121,6 +138,7 @@ function createDocument() {
     elements,
     inputs: form.inputs,
     editInputs: editForm.inputs,
+    paymentInputs: paymentForm.inputs,
     statusInputs: statusForm.inputs,
     querySelector(selector) {
       return elements[selector];
@@ -158,6 +176,7 @@ const sampleCommission = {
   height: "24.00",
   price: "100.00",
   deposit_amount: "0.00",
+  amount_paid: "0.00",
   sales_tax: "6.00",
   shipping: "10.00",
   balance: "116.00",
@@ -213,15 +232,14 @@ test("admin commission detail opens", async () => {
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Draft/);
 });
 
-test("admin commission status controls expose no payment or document actions", () => {
+test("admin commission status controls expose no document actions", () => {
   const html = readFileSync(
     new URL("../../web/admin/commissions.html", import.meta.url),
     "utf8"
   );
-
   assert.match(html, /id="change-commission-status">Change Status</);
   assert.match(html, /id="commission-status-form"/);
-  assert.doesNotMatch(html, /name="(?:payment|document)/);
+  assert.doesNotMatch(html, /name="document/);
 });
 
 test("admin commission status options include only allowed transitions", () => {
@@ -285,7 +303,7 @@ test("admin commission status confirmation can be cancelled without a request", 
   app.cancelStatusConfirmation();
   assert.equal(documentObject.elements["#commission-status-confirmation"].hidden, true);
   assert.equal(documentObject.elements["#commission-status-form"].hidden, false);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
 });
 
 test("admin commission edit opens with current values preloaded", async () => {
@@ -341,6 +359,10 @@ test("admin commission form uses the approved medium and tax selects", () => {
     new URL("../../web/admin/commissions.html", import.meta.url),
     "utf8"
   );
+  const commissionForms = [
+    html.match(/<form class="admin-form" id="commission-edit-form"[\s\S]*?<\/form>/)[0],
+    html.match(/<form class="admin-form" id="commission-form"[\s\S]*?<\/form>/)[0]
+  ].join("\n");
 
   assert.match(html, /<select name="medium" required>/);
   for (const medium of ["Acrylic", "Watercolor", "Oil", "Drawing"]) {
@@ -358,7 +380,7 @@ test("admin commission form uses the approved medium and tax selects", () => {
   );
   assert.match(html, /value="0\.07">Allegheny County — 7%/);
   assert.match(html, /value="0\.08">Philadelphia — 8%/);
-  assert.doesNotMatch(html, /name="sales_tax"/);
+  assert.doesNotMatch(commissionForms, /name="sales_tax"/);
   assert.match(html, /Required Deposit \(50%\)/);
   assert.match(html, /Estimated Remaining After Deposit/);
   assert.match(html, /id="commission-edit-form"/);
@@ -754,4 +776,274 @@ test("admin commissions display API errors clearly", async () => {
     documentObject.elements["#commission-list-status"].classList.contains("is-error"),
     true
   );
+});
+
+const samplePayment = {
+  id: "50",
+  commission_id: "10",
+  payment_type: "deposit",
+  amount: "25.00",
+  sales_tax: "1.50",
+  payment_method: "Credit card",
+  payment_date: "2026-10-09",
+  status: "completed",
+  external_reference: "reference-50",
+  notes: "Initial payment",
+  created_at: "2026-10-09T15:00:00Z"
+};
+
+function commissionDetailFetch(paymentResponse = []) {
+  return async (url) => url.endsWith("/payments")
+    ? jsonResponse({
+        success: true,
+        commission: sampleCommission,
+        payments: paymentResponse
+      })
+    : jsonResponse({ success: true, commission: sampleCommission });
+}
+
+function fillPaymentForm(documentObject) {
+  documentObject.paymentInputs.payment_type.value = "deposit";
+  documentObject.paymentInputs.amount.value = "25.00";
+  documentObject.paymentInputs.sales_tax.value = "1.50";
+  documentObject.paymentInputs.payment_method.value = " Credit card ";
+  documentObject.paymentInputs.payment_date.value = "2026-10-09";
+  documentObject.paymentInputs.external_reference.value = " reference-50 ";
+  documentObject.paymentInputs.notes.value = " Initial payment ";
+}
+
+test("Payments section and Record Payment form are present", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(html, /id="commission-payments"/);
+  assert.match(html, /<h2>Payments<\/h2>/);
+  assert.match(html, /id="record-payment">Record Payment</);
+  assert.match(html, /id="payment-list"/);
+});
+
+test("Payment form exposes only the three approved types and no status", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  const form = html.match(/<form class="admin-form" id="payment-form"[\s\S]*?<\/form>/)[0];
+
+  assert.match(form, /value="deposit">Deposit</);
+  assert.match(form, /value="installment">Installment</);
+  assert.match(form, /value="balance">Balance</);
+  assert.doesNotMatch(form, /value="refund"|value="adjustment"/);
+  assert.doesNotMatch(form, /name="status"/);
+});
+
+test("Payment history renders all approved fields including sales tax portion", () => {
+  const markup = renderPaymentsMarkup([samplePayment]);
+
+  assert.match(markup, /Oct 9, 2026/);
+  assert.match(markup, /Deposit/);
+  assert.match(markup, /\$25\.00/);
+  assert.match(markup, /\$1\.50/);
+  assert.match(markup, /Credit card/);
+  assert.match(markup, /Completed/);
+  assert.match(markup, /reference-50/);
+  assert.match(markup, /Initial payment/);
+});
+
+test("Payment history shows an empty state without broken values", () => {
+  assert.match(renderPaymentsMarkup([]), /No payments recorded/);
+  assert.doesNotMatch(renderPaymentsMarkup([]), /undefined|null/);
+});
+
+test("opening Record Payment creates one request id and opens the form", async () => {
+  const documentObject = createDocument();
+  let uuidCalls = 0;
+  const app = createApp(
+    documentObject,
+    commissionDetailFetch(),
+    () => {
+      uuidCalls += 1;
+      return "11111111-1111-4111-8111-111111111111";
+    }
+  );
+
+  await app.openDetail(sampleCommission.id);
+  const requestId = app.openPayment();
+
+  assert.equal(requestId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(uuidCalls, 1);
+  assert.equal(documentObject.elements["#payment-form"].hidden, false);
+  assert.equal(documentObject.paymentInputs.payment_type.value, "deposit");
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "0");
+});
+
+test("payment payload contains only approved normalized fields", () => {
+  const documentObject = createDocument();
+  fillPaymentForm(documentObject);
+  const payload = buildPaymentPayload(
+    documentObject.elements["#payment-form"],
+    "11111111-1111-4111-8111-111111111111"
+  );
+
+  assert.deepEqual(Object.keys(payload), [
+    "request_id",
+    "payment_type",
+    "amount",
+    "sales_tax",
+    "payment_method",
+    "payment_date",
+    "external_reference",
+    "notes"
+  ]);
+  assert.equal(payload.payment_method, "Credit card");
+  assert.equal(payload.external_reference, "reference-50");
+  assert.equal(payload.notes, "Initial payment");
+  assert.equal(Object.hasOwn(payload, "status"), false);
+  assert.equal(Object.hasOwn(payload, "commission_id"), false);
+});
+
+test("failed retries reuse the same request id and show the API error", async () => {
+  const documentObject = createDocument();
+  const postPayloads = [];
+  let uuidCalls = 0;
+  const app = createApp(documentObject, async (url, options) => {
+    if (options?.method === "POST") {
+      postPayloads.push(JSON.parse(options.body));
+      return jsonResponse({ message: "Payment service unavailable." }, 500);
+    }
+
+    return commissionDetailFetch()(url);
+  }, () => {
+    uuidCalls += 1;
+    return "11111111-1111-4111-8111-111111111111";
+  });
+
+  await app.openDetail(sampleCommission.id);
+  app.openPayment();
+  fillPaymentForm(documentObject);
+  await app.submitPayment();
+  await app.submitPayment();
+
+  assert.equal(uuidCalls, 1);
+  assert.equal(postPayloads.length, 2);
+  assert.equal(postPayloads[0].request_id, postPayloads[1].request_id);
+  assert.equal(
+    documentObject.elements["#payment-status"].textContent,
+    "Payment service unavailable."
+  );
+  assert.equal(documentObject.elements["#payment-form"].hidden, false);
+});
+
+test("overpayment displays the clear backend message", async () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, async (url, options) => {
+    if (options?.method === "POST") {
+      return jsonResponse({
+        message: "Payment amount exceeds the commission balance."
+      }, 409);
+    }
+
+    return commissionDetailFetch()(url);
+  }, () => "11111111-1111-4111-8111-111111111111");
+
+  await app.openDetail(sampleCommission.id);
+  app.openPayment();
+  fillPaymentForm(documentObject);
+  await app.submitPayment();
+
+  assert.equal(
+    documentObject.elements["#payment-status"].textContent,
+    "Payment amount exceeds the commission balance."
+  );
+});
+
+test("successful payment updates history and all received-payment financials", async () => {
+  const documentObject = createDocument();
+  const updatedFinancials = {
+    id: "10",
+    price: "100.00",
+    deposit_amount: "25.00",
+    amount_paid: "25.00",
+    sales_tax: "6.00",
+    shipping: "10.00",
+    balance: "91.00"
+  };
+  const app = createApp(documentObject, async (url, options) => {
+    if (options?.method === "POST") {
+      return jsonResponse({
+        success: true,
+        created: true,
+        payment: samplePayment,
+        commission: updatedFinancials
+      }, 201);
+    }
+
+    return commissionDetailFetch()(url);
+  }, () => "11111111-1111-4111-8111-111111111111");
+
+  await app.openDetail(sampleCommission.id);
+  app.openPayment();
+  fillPaymentForm(documentObject);
+  await app.submitPayment();
+
+  const detail = documentObject.elements["#commission-detail-fields"].innerHTML;
+  assert.match(documentObject.elements["#payment-list"].innerHTML, /Initial payment/);
+  assert.match(detail, /Deposit Amount[\s\S]*\$25\.00/);
+  assert.match(detail, /Amount Paid[\s\S]*\$25\.00/);
+  assert.match(detail, /Balance[\s\S]*\$91\.00/);
+  assert.equal(documentObject.elements["#payment-status"].textContent, "Payment recorded.");
+  assert.equal(documentObject.elements["#payment-form"].hidden, true);
+});
+
+test("success creates a different request id for the next payment", async () => {
+  const documentObject = createDocument();
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222"
+  ];
+  const app = createApp(documentObject, async (url, options) => {
+    if (options?.method === "POST") {
+      return jsonResponse({
+        success: true,
+        created: true,
+        payment: samplePayment,
+        commission: {
+          ...sampleCommission,
+          deposit_amount: "25.00",
+          amount_paid: "25.00",
+          balance: "91.00"
+        }
+      }, 201);
+    }
+
+    return commissionDetailFetch()(url);
+  }, () => ids.shift());
+
+  await app.openDetail(sampleCommission.id);
+  const firstId = app.openPayment();
+  fillPaymentForm(documentObject);
+  await app.submitPayment();
+  const secondId = app.openPayment();
+
+  assert.equal(firstId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(secondId, "22222222-2222-4222-8222-222222222222");
+});
+
+test("commission financial summary clearly shows total and payment fields", () => {
+  const markup = renderDetailMarkup({
+    ...sampleCommission,
+    price: "400.00",
+    sales_tax: "24.00",
+    shipping: "20.00",
+    deposit_amount: "200.00",
+    amount_paid: "200.00",
+    balance: "244.00"
+  });
+
+  assert.match(markup, /Total[\s\S]*\$444\.00/);
+  assert.match(markup, /Required Deposit \(50%\)[\s\S]*\$200\.00/);
+  assert.match(markup, /Deposit Amount[\s\S]*\$200\.00/);
+  assert.match(markup, /Amount Paid[\s\S]*\$200\.00/);
+  assert.match(markup, /Balance[\s\S]*\$244\.00/);
 });
