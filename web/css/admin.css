@@ -118,6 +118,15 @@ body {
   border-color: black;
 }
 
+.admin-text-link {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+.commission-receipt-action {
+  margin: -8px 0 18px;
+}
+
 .admin-card h2 {
   font-weight: normal;
   margin-top: 0;

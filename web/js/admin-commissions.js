@@ -278,7 +278,7 @@
 
   function renderPaymentsMarkup(payments) {
     if (!payments.length) {
-      return '<tr><td colspan="7" class="inquiry-empty">No payments recorded.</td></tr>';
+      return '<tr><td colspan="8" class="inquiry-empty">No payments recorded.</td></tr>';
     }
 
     return sortPayments(payments).map((payment) => `
@@ -293,6 +293,9 @@
           ${hasContent(payment.external_reference) ? escapeHtml(payment.external_reference) : "—"}
           ${hasContent(payment.notes) ? `<span class="commission-payment-notes"><strong>Notes:</strong> ${escapeHtml(payment.notes)}</span>` : ""}
         </td>
+        <td data-label="Receipt">${payment.receipt?.file_location
+          ? `<a class="admin-text-link" href="${escapeHtml(payment.receipt.file_location)}">View Receipt</a>`
+          : "—"}</td>
       </tr>
     `).join("");
   }
@@ -441,6 +444,7 @@
       payments: documentObject.querySelector("#commission-payments"),
       paymentList: documentObject.querySelector("#payment-list"),
       paymentStatus: documentObject.querySelector("#payment-status"),
+      paymentReceiptAction: documentObject.querySelector("#payment-receipt-action"),
       paymentGuidance: documentObject.querySelector("#payment-guidance"),
       recordPayment: documentObject.querySelector("#record-payment"),
       paymentForm: documentObject.querySelector("#payment-form"),
@@ -526,6 +530,7 @@
       elements.detailFields.innerHTML = "";
       elements.detailStatus.textContent = "";
       elements.paymentStatus.textContent = "";
+      elements.paymentReceiptAction.innerHTML = "";
       elements.indexToolbar.hidden = false;
       elements.listStatus.hidden = false;
       elements.listPanel.hidden = false;
@@ -629,6 +634,7 @@
       }
 
       elements.paymentStatus.textContent = "Loading payments…";
+      elements.paymentReceiptAction.innerHTML = "";
       elements.paymentStatus.classList?.remove("is-error");
 
       try {
@@ -946,6 +952,7 @@
       elements.paymentForm.elements.namedItem("payment_method").value = "";
       elements.paymentForm.hidden = false;
       elements.paymentStatus.textContent = "";
+      elements.paymentReceiptAction.innerHTML = "";
       elements.paymentStatus.classList?.remove("is-error");
       return paymentRequestId;
     }
@@ -1020,7 +1027,7 @@
           }
         );
         payments = sortPayments([
-          body.payment,
+          { ...body.payment, receipt: body.receipt || null },
           ...payments.filter((payment) => String(payment.id) !== String(body.payment.id))
         ]);
         mergeCommissionFinancials(body.commission);
@@ -1036,6 +1043,9 @@
         } else {
           elements.paymentStatus.textContent = "Payment recorded.";
         }
+        elements.paymentReceiptAction.innerHTML = body.receipt?.file_location
+          ? `<a class="admin-text-link" href="${escapeHtml(body.receipt.file_location)}">View Receipt</a>`
+          : "";
         return body.payment;
       } catch (error) {
         showError(elements.paymentStatus, error);
