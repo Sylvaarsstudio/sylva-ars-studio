@@ -172,7 +172,7 @@
     return body;
   }
 
-  function createApp(documentObject, fetchImplementation) {
+  function createApp(documentObject, fetchImplementation, confirmImplementation = () => true) {
     const elements = {
       count: documentObject.querySelector("#inquiry-count"),
       statusFilter: documentObject.querySelector("#inquiry-status-filter"),
@@ -184,6 +184,7 @@
       detailStatus: documentObject.querySelector("#inquiry-detail-status"),
       statusForm: documentObject.querySelector("#inquiry-status-form"),
       statusSelect: documentObject.querySelector("#inquiry-status"),
+      convertClient: documentObject.querySelector("#convert-inquiry-client"),
       closeDetail: documentObject.querySelector("#close-inquiry-detail")
     };
     let selectedInquiryId = "";
@@ -192,6 +193,10 @@
     function showError(element, error) {
       element.textContent = error.message || "An unexpected error occurred.";
       element.classList?.add("is-error");
+    }
+
+    function updateConversionAction() {
+      elements.convertClient.hidden = selectedInquiry?.status !== "accepted";
     }
 
     async function loadList() {
@@ -229,12 +234,14 @@
         selectedInquiry = body.inquiry;
         elements.detailFields.innerHTML = renderDetailMarkup(body.inquiry);
         elements.statusSelect.value = body.inquiry.status;
+        updateConversionAction();
         elements.detailStatus.textContent = "";
         return body.inquiry;
       } catch (error) {
         selectedInquiryId = "";
         selectedInquiry = null;
         elements.detailFields.innerHTML = "";
+        updateConversionAction();
         showError(elements.detailStatus, error);
         return null;
       }
@@ -265,9 +272,38 @@
           ...body.inquiry
         };
         elements.detailFields.innerHTML = renderDetailMarkup(selectedInquiry);
+        updateConversionAction();
         elements.detailStatus.textContent = "Status updated.";
         await loadList();
         return body.inquiry;
+      } catch (error) {
+        showError(elements.detailStatus, error);
+        return null;
+      }
+    }
+
+    async function convertToClient() {
+      if (
+        !selectedInquiryId
+        || selectedInquiry?.status !== "accepted"
+        || !confirmImplementation("Convert this accepted inquiry to a client?")
+      ) {
+        return null;
+      }
+
+      elements.detailStatus.textContent = "Converting inquiry…";
+      elements.detailStatus.classList?.remove("is-error");
+
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedInquiryId)}/convert-client`,
+          { method: "POST" }
+        );
+        elements.detailStatus.textContent = body.created
+          ? "Client created."
+          : "Existing client linked/found.";
+        return body;
       } catch (error) {
         showError(elements.detailStatus, error);
         return null;
@@ -288,15 +324,18 @@
         event.preventDefault();
         updateStatus();
       });
+      elements.convertClient.addEventListener("click", convertToClient);
       elements.closeDetail.addEventListener("click", () => {
         elements.detail.hidden = true;
         selectedInquiryId = "";
         selectedInquiry = null;
+        updateConversionAction();
       });
     }
 
     return {
       bindEvents,
+      convertToClient,
       loadList,
       openDetail,
       updateStatus
@@ -320,7 +359,11 @@
   globalObject.AdminInquiries = api;
 
   if (globalObject.document) {
-    const app = createApp(globalObject.document, globalObject.fetch.bind(globalObject));
+    const app = createApp(
+      globalObject.document,
+      globalObject.fetch.bind(globalObject),
+      globalObject.confirm.bind(globalObject)
+    );
     app.bindEvents();
     app.loadList();
   }

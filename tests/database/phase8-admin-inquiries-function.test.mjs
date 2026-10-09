@@ -81,6 +81,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await db?.pool.query("DELETE FROM inquiries");
+  await db?.pool.query("DELETE FROM clients");
 });
 
 after(async () => {
@@ -111,7 +112,8 @@ test("phase 8 exposes only admin-scoped custom paths", () => {
   assert.equal(config.path.every((path) => typeof path === "string"), true);
   assert.deepEqual(config.path, [
     "/admin/api/inquiries",
-    "/admin/api/inquiries/:id"
+    "/admin/api/inquiries/:id",
+    "/admin/api/inquiries/:id/convert-client"
   ]);
 });
 
@@ -244,7 +246,8 @@ test("phase 8 uses parameterized SQL for filters and status updates", async () =
 for (const [method, path, body] of [
   ["GET", "", undefined],
   ["GET", "/00000000-0000-4000-8000-000000000001", undefined],
-  ["PATCH", "/00000000-0000-4000-8000-000000000001", { status: "closed" }]
+  ["PATCH", "/00000000-0000-4000-8000-000000000001", { status: "closed" }],
+  ["POST", "/00000000-0000-4000-8000-000000000001/convert-client", undefined]
 ]) {
   test(`phase 8 rejects unauthenticated ${method} ${path || "list"}`, async () => {
     const response = await request(method, path, body, "");
@@ -253,6 +256,149 @@ for (const [method, path, body] of [
     assert.equal((await response.json()).message, "Unauthorized.");
   });
 }
+
+test("phase 9 converts an accepted inquiry to a client", async () => {
+  const id = seeded.contact;
+  await db.pool.query(
+    `UPDATE inquiries
+     SET status = 'accepted', client_phone = '555-0100'
+     WHERE id = $1`,
+    [id]
+  );
+
+  const response = await request("POST", `/${id}/convert-client`);
+  const body = await response.json();
+  const stored = await db.pool.query(
+    "SELECT id, full_name, email, phone FROM clients"
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(body).sort(), [
+    "client_id",
+    "created",
+    "inquiry_id",
+    "success"
+  ]);
+  assert.equal(body.success, true);
+  assert.equal(body.inquiry_id, id);
+  assert.equal(body.created, true);
+  assert.equal(stored.rowCount, 1);
+  assert.equal(stored.rows[0].full_name, "Contact Client");
+  assert.equal(stored.rows[0].email, "contact@example.invalid");
+  assert.equal(stored.rows[0].phone, "555-0100");
+  assert.equal(String(stored.rows[0].id), String(body.client_id));
+});
+
+for (const status of ["new", "reviewing", "replied", "declined", "closed"]) {
+  test(`phase 9 rejects conversion when inquiry status is ${status}`, async () => {
+    const id = seeded.contact;
+    await db.pool.query(
+      "UPDATE inquiries SET status = $1 WHERE id = $2",
+      [status, id]
+    );
+
+    const response = await request("POST", `/${id}/convert-client`);
+
+    assert.equal(response.status, 400);
+    assert.equal(
+      (await response.json()).message,
+      "Only accepted inquiries can be converted to clients."
+    );
+    assert.equal(
+      Number((await db.pool.query("SELECT count(*) FROM clients")).rows[0].count),
+      0
+    );
+  });
+}
+
+test("phase 9 returns 404 when converting an unknown inquiry", async () => {
+  const response = await request(
+    "POST",
+    "/00000000-0000-4000-8000-000000000001/convert-client"
+  );
+
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).message, "Inquiry not found.");
+});
+
+test("phase 9 rejects an invalid conversion UUID", async () => {
+  const response = await request("POST", "/not-a-uuid/convert-client");
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).message, "Invalid inquiry id.");
+});
+
+test("phase 9 reuses an existing client using normalized email", async () => {
+  const id = seeded.contact;
+  const existing = await db.pool.query(
+    `INSERT INTO clients (full_name, email, phone)
+     VALUES ('Existing Client', '  CONTACT@EXAMPLE.INVALID  ', NULL)
+     RETURNING id`
+  );
+  await db.pool.query(
+    "UPDATE inquiries SET status = 'accepted' WHERE id = $1",
+    [id]
+  );
+
+  const response = await request("POST", `/${id}/convert-client`);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.created, false);
+  assert.equal(String(body.client_id), String(existing.rows[0].id));
+  assert.equal(
+    Number((await db.pool.query("SELECT count(*) FROM clients")).rows[0].count),
+    1
+  );
+});
+
+test("phase 9 repeated conversion does not create a duplicate client", async () => {
+  const id = seeded.contact;
+  await db.pool.query(
+    "UPDATE inquiries SET status = 'accepted' WHERE id = $1",
+    [id]
+  );
+
+  const first = await request("POST", `/${id}/convert-client`);
+  const second = await request("POST", `/${id}/convert-client`);
+  const firstBody = await first.json();
+  const secondBody = await second.json();
+
+  assert.equal(firstBody.created, true);
+  assert.equal(secondBody.created, false);
+  assert.equal(String(firstBody.client_id), String(secondBody.client_id));
+  assert.equal(
+    Number((await db.pool.query("SELECT count(*) FROM clients")).rows[0].count),
+    1
+  );
+});
+
+test("phase 9 preserves NULL phone and creates no related records", async () => {
+  const id = seeded.contact;
+  await db.pool.query(
+    "UPDATE inquiries SET status = 'accepted' WHERE id = $1",
+    [id]
+  );
+
+  const response = await request("POST", `/${id}/convert-client`);
+  const counts = await db.pool.query(`
+    SELECT
+      (SELECT count(*)::integer FROM clients) AS clients,
+      (SELECT count(*)::integer FROM commissions) AS commissions,
+      (SELECT count(*)::integer FROM payments) AS payments,
+      (SELECT count(*)::integer FROM documents) AS documents
+  `);
+  const client = await db.pool.query("SELECT phone FROM clients");
+
+  assert.equal(response.status, 200);
+  assert.equal(client.rows[0].phone, null);
+  assert.deepEqual(counts.rows[0], {
+    clients: 1,
+    commissions: 0,
+    payments: 0,
+    documents: 0
+  });
+});
 
 test("phase 8 does not create clients or commissions", async () => {
   await request();
