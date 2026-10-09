@@ -460,7 +460,7 @@ test("GET orders payments by date, then creation and id descending", async () =>
   assert.equal(body.payments.every((payment) => !Object.hasOwn(payment, "request_id")), true);
 });
 
-test("payment creation does not change inquiries, clients, documents, or another commission", async () => {
+test("payment creation changes only its receipt document and target commission", async () => {
   const inquiriesBefore = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
   const clientsBefore = await db.pool.query("SELECT * FROM clients ORDER BY id");
   const otherBefore = await financials(commissions["Untouched Commission"]);
@@ -474,7 +474,7 @@ test("payment creation does not change inquiries, clients, documents, or another
   assert.deepEqual(inquiriesAfter.rows, inquiriesBefore.rows);
   assert.deepEqual(clientsAfter.rows, clientsBefore.rows);
   assert.deepEqual(await financials(commissions["Untouched Commission"]), otherBefore);
-  assert.equal(documents.rows[0].count, 0);
+  assert.equal(documents.rows[0].count, 1);
 });
 
 test("row lock prevents concurrent payments from exceeding balance", async () => {

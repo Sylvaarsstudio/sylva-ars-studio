@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Receipt | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/payment-receipt.css">
+</head>
+
+<body>
+  <main class="receipt-page">
+    <nav class="receipt-actions" aria-label="Receipt actions">
+      <a class="receipt-action" id="back-to-commission" href="/admin/commissions.html">Back to Commission</a>
+      <button class="receipt-action" id="print-receipt" type="button">Print / Save PDF</button>
+    </nav>
+
+    <p class="receipt-status" id="receipt-status" aria-live="polite">Loading receipt…</p>
+    <article class="payment-receipt" id="payment-receipt" hidden></article>
+  </main>
+
+  <script src="../js/admin-payment-receipt.js"></script>
+</body>
+
+</html>

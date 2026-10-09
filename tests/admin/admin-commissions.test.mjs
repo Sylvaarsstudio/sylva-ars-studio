@@ -115,6 +115,7 @@ function createDocument() {
     "#commission-payments": createElement(),
     "#payment-list": createElement(),
     "#payment-status": createElement(),
+    "#payment-receipt-action": createElement(),
     "#payment-guidance": createElement(),
     "#record-payment": createElement(),
     "#payment-form": paymentForm,
@@ -944,6 +945,21 @@ test("Payment history renders all approved fields including sales tax portion", 
   assert.match(markup, /Initial payment/);
 });
 
+test("Payment history shows View Receipt only when a receipt exists", () => {
+  const receiptPayment = {
+    ...samplePayment,
+    receipt: {
+      id: "70",
+      document_number: "SAS-REC-2026-0001",
+      file_location: "/admin/payment-receipt.html?receipt=70"
+    }
+  };
+
+  assert.match(renderPaymentsMarkup([receiptPayment]), /View Receipt/);
+  assert.match(renderPaymentsMarkup([receiptPayment]), /receipt=70/);
+  assert.doesNotMatch(renderPaymentsMarkup([samplePayment]), /View Receipt/);
+});
+
 test("Payment history shows an empty state without broken values", () => {
   assert.match(renderPaymentsMarkup([]), /No payments recorded/);
   assert.doesNotMatch(renderPaymentsMarkup([]), /undefined|null/);
@@ -1182,6 +1198,11 @@ test("successful payment updates history and all received-payment financials", a
         success: true,
         created: true,
         payment: samplePayment,
+        receipt: {
+          id: "70",
+          document_number: "SAS-REC-2026-0001",
+          file_location: "/admin/payment-receipt.html?receipt=70"
+        },
         commission: updatedFinancials
       }, 201);
     }
@@ -1200,6 +1221,8 @@ test("successful payment updates history and all received-payment financials", a
   assert.match(detail, /Amount Paid[\s\S]*\$25\.00/);
   assert.match(detail, /Balance[\s\S]*\$91\.00/);
   assert.equal(documentObject.elements["#payment-status"].textContent, "Payment recorded.");
+  assert.match(documentObject.elements["#payment-receipt-action"].innerHTML, /View Receipt/);
+  assert.match(documentObject.elements["#payment-receipt-action"].innerHTML, /receipt=70/);
   assert.equal(documentObject.elements["#payment-form"].hidden, true);
   assert.equal(documentObject.paymentInputs.payment_type.value, "balance");
   assert.equal(documentObject.paymentInputs.amount.value, "91.00");

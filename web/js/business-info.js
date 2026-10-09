@@ -10,7 +10,11 @@
     websiteHref: "https://sylvaarsstudio.com"
   });
 
-  function applyBusinessInformation(root = document) {
+  function applyBusinessInformation(root = global.document) {
+    if (!root) {
+      return;
+    }
+
     root.querySelectorAll("[data-business-field]").forEach((element) => {
       const field = element.dataset.businessField;
       const value = businessInformation[field];
@@ -34,9 +38,15 @@
     apply: applyBusinessInformation
   });
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => applyBusinessInformation());
-  } else {
-    applyBusinessInformation();
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = businessInformation;
+  }
+
+  if (global.document) {
+    if (global.document.readyState === "loading") {
+      global.document.addEventListener("DOMContentLoaded", () => applyBusinessInformation());
+    } else {
+      applyBusinessInformation();
+    }
   }
 })(globalThis);
