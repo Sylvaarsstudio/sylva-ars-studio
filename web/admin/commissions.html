@@ -67,6 +67,79 @@
 
         <div id="commission-detail-fields"></div>
 
+        <section id="commission-payments">
+          <div class="inquiry-detail-heading">
+            <h2>Payments</h2>
+            <button type="button" class="admin-text-button" id="record-payment">Record Payment</button>
+          </div>
+
+          <p class="admin-notice" id="payment-status" aria-live="polite"></p>
+
+          <div class="inquiry-table-wrap">
+            <table class="inquiry-table">
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Sales Tax Portion</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Reference</th>
+                  <th scope="col">Notes</th>
+                </tr>
+              </thead>
+              <tbody id="payment-list"></tbody>
+            </table>
+          </div>
+
+          <form class="admin-form" id="payment-form" hidden>
+            <label>
+              Payment Type
+              <select name="payment_type" required>
+                <option value="deposit">Deposit</option>
+                <option value="installment">Installment</option>
+                <option value="balance">Balance</option>
+              </select>
+            </label>
+
+            <label>
+              Amount Received
+              <input type="number" name="amount" min="0.01" step="0.01" required>
+            </label>
+
+            <label>
+              Sales Tax Portion
+              <input type="number" name="sales_tax" min="0" step="0.01" value="0">
+            </label>
+
+            <label>
+              Payment Method
+              <input type="text" name="payment_method">
+            </label>
+
+            <label>
+              Payment Date
+              <input type="date" name="payment_date">
+            </label>
+
+            <label>
+              External Reference
+              <input type="text" name="external_reference">
+            </label>
+
+            <label>
+              Notes
+              <textarea name="notes" rows="4"></textarea>
+            </label>
+
+            <div>
+              <button type="submit" class="admin-button">Record Payment</button>
+              <button type="button" class="admin-text-button" id="cancel-payment">Cancel</button>
+            </div>
+          </form>
+        </section>
+
         <form class="admin-form" id="commission-status-form" hidden>
           <label>
             Status
