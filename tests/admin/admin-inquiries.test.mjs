@@ -54,6 +54,7 @@ function createDocument() {
     "#inquiry-detail-status": createElement(),
     "#inquiry-status-form": createElement(),
     "#inquiry-status": createElement("new"),
+    "#convert-inquiry-client": createElement(),
     "#close-inquiry-detail": createElement()
   };
 
@@ -191,6 +192,112 @@ test("admin inquiry app displays API errors clearly", async () => {
   );
   assert.equal(
     documentObject.elements["#inquiry-list-status"].classList.contains("is-error"),
+    true
+  );
+});
+
+test("admin inquiry conversion button is hidden unless status is accepted", async () => {
+  const documentObject = createDocument();
+  const acceptedInquiry = { ...sampleInquiry, status: "accepted" };
+  let inquiry = sampleInquiry;
+  const app = createApp(
+    documentObject,
+    async () => jsonResponse({ success: true, inquiry })
+  );
+
+  await app.openDetail(sampleInquiry.id);
+  assert.equal(
+    documentObject.elements["#convert-inquiry-client"].hidden,
+    true
+  );
+
+  inquiry = acceptedInquiry;
+  await app.openDetail(sampleInquiry.id);
+  assert.equal(
+    documentObject.elements["#convert-inquiry-client"].hidden,
+    false
+  );
+});
+
+test("admin inquiry conversion click calls the protected endpoint", async () => {
+  const documentObject = createDocument();
+  const acceptedInquiry = { ...sampleInquiry, status: "accepted" };
+  const calls = [];
+  const app = createApp(
+    documentObject,
+    async (url, options = {}) => {
+      calls.push({ url, options });
+
+      if (options.method === "POST") {
+        return jsonResponse({
+          success: true,
+          inquiry_id: acceptedInquiry.id,
+          client_id: "1",
+          created: true
+        });
+      }
+
+      return jsonResponse({ success: true, inquiry: acceptedInquiry });
+    },
+    () => true
+  );
+
+  app.bindEvents();
+  await app.openDetail(acceptedInquiry.id);
+  await documentObject.elements["#convert-inquiry-client"].listeners.get("click")();
+
+  const conversionCall = calls.find((call) => call.options.method === "POST");
+  assert.equal(
+    conversionCall.url,
+    `/admin/api/inquiries/${acceptedInquiry.id}/convert-client`
+  );
+});
+
+for (const [created, message] of [
+  [true, "Client created."],
+  [false, "Existing client linked/found."]
+]) {
+  test(`admin inquiry conversion reports created=${created}`, async () => {
+    const documentObject = createDocument();
+    const acceptedInquiry = { ...sampleInquiry, status: "accepted" };
+    const app = createApp(
+      documentObject,
+      async (url, options = {}) => options.method === "POST"
+        ? jsonResponse({ success: true, client_id: "1", created })
+        : jsonResponse({ success: true, inquiry: acceptedInquiry }),
+      () => true
+    );
+
+    await app.openDetail(acceptedInquiry.id);
+    await app.convertToClient();
+
+    assert.equal(
+      documentObject.elements["#inquiry-detail-status"].textContent,
+      message
+    );
+  });
+}
+
+test("admin inquiry conversion displays API errors clearly", async () => {
+  const documentObject = createDocument();
+  const acceptedInquiry = { ...sampleInquiry, status: "accepted" };
+  const app = createApp(
+    documentObject,
+    async (url, options = {}) => options.method === "POST"
+      ? jsonResponse({ message: "Unable to convert inquiry to client." }, 500)
+      : jsonResponse({ success: true, inquiry: acceptedInquiry }),
+    () => true
+  );
+
+  await app.openDetail(acceptedInquiry.id);
+  await app.convertToClient();
+
+  assert.equal(
+    documentObject.elements["#inquiry-detail-status"].textContent,
+    "Unable to convert inquiry to client."
+  );
+  assert.equal(
+    documentObject.elements["#inquiry-detail-status"].classList.contains("is-error"),
     true
   );
 });
