@@ -58,10 +58,81 @@
       <section class="inquiry-detail-panel" id="commission-detail" aria-live="polite" hidden>
         <div class="inquiry-detail-heading">
           <h2>Commission detail</h2>
-          <button type="button" class="admin-text-button" id="close-commission-detail">Close</button>
+          <div>
+            <button type="button" class="admin-text-button" id="edit-commission">Edit Commission</button>
+            <button type="button" class="admin-text-button" id="close-commission-detail">Close</button>
+          </div>
         </div>
 
         <div id="commission-detail-fields"></div>
+
+        <form class="admin-form" id="commission-edit-form" hidden>
+          <label>
+            Title
+            <input type="text" name="title" required>
+          </label>
+
+          <label>
+            Description
+            <textarea name="description" rows="5" required></textarea>
+          </label>
+
+          <label>
+            Medium
+            <select name="medium" required>
+              <option value="Acrylic">Acrylic</option>
+              <option value="Watercolor">Watercolor</option>
+              <option value="Oil">Oil</option>
+              <option value="Drawing">Drawing</option>
+            </select>
+          </label>
+
+          <label>
+            Width (in)
+            <input type="number" name="width" min="0.01" step="0.01">
+          </label>
+
+          <label>
+            Height (in)
+            <input type="number" name="height" min="0.01" step="0.01">
+          </label>
+
+          <label>
+            Price
+            <input type="number" name="price" min="0" step="0.01" required>
+          </label>
+
+          <label>
+            Sales Tax
+            <select name="sales_tax_rate" required>
+              <option value="0.00">Outside Pennsylvania — PA sales tax not applicable — 0%</option>
+              <option value="0.06" selected>Pennsylvania — 6%</option>
+              <option value="0.07">Allegheny County — 7%</option>
+              <option value="0.08">Philadelphia — 8%</option>
+            </select>
+          </label>
+
+          <p>Based on delivery destination in Pennsylvania.</p>
+          <p>Estimated Sales Tax: <strong id="edit-sales-tax-preview">$0.00</strong></p>
+          <p>Required Deposit (50%): <strong id="edit-required-deposit-preview">$0.00</strong></p>
+          <p>Estimated Remaining After Deposit: <strong id="edit-remaining-after-deposit-preview">$0.00</strong></p>
+
+          <label>
+            Shipping
+            <input type="number" name="shipping" min="0" step="0.01">
+          </label>
+
+          <label>
+            Estimated Completion
+            <input type="date" name="estimated_completion">
+          </label>
+
+          <div>
+            <button type="submit" class="admin-button">Save Changes</button>
+            <button type="button" class="admin-text-button" id="cancel-commission-edit">Cancel</button>
+          </div>
+        </form>
+
         <p class="admin-notice" id="commission-detail-status" aria-live="polite"></p>
       </section>
 
@@ -118,7 +189,8 @@
           <label>
             Sales Tax
             <select name="sales_tax_rate" required>
-              <option value="0.06">Pennsylvania — 6%</option>
+              <option value="0.00">Outside Pennsylvania — PA sales tax not applicable — 0%</option>
+              <option value="0.06" selected>Pennsylvania — 6%</option>
               <option value="0.07">Allegheny County — 7%</option>
               <option value="0.08">Philadelphia — 8%</option>
             </select>

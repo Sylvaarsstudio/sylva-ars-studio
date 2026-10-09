@@ -99,6 +99,19 @@
     };
   }
 
+  function inferSalesTaxRate(price, salesTax) {
+    const priceCents = toCents(price);
+    const salesTaxCents = toCents(salesTax);
+
+    if (priceCents === 0) {
+      return "0.06";
+    }
+
+    return ["0.00", "0.06", "0.07", "0.08"].find(
+      (rate) => Math.round(priceCents * Number(rate)) === salesTaxCents
+    ) || "0.06";
+  }
+
   function formatDate(value) {
     if (!value) {
       return "";
@@ -242,6 +255,21 @@
     };
   }
 
+  function buildEditPayload(form) {
+    return {
+      title: readRequired(form, "title", "Title"),
+      description: readRequired(form, "description", "Description"),
+      medium: readRequired(form, "medium", "Medium"),
+      width: readNumber(form, "width", "Width", { positive: true }),
+      height: readNumber(form, "height", "Height", { positive: true }),
+      price: readNumber(form, "price", "Price", { required: true }),
+      sales_tax_rate: readRequired(form, "sales_tax_rate", "Sales tax rate"),
+      shipping: readNumber(form, "shipping", "Shipping", { defaultValue: 0 }),
+      estimated_completion:
+        String(form.elements.namedItem("estimated_completion").value || "").trim() || null
+    };
+  }
+
   async function fetchJson(fetchImplementation, url, options) {
     const response = await fetchImplementation(url, options);
 
@@ -274,6 +302,14 @@
       detailFields: documentObject.querySelector("#commission-detail-fields"),
       detailStatus: documentObject.querySelector("#commission-detail-status"),
       closeDetail: documentObject.querySelector("#close-commission-detail"),
+      editCommission: documentObject.querySelector("#edit-commission"),
+      editForm: documentObject.querySelector("#commission-edit-form"),
+      editSalesTaxPreview: documentObject.querySelector("#edit-sales-tax-preview"),
+      editRequiredDepositPreview:
+        documentObject.querySelector("#edit-required-deposit-preview"),
+      editRemainingAfterDepositPreview:
+        documentObject.querySelector("#edit-remaining-after-deposit-preview"),
+      cancelEdit: documentObject.querySelector("#cancel-commission-edit"),
       createPanel: documentObject.querySelector("#commission-create"),
       createForm: documentObject.querySelector("#commission-form"),
       createStatus: documentObject.querySelector("#commission-create-status"),
@@ -284,6 +320,7 @@
       cancelCreate: documentObject.querySelector("#cancel-commission")
     };
     let commissions = [];
+    let selectedCommission = null;
 
     function showError(element, error) {
       element.textContent = error.message || "An unexpected error occurred.";
@@ -308,6 +345,27 @@
       elements.remainingAfterDepositPreview.textContent =
         formatCurrency(preview.estimatedRemainingCents / 100);
       return preview;
+    }
+
+    function updateEditFinancialPreview() {
+      const preview = calculateFinancialPreview({
+        price: elements.editForm.elements.namedItem("price").value,
+        salesTaxRate: elements.editForm.elements.namedItem("sales_tax_rate").value,
+        shipping: elements.editForm.elements.namedItem("shipping").value
+      });
+
+      elements.editSalesTaxPreview.textContent = formatCurrency(preview.salesTaxCents / 100);
+      elements.editRequiredDepositPreview.textContent =
+        formatCurrency(preview.requiredDepositCents / 100);
+      elements.editRemainingAfterDepositPreview.textContent =
+        formatCurrency(preview.estimatedRemainingCents / 100);
+      return preview;
+    }
+
+    function showReadOnlyDetail() {
+      elements.editForm.hidden = true;
+      elements.detailFields.hidden = false;
+      elements.editCommission.hidden = false;
     }
 
     async function loadList() {
@@ -351,14 +409,52 @@
           fetchImplementation,
           `${API_PATH}/${encodeURIComponent(id)}`
         );
-        elements.detailFields.innerHTML = renderDetailMarkup(body.commission);
+        selectedCommission = body.commission;
+        elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
+        showReadOnlyDetail();
         elements.detailStatus.textContent = "";
-        return body.commission;
+        return selectedCommission;
       } catch (error) {
+        selectedCommission = null;
         elements.detailFields.innerHTML = "";
         showError(elements.detailStatus, error);
         return null;
       }
+    }
+
+    function openEdit() {
+      if (!selectedCommission) {
+        return;
+      }
+
+      const form = elements.editForm;
+      form.elements.namedItem("title").value = selectedCommission.title;
+      form.elements.namedItem("description").value = selectedCommission.description;
+      form.elements.namedItem("medium").value = selectedCommission.medium;
+      form.elements.namedItem("width").value = selectedCommission.width ?? "";
+      form.elements.namedItem("height").value = selectedCommission.height ?? "";
+      form.elements.namedItem("price").value = selectedCommission.price;
+      form.elements.namedItem("sales_tax_rate").value = inferSalesTaxRate(
+        selectedCommission.price,
+        selectedCommission.sales_tax
+      );
+      form.elements.namedItem("shipping").value = selectedCommission.shipping;
+      form.elements.namedItem("estimated_completion").value =
+        selectedCommission.estimated_completion
+          ? String(selectedCommission.estimated_completion).slice(0, 10)
+          : "";
+      elements.detailFields.hidden = true;
+      elements.editCommission.hidden = true;
+      elements.editForm.hidden = false;
+      elements.detailStatus.textContent = "";
+      elements.detailStatus.classList?.remove("is-error");
+      updateEditFinancialPreview();
+    }
+
+    function cancelEdit() {
+      showReadOnlyDetail();
+      elements.detailStatus.textContent = "";
+      elements.detailStatus.classList?.remove("is-error");
     }
 
     function openCreate() {
@@ -412,6 +508,58 @@
       }
     }
 
+    async function submitEdit(event) {
+      event?.preventDefault();
+
+      if (!selectedCommission) {
+        return null;
+      }
+
+      let payload;
+
+      try {
+        payload = buildEditPayload(elements.editForm);
+      } catch (error) {
+        showError(elements.detailStatus, error);
+        return null;
+      }
+
+      elements.detailStatus.textContent = "Saving changes…";
+      elements.detailStatus.classList?.remove("is-error");
+
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+          }
+        );
+        const updatedCommission = {
+          ...selectedCommission,
+          ...body.commission
+        };
+        selectedCommission = updatedCommission;
+        commissions = commissions.map((commission) =>
+          String(commission.id) === String(updatedCommission.id)
+            ? { ...commission, ...updatedCommission }
+            : commission
+        );
+        renderList();
+        elements.detailFields.innerHTML = renderDetailMarkup(updatedCommission);
+        showReadOnlyDetail();
+        elements.detailStatus.textContent = "Commission updated.";
+        return updatedCommission;
+      } catch {
+        showError(elements.detailStatus, new Error("Unable to update commission."));
+        return null;
+      }
+    }
+
     function bindEvents() {
       elements.list.addEventListener("click", (event) => {
         const button = event.target.closest?.("[data-commission-id]");
@@ -421,6 +569,21 @@
         }
       });
       elements.newCommission.addEventListener("click", openCreate);
+      elements.editCommission.addEventListener("click", openEdit);
+      elements.editForm.addEventListener("submit", submitEdit);
+      elements.editForm.elements.namedItem("price").addEventListener(
+        "input",
+        updateEditFinancialPreview
+      );
+      elements.editForm.elements.namedItem("sales_tax_rate").addEventListener(
+        "change",
+        updateEditFinancialPreview
+      );
+      elements.editForm.elements.namedItem("shipping").addEventListener(
+        "input",
+        updateEditFinancialPreview
+      );
+      elements.cancelEdit.addEventListener("click", cancelEdit);
       elements.createForm.addEventListener("submit", submitCreate);
       elements.createForm.elements.namedItem("price").addEventListener(
         "input",
@@ -439,17 +602,23 @@
         elements.detail.hidden = true;
         elements.detailFields.innerHTML = "";
         elements.detailStatus.textContent = "";
+        selectedCommission = null;
+        showReadOnlyDetail();
       });
     }
 
     return {
       bindEvents,
+      cancelEdit,
       closeCreate,
       loadClients,
       loadList,
       openCreate,
       openDetail,
+      openEdit,
       submitCreate,
+      submitEdit,
+      updateEditFinancialPreview,
       updateFinancialPreview
     };
   }
@@ -458,10 +627,12 @@
     API_PATH,
     CLIENTS_API_PATH,
     buildCreatePayload,
+    buildEditPayload,
     calculateFinancialPreview,
     createApp,
     fetchJson,
     formatCurrency,
+    inferSalesTaxRate,
     renderClientOptions,
     renderDetailMarkup,
     renderListMarkup

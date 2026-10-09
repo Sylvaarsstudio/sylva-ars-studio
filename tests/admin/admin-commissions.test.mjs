@@ -6,9 +6,11 @@ import { test } from "node:test";
 const require = createRequire(import.meta.url);
 const {
   buildCreatePayload,
+  buildEditPayload,
   calculateFinancialPreview,
   createApp,
   formatCurrency,
+  inferSalesTaxRate,
   renderDetailMarkup,
   renderListMarkup
 } = require("../../web/js/admin-commissions.js");
@@ -79,6 +81,7 @@ function createFormElement() {
 
 function createDocument() {
   const form = createFormElement();
+  const editForm = createFormElement();
   const elements = {
     "#commission-count": createElement(),
     "#commission-list": createElement(),
@@ -88,6 +91,12 @@ function createDocument() {
     "#commission-detail-fields": createElement(),
     "#commission-detail-status": createElement(),
     "#close-commission-detail": createElement(),
+    "#edit-commission": createElement(),
+    "#commission-edit-form": editForm,
+    "#edit-sales-tax-preview": createElement(),
+    "#edit-required-deposit-preview": createElement(),
+    "#edit-remaining-after-deposit-preview": createElement(),
+    "#cancel-commission-edit": createElement(),
     "#commission-create": createElement(),
     "#commission-form": form,
     "#commission-create-status": createElement(),
@@ -100,6 +109,7 @@ function createDocument() {
   return {
     elements,
     inputs: form.inputs,
+    editInputs: editForm.inputs,
     querySelector(selector) {
       return elements[selector];
     }
@@ -189,6 +199,42 @@ test("admin commission detail opens", async () => {
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Oil/);
 });
 
+test("admin commission edit opens with current values preloaded", async () => {
+  const documentObject = createDocument();
+  const app = createApp(
+    documentObject,
+    async () => jsonResponse({ success: true, commission: sampleCommission })
+  );
+
+  await app.openDetail(sampleCommission.id);
+  app.openEdit();
+
+  assert.equal(documentObject.elements["#commission-edit-form"].hidden, false);
+  assert.equal(documentObject.elements["#commission-detail-fields"].hidden, true);
+  assert.equal(documentObject.editInputs.title.value, "Test Commission");
+  assert.equal(documentObject.editInputs.description.value, "A test commission.");
+  assert.equal(documentObject.editInputs.medium.value, "Oil");
+  assert.equal(documentObject.editInputs.price.value, "100.00");
+  assert.equal(documentObject.editInputs.sales_tax_rate.value, "0.06");
+});
+
+test("admin commission edit cancel restores read-only detail", async () => {
+  const documentObject = createDocument();
+  const app = createApp(
+    documentObject,
+    async () => jsonResponse({ success: true, commission: sampleCommission })
+  );
+
+  await app.openDetail(sampleCommission.id);
+  app.openEdit();
+  documentObject.editInputs.title.value = "Unsaved";
+  app.cancelEdit();
+
+  assert.equal(documentObject.elements["#commission-edit-form"].hidden, true);
+  assert.equal(documentObject.elements["#commission-detail-fields"].hidden, false);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
+});
+
 test("admin commission form opens", () => {
   const documentObject = createDocument();
   const app = createApp(documentObject, async () => jsonResponse({}));
@@ -213,12 +259,43 @@ test("admin commission form uses the approved medium and tax selects", () => {
   }
   assert.doesNotMatch(html, /<input[^>]+name="medium"/);
   assert.match(html, /<select name="sales_tax_rate" required>/);
-  assert.match(html, /value="0\.06">Pennsylvania — 6%/);
+  assert.equal(
+    (html.match(/value="0\.00">Outside Pennsylvania — PA sales tax not applicable — 0%/g) || []).length,
+    2
+  );
+  assert.equal(
+    (html.match(/value="0\.06" selected>Pennsylvania — 6%/g) || []).length,
+    2
+  );
   assert.match(html, /value="0\.07">Allegheny County — 7%/);
   assert.match(html, /value="0\.08">Philadelphia — 8%/);
   assert.doesNotMatch(html, /name="sales_tax"/);
   assert.match(html, /Required Deposit \(50%\)/);
   assert.match(html, /Estimated Remaining After Deposit/);
+  assert.match(html, /id="commission-edit-form"/);
+  assert.equal((html.match(/<select name="medium" required>/g) || []).length, 2);
+  assert.equal((html.match(/<select name="sales_tax_rate" required>/g) || []).length, 2);
+});
+
+test("admin commission edit exposes no protected inputs", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  const editForm = html.match(/<form class="admin-form" id="commission-edit-form"[\s\S]*?<\/form>/)[0];
+
+  for (const field of [
+    "id",
+    "commission_number",
+    "client_id",
+    "deposit_amount",
+    "balance",
+    "status",
+    "created_at",
+    "sales_tax"
+  ]) {
+    assert.doesNotMatch(editForm, new RegExp(`name="${field}"`));
+  }
 });
 
 test("admin commission client selector loads names and emails", async () => {
@@ -271,6 +348,26 @@ test("admin commission creation sends normalized values", async () => {
   assert.equal(payload.estimated_completion, null);
 });
 
+test("admin commission edit payload contains only approved fields", () => {
+  const documentObject = createDocument();
+  fillValidForm({ inputs: documentObject.editInputs });
+  const payload = buildEditPayload(documentObject.elements["#commission-edit-form"]);
+
+  assert.deepEqual(Object.keys(payload), [
+    "title",
+    "description",
+    "medium",
+    "width",
+    "height",
+    "price",
+    "sales_tax_rate",
+    "shipping",
+    "estimated_completion"
+  ]);
+  assert.equal(Object.hasOwn(payload, "client_id"), false);
+  assert.equal(Object.hasOwn(payload, "sales_tax"), false);
+});
+
 test("admin commission financial preview calculates the required deposit", () => {
   const documentObject = createDocument();
   const app = createApp(documentObject, async () => jsonResponse({}));
@@ -290,6 +387,28 @@ test("admin commission financial preview calculates the required deposit", () =>
   assert.equal(
     documentObject.elements["#remaining-after-deposit-preview"].textContent,
     "$244.00"
+  );
+});
+
+test("admin commission zero-tax preview preserves deposit and shipping", () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, async () => jsonResponse({}));
+  documentObject.inputs.price.value = "400";
+  documentObject.inputs.sales_tax_rate.value = "0.00";
+  documentObject.inputs.shipping.value = "20";
+
+  const preview = app.updateFinancialPreview();
+
+  assert.deepEqual(preview, {
+    salesTaxCents: 0,
+    requiredDepositCents: 20000,
+    estimatedRemainingCents: 22000
+  });
+  assert.equal(documentObject.elements["#sales-tax-preview"].textContent, "$0.00");
+  assert.equal(documentObject.elements["#required-deposit-preview"].textContent, "$200.00");
+  assert.equal(
+    documentObject.elements["#remaining-after-deposit-preview"].textContent,
+    "$220.00"
   );
 });
 
@@ -315,6 +434,40 @@ test("admin commission required deposit changes only with price", () => {
   assert.equal(differentPrice.requiredDepositCents, 30000);
   assert.equal(original.estimatedRemainingCents, 24400);
   assert.equal(differentTaxAndShipping.estimatedRemainingCents, 28200);
+});
+
+test("admin commission edit preview recalculates deposit and remaining", async () => {
+  const documentObject = createDocument();
+  const app = createApp(
+    documentObject,
+    async () => jsonResponse({ success: true, commission: sampleCommission })
+  );
+  await app.openDetail(sampleCommission.id);
+  app.openEdit();
+  documentObject.editInputs.price.value = "500";
+  documentObject.editInputs.sales_tax_rate.value = "0.08";
+  documentObject.editInputs.shipping.value = "20";
+
+  const preview = app.updateEditFinancialPreview();
+
+  assert.equal(preview.requiredDepositCents, 25000);
+  assert.equal(preview.estimatedRemainingCents, 31000);
+  assert.equal(
+    documentObject.elements["#edit-required-deposit-preview"].textContent,
+    "$250.00"
+  );
+  assert.equal(
+    documentObject.elements["#edit-remaining-after-deposit-preview"].textContent,
+    "$310.00"
+  );
+});
+
+test("admin commission infers the controlled tax rate from stored tax", () => {
+  assert.equal(inferSalesTaxRate("400.00", "0.00"), "0.00");
+  assert.equal(inferSalesTaxRate("400.00", "24.00"), "0.06");
+  assert.equal(inferSalesTaxRate("400.00", "28.00"), "0.07");
+  assert.equal(inferSalesTaxRate("400.00", "32.00"), "0.08");
+  assert.equal(inferSalesTaxRate("0.00", "0.00"), "0.06");
 });
 
 test("admin commission detail separates required and received deposits", () => {
@@ -344,6 +497,71 @@ test("admin commission creation updates the list and detail", async () => {
   assert.match(documentObject.elements["#commission-list"].innerHTML, /SAS-COM-2026-0001/);
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
   assert.equal(documentObject.elements["#commission-detail-status"].textContent, "Commission created.");
+});
+
+test("admin commission edit uses PATCH and updates list and detail", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const updated = {
+    ...sampleCommission,
+    title: "Updated Commission",
+    price: "500.00",
+    sales_tax: "35.00",
+    balance: "545.00"
+  };
+  const app = createApp(documentObject, async (url, options) => {
+    calls.push({ url, options });
+
+    if (url === "/admin/api/commissions") {
+      return jsonResponse({ success: true, total: 1, commissions: [sampleCommission] });
+    }
+
+    if (!options) {
+      return jsonResponse({ success: true, commission: sampleCommission });
+    }
+
+    return jsonResponse({ success: true, commission: updated });
+  });
+
+  await app.loadList();
+  await app.openDetail(sampleCommission.id);
+  app.openEdit();
+  documentObject.editInputs.title.value = "Updated Commission";
+  documentObject.editInputs.price.value = "500";
+  documentObject.editInputs.sales_tax_rate.value = "0.07";
+  await app.submitEdit();
+
+  const patchCall = calls.find((call) => call.options?.method === "PATCH");
+  assert.equal(patchCall.url, "/admin/api/commissions/10");
+  assert.equal(JSON.parse(patchCall.options.body).title, "Updated Commission");
+  assert.match(documentObject.elements["#commission-list"].innerHTML, /Updated Commission/);
+  assert.match(documentObject.elements["#commission-list"].innerHTML, /\$500\.00/);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Updated Commission/);
+  assert.equal(documentObject.elements["#commission-detail-status"].textContent, "Commission updated.");
+});
+
+test("admin commission edit displays the approved API error", async () => {
+  const documentObject = createDocument();
+  let call = 0;
+  const app = createApp(documentObject, async () => {
+    call += 1;
+    return call === 1
+      ? jsonResponse({ success: true, commission: sampleCommission })
+      : jsonResponse({ message: "Database error." }, 500);
+  });
+
+  await app.openDetail(sampleCommission.id);
+  app.openEdit();
+  await app.submitEdit();
+
+  assert.equal(
+    documentObject.elements["#commission-detail-status"].textContent,
+    "Unable to update commission."
+  );
+  assert.equal(
+    documentObject.elements["#commission-detail-status"].classList.contains("is-error"),
+    true
+  );
 });
 
 test("admin commissions format monetary values as USD", () => {
