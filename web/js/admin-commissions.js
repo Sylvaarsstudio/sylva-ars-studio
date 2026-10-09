@@ -1,6 +1,14 @@
 (function initializeAdminCommissions(globalObject) {
   const API_PATH = "/admin/api/commissions";
   const CLIENTS_API_PATH = "/admin/api/clients";
+  const statusTransitions = {
+    draft: ["quoted", "cancelled"],
+    quoted: ["draft", "approved", "cancelled"],
+    approved: ["quoted", "in_progress", "cancelled"],
+    in_progress: ["approved", "completed", "cancelled"],
+    completed: ["in_progress"],
+    cancelled: ["draft"]
+  };
   const detailFields = [
     "commission_number",
     "client_name",
@@ -201,6 +209,12 @@
     ).join("");
   }
 
+  function renderStatusOptions(status) {
+    return (statusTransitions[status] || []).map((nextStatus) =>
+      `<option value="${escapeHtml(nextStatus)}">${escapeHtml(formatLabel(nextStatus))}</option>`
+    ).join("");
+  }
+
   function readRequired(form, field, label) {
     const value = String(form.elements.namedItem(field).value || "").trim();
 
@@ -303,6 +317,16 @@
       detailStatus: documentObject.querySelector("#commission-detail-status"),
       closeDetail: documentObject.querySelector("#close-commission-detail"),
       editCommission: documentObject.querySelector("#edit-commission"),
+      changeStatus: documentObject.querySelector("#change-commission-status"),
+      statusForm: documentObject.querySelector("#commission-status-form"),
+      cancelStatus: documentObject.querySelector("#cancel-commission-status"),
+      statusConfirmation:
+        documentObject.querySelector("#commission-status-confirmation"),
+      statusConfirmationText:
+        documentObject.querySelector("#commission-status-confirmation-text"),
+      confirmStatus: documentObject.querySelector("#confirm-commission-status"),
+      cancelStatusConfirmation:
+        documentObject.querySelector("#cancel-commission-status-confirmation"),
       editForm: documentObject.querySelector("#commission-edit-form"),
       editSalesTaxPreview: documentObject.querySelector("#edit-sales-tax-preview"),
       editRequiredDepositPreview:
@@ -321,6 +345,7 @@
     };
     let commissions = [];
     let selectedCommission = null;
+    let pendingStatus = null;
 
     function showError(element, error) {
       element.textContent = error.message || "An unexpected error occurred.";
@@ -364,8 +389,12 @@
 
     function showReadOnlyDetail() {
       elements.editForm.hidden = true;
+      elements.statusForm.hidden = true;
+      elements.statusConfirmation.hidden = true;
       elements.detailFields.hidden = false;
       elements.editCommission.hidden = false;
+      elements.changeStatus.hidden = false;
+      pendingStatus = null;
     }
 
     async function loadList() {
@@ -445,6 +474,7 @@
           : "";
       elements.detailFields.hidden = true;
       elements.editCommission.hidden = true;
+      elements.changeStatus.hidden = true;
       elements.editForm.hidden = false;
       elements.detailStatus.textContent = "";
       elements.detailStatus.classList?.remove("is-error");
@@ -455,6 +485,58 @@
       showReadOnlyDetail();
       elements.detailStatus.textContent = "";
       elements.detailStatus.classList?.remove("is-error");
+    }
+
+    function openStatus() {
+      if (!selectedCommission) {
+        return;
+      }
+
+      const transitions = statusTransitions[selectedCommission.status] || [];
+      const select = elements.statusForm.elements.namedItem("status");
+      select.innerHTML = renderStatusOptions(selectedCommission.status);
+      select.value = transitions[0] || "";
+      elements.editForm.hidden = true;
+      elements.statusConfirmation.hidden = true;
+      elements.statusForm.hidden = false;
+      elements.editCommission.hidden = true;
+      elements.changeStatus.hidden = true;
+      elements.detailStatus.textContent = "";
+      elements.detailStatus.classList?.remove("is-error");
+    }
+
+    function cancelStatus() {
+      showReadOnlyDetail();
+      elements.detailStatus.textContent = "";
+      elements.detailStatus.classList?.remove("is-error");
+    }
+
+    function prepareStatusConfirmation(event) {
+      event?.preventDefault();
+
+      if (!selectedCommission) {
+        return null;
+      }
+
+      const nextStatus = elements.statusForm.elements.namedItem("status").value;
+
+      if (!(statusTransitions[selectedCommission.status] || []).includes(nextStatus)) {
+        showError(elements.detailStatus, new Error("Invalid commission status transition."));
+        return null;
+      }
+
+      pendingStatus = nextStatus;
+      elements.statusForm.hidden = true;
+      elements.statusConfirmation.hidden = false;
+      elements.statusConfirmationText.textContent =
+        `Change commission status from ${formatLabel(selectedCommission.status).toUpperCase()} to ${formatLabel(nextStatus).toUpperCase()}?`;
+      return nextStatus;
+    }
+
+    function cancelStatusConfirmation() {
+      pendingStatus = null;
+      elements.statusConfirmation.hidden = true;
+      elements.statusForm.hidden = false;
     }
 
     function openCreate() {
@@ -495,13 +577,15 @@
           },
           body: JSON.stringify(payload)
         });
-        commissions = [body.commission, ...commissions];
+        selectedCommission = body.commission;
+        commissions = [selectedCommission, ...commissions];
         renderList();
         elements.createPanel.hidden = true;
         elements.detail.hidden = false;
-        elements.detailFields.innerHTML = renderDetailMarkup(body.commission);
+        elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
+        showReadOnlyDetail();
         elements.detailStatus.textContent = "Commission created.";
-        return body.commission;
+        return selectedCommission;
       } catch (error) {
         showError(elements.createStatus, error);
         return null;
@@ -560,6 +644,50 @@
       }
     }
 
+    async function submitStatus() {
+      if (!selectedCommission || !pendingStatus) {
+        return null;
+      }
+
+      elements.detailStatus.textContent = "Updating commission status…";
+      elements.detailStatus.classList?.remove("is-error");
+
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/status`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ status: pendingStatus })
+          }
+        );
+        const updatedCommission = {
+          ...selectedCommission,
+          ...body.commission
+        };
+        selectedCommission = updatedCommission;
+        commissions = commissions.map((commission) =>
+          String(commission.id) === String(updatedCommission.id)
+            ? { ...commission, ...updatedCommission }
+            : commission
+        );
+        renderList();
+        elements.detailFields.innerHTML = renderDetailMarkup(updatedCommission);
+        showReadOnlyDetail();
+        elements.detailStatus.textContent = "Commission status updated.";
+        return updatedCommission;
+      } catch {
+        showError(
+          elements.detailStatus,
+          new Error("Unable to update commission status.")
+        );
+        return null;
+      }
+    }
+
     function bindEvents() {
       elements.list.addEventListener("click", (event) => {
         const button = event.target.closest?.("[data-commission-id]");
@@ -570,6 +698,14 @@
       });
       elements.newCommission.addEventListener("click", openCreate);
       elements.editCommission.addEventListener("click", openEdit);
+      elements.changeStatus.addEventListener("click", openStatus);
+      elements.statusForm.addEventListener("submit", prepareStatusConfirmation);
+      elements.cancelStatus.addEventListener("click", cancelStatus);
+      elements.confirmStatus.addEventListener("click", submitStatus);
+      elements.cancelStatusConfirmation.addEventListener(
+        "click",
+        cancelStatusConfirmation
+      );
       elements.editForm.addEventListener("submit", submitEdit);
       elements.editForm.elements.namedItem("price").addEventListener(
         "input",
@@ -610,14 +746,19 @@
     return {
       bindEvents,
       cancelEdit,
+      cancelStatus,
+      cancelStatusConfirmation,
       closeCreate,
       loadClients,
       loadList,
       openCreate,
       openDetail,
       openEdit,
+      openStatus,
+      prepareStatusConfirmation,
       submitCreate,
       submitEdit,
+      submitStatus,
       updateEditFinancialPreview,
       updateFinancialPreview
     };
@@ -635,7 +776,9 @@
     inferSalesTaxRate,
     renderClientOptions,
     renderDetailMarkup,
-    renderListMarkup
+    renderListMarkup,
+    renderStatusOptions,
+    statusTransitions
   };
 
   if (typeof module !== "undefined" && module.exports) {

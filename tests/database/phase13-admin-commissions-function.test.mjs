@@ -135,7 +135,8 @@ function request(method = "GET", path = "", body, cookie = sessionCookie) {
 test("phase 13 exposes only protected commission paths", () => {
   assert.deepEqual(config.path, [
     "/admin/api/commissions",
-    "/admin/api/commissions/:id"
+    "/admin/api/commissions/:id",
+    "/admin/api/commissions/:id/status"
   ]);
   assert.equal(config.path.every((path) => typeof path === "string"), true);
 });
@@ -154,7 +155,8 @@ for (const [method, path, body] of [
   ["GET", "", undefined],
   ["GET", "/1", undefined],
   ["POST", "", {}],
-  ["PATCH", "/1", {}]
+  ["PATCH", "/1", {}],
+  ["PATCH", "/1/status", { status: "quoted" }]
 ]) {
   test(`phase 13 rejects unauthenticated ${method} ${path || "list"}`, async () => {
     const response = await request(method, path, body, "");
@@ -190,6 +192,138 @@ test("phase 13 returns 404 for an unknown commission", async () => {
 
   assert.equal(response.status, 404);
   assert.equal((await response.json()).message, "Commission not found.");
+});
+
+for (const [currentStatus, nextStatus] of [
+  ["draft", "quoted"],
+  ["draft", "cancelled"],
+  ["quoted", "draft"],
+  ["quoted", "approved"],
+  ["quoted", "cancelled"],
+  ["approved", "quoted"],
+  ["approved", "in_progress"],
+  ["approved", "cancelled"],
+  ["in_progress", "approved"],
+  ["in_progress", "completed"],
+  ["in_progress", "cancelled"],
+  ["completed", "in_progress"],
+  ["cancelled", "draft"]
+]) {
+  test(`commission status permits ${currentStatus} to ${nextStatus}`, async () => {
+    const id = commissions["Earlier Commission"];
+    await db.pool.query("UPDATE commissions SET status = $1 WHERE id = $2", [
+      currentStatus,
+      id
+    ]);
+
+    const response = await request("PATCH", `/${id}/status`, {
+      status: nextStatus
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.success, true);
+    assert.equal(body.commission.status, nextStatus);
+  });
+}
+
+for (const [currentStatus, nextStatus] of [
+  ["draft", "completed"],
+  ["draft", "in_progress"],
+  ["quoted", "completed"],
+  ["completed", "draft"],
+  ["cancelled", "approved"]
+]) {
+  test(`commission status rejects ${currentStatus} to ${nextStatus}`, async () => {
+    const id = commissions["Earlier Commission"];
+    await db.pool.query("UPDATE commissions SET status = $1 WHERE id = $2", [
+      currentStatus,
+      id
+    ]);
+
+    const response = await request("PATCH", `/${id}/status`, {
+      status: nextStatus
+    });
+    const stored = await db.pool.query(
+      "SELECT status FROM commissions WHERE id = $1",
+      [id]
+    );
+
+    assert.equal(response.status, 409);
+    assert.equal(
+      (await response.json()).message,
+      "Commission status transition is not allowed."
+    );
+    assert.equal(stored.rows[0].status, currentStatus);
+  });
+}
+
+test("commission status rejects an unknown status", async () => {
+  const id = commissions["Earlier Commission"];
+  const response = await request("PATCH", `/${id}/status`, {
+    status: "archived"
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).message, "Status is invalid.");
+});
+
+test("commission status returns 404 for an unknown commission", async () => {
+  const response = await request("PATCH", "/999999999/status", {
+    status: "quoted"
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).message, "Commission not found.");
+});
+
+test("commission status rejects additional payload fields", async () => {
+  const id = commissions["Earlier Commission"];
+  const response = await request("PATCH", `/${id}/status`, {
+    status: "quoted",
+    price: "1.00"
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(
+    (await response.json()).message,
+    "Request body must contain only status."
+  );
+});
+
+test("commission status changes only status and creates no related records", async () => {
+  const id = commissions["Earlier Commission"];
+  await db.pool.query("UPDATE commissions SET status = 'in_progress' WHERE id = $1", [id]);
+  const before = (await db.pool.query(
+    `SELECT commission_number, client_id, price, deposit_amount, balance
+     FROM commissions
+     WHERE id = $1`,
+    [id]
+  )).rows[0];
+  const inquiriesBefore = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
+
+  const response = await request("PATCH", `/${id}/status`, {
+    status: "completed"
+  });
+  const after = (await db.pool.query(
+    `SELECT commission_number, client_id, price, deposit_amount, balance, status
+     FROM commissions
+     WHERE id = $1`,
+    [id]
+  )).rows[0];
+  const inquiriesAfter = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
+  const relatedCounts = await db.pool.query(`
+    SELECT
+      (SELECT count(*)::integer FROM payments) AS payments,
+      (SELECT count(*)::integer FROM documents) AS documents
+  `);
+  const { status, ...unchanged } = after;
+
+  assert.equal(response.status, 200);
+  assert.equal(status, "completed");
+  assert.deepEqual(unchanged, before);
+  assert.deepEqual(inquiriesAfter.rows, inquiriesBefore.rows);
+  assert.deepEqual(relatedCounts.rows[0], { payments: 0, documents: 0 });
 });
 
 for (const [field, value, responseField, expected] of [

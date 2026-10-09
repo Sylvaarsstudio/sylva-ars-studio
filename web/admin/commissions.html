@@ -60,11 +60,30 @@
           <h2>Commission detail</h2>
           <div>
             <button type="button" class="admin-text-button" id="edit-commission">Edit Commission</button>
+            <button type="button" class="admin-text-button" id="change-commission-status">Change Status</button>
             <button type="button" class="admin-text-button" id="close-commission-detail">Close</button>
           </div>
         </div>
 
         <div id="commission-detail-fields"></div>
+
+        <form class="admin-form" id="commission-status-form" hidden>
+          <label>
+            Status
+            <select name="status" required></select>
+          </label>
+
+          <div>
+            <button type="submit" class="admin-button">Continue</button>
+            <button type="button" class="admin-text-button" id="cancel-commission-status">Cancel</button>
+          </div>
+        </form>
+
+        <div id="commission-status-confirmation" hidden>
+          <p id="commission-status-confirmation-text"></p>
+          <button type="button" class="admin-button" id="confirm-commission-status">Confirm</button>
+          <button type="button" class="admin-text-button" id="cancel-commission-status-confirmation">Cancel</button>
+        </div>
 
         <form class="admin-form" id="commission-edit-form" hidden>
           <label>
