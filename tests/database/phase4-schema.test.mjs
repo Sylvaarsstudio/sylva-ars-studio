@@ -57,9 +57,10 @@ test("phase 4 links Test Client to the sample commission and calculates its bala
        medium,
        price,
        deposit_amount,
+       amount_paid,
        status
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       "SAS-COM-2026-0001",
@@ -68,6 +69,7 @@ test("phase 4 links Test Client to the sample commission and calculates its bala
       "Temporary record used to validate the relational model.",
       "Oil on canvas",
       "150.00",
+      "75.00",
       "75.00",
       "draft"
     ]
@@ -79,6 +81,7 @@ test("phase 4 links Test Client to the sample commission and calculates its bala
        c.commission_number,
        c.price,
        c.deposit_amount,
+       c.amount_paid,
        c.balance,
        c.status,
        cl.full_name
@@ -92,6 +95,7 @@ test("phase 4 links Test Client to the sample commission and calculates its bala
     commission_number: "SAS-COM-2026-0001",
     price: "150.00",
     deposit_amount: "75.00",
+    amount_paid: "75.00",
     balance: "75.00",
     status: "draft",
     full_name: "Test Client"
