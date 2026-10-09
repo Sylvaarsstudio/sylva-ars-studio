@@ -98,11 +98,11 @@ function createPayload(overrides = {}) {
     client_id: clients["First Client"],
     title: "New Commission",
     description: "A manually approved commission.",
-    medium: "Oil on canvas",
+    medium: "Oil",
     width: "20",
     height: "24",
     price: "100.00",
-    sales_tax: "6.00",
+    sales_tax_rate: "0.06",
     shipping: "10.00",
     estimated_completion: "2027-01-15",
     ...overrides
@@ -196,7 +196,86 @@ test("phase 13 creates a valid draft commission", async () => {
   assert.equal(body.commission.title, "New Commission");
   assert.equal(body.commission.status, "draft");
   assert.equal(body.commission.deposit_amount, "0.00");
+  assert.equal(body.commission.sales_tax, "6.00");
   assert.equal(body.commission.balance, "116.00");
+});
+
+for (const medium of ["Acrylic", "Watercolor", "Oil", "Drawing"]) {
+  test(`phase 14 accepts the approved medium ${medium}`, async () => {
+    const response = await request("POST", "", createPayload({ medium }));
+
+    assert.equal(response.status, 201);
+    assert.equal((await response.json()).commission.medium, medium);
+  });
+}
+
+test("phase 14 rejects an unsupported medium", async () => {
+  const response = await request("POST", "", createPayload({
+    medium: "Fresco"
+  }));
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).message, "Medium is unsupported.");
+});
+
+for (const [rate, expectedTax] of [
+  ["0.06", "24.00"],
+  ["0.07", "28.00"],
+  ["0.08", "32.00"]
+]) {
+  test(`phase 14 calculates sales tax for rate ${rate}`, async () => {
+    const response = await request("POST", "", createPayload({
+      price: "400.00",
+      sales_tax_rate: rate,
+      shipping: "0"
+    }));
+    const commission = (await response.json()).commission;
+
+    assert.equal(response.status, 201);
+    assert.equal(commission.price, "400.00");
+    assert.equal(commission.sales_tax, expectedTax);
+    assert.equal(commission.balance, String((400 + Number(expectedTax)).toFixed(2)));
+  });
+}
+
+for (const rate of ["", "0.05", "0.09", "7"] ) {
+  test(`phase 14 rejects sales tax rate ${JSON.stringify(rate)}`, async () => {
+    const response = await request("POST", "", createPayload({
+      sales_tax_rate: rate
+    }));
+
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).message, /Sales tax rate/);
+  });
+}
+
+test("phase 14 rejects a browser-supplied sales tax amount", async () => {
+  const response = await request("POST", "", {
+    ...createPayload(),
+    sales_tax: "0.01"
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(
+    (await response.json()).message,
+    "Request body contains unsupported fields."
+  );
+});
+
+test("phase 15 required deposit policy does not reduce stored balance", async () => {
+  const response = await request("POST", "", createPayload({
+    price: "400.00",
+    sales_tax_rate: "0.06",
+    shipping: "20.00"
+  }));
+  const commission = (await response.json()).commission;
+
+  assert.equal(response.status, 201);
+  assert.equal(commission.price, "400.00");
+  assert.equal(commission.sales_tax, "24.00");
+  assert.equal(commission.shipping, "20.00");
+  assert.equal(commission.deposit_amount, "0.00");
+  assert.equal(commission.balance, "444.00");
 });
 
 test("phase 13 rejects an unknown client", async () => {
@@ -217,7 +296,6 @@ for (const [field, value, message] of [
   ["height", "0", "Height must be greater than 0."],
   ["height", "-1", "Height must be greater than 0."],
   ["price", "-0.01", "Price must be 0 or greater."],
-  ["sales_tax", "-0.01", "Sales tax must be 0 or greater."],
   ["shipping", "-0.01", "Shipping must be 0 or greater."],
   ["estimated_completion", "2027-02-30", "Estimated completion must be a valid date."]
 ]) {
@@ -233,7 +311,6 @@ test("phase 13 applies optional numeric defaults and NULL dimensions", async () 
   const response = await request("POST", "", createPayload({
     width: "",
     height: null,
-    sales_tax: "",
     shipping: undefined,
     estimated_completion: ""
   }));
@@ -242,7 +319,7 @@ test("phase 13 applies optional numeric defaults and NULL dimensions", async () 
   assert.equal(response.status, 201);
   assert.equal(commission.width, null);
   assert.equal(commission.height, null);
-  assert.equal(commission.sales_tax, "0.00");
+  assert.equal(commission.sales_tax, "6.00");
   assert.equal(commission.shipping, "0.00");
   assert.equal(commission.estimated_completion, null);
 });

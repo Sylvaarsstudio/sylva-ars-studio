@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
 const {
   buildCreatePayload,
+  calculateFinancialPreview,
   createApp,
   formatCurrency,
   renderDetailMarkup,
@@ -19,7 +21,7 @@ const formFields = [
   "width",
   "height",
   "price",
-  "sales_tax",
+  "sales_tax_rate",
   "shipping",
   "estimated_completion"
 ];
@@ -89,6 +91,9 @@ function createDocument() {
     "#commission-create": createElement(),
     "#commission-form": form,
     "#commission-create-status": createElement(),
+    "#sales-tax-preview": createElement(),
+    "#required-deposit-preview": createElement(),
+    "#remaining-after-deposit-preview": createElement(),
     "#cancel-commission": createElement()
   };
 
@@ -126,7 +131,7 @@ const sampleCommission = {
   client_email: "test@example.invalid",
   title: "Test Commission",
   description: "A test commission.",
-  medium: "Oil on canvas",
+  medium: "Oil",
   width: "20.00",
   height: "24.00",
   price: "100.00",
@@ -143,11 +148,11 @@ function fillValidForm(documentObject) {
   Object.assign(documentObject.inputs.client_id, { value: "1" });
   Object.assign(documentObject.inputs.title, { value: " Test Commission " });
   Object.assign(documentObject.inputs.description, { value: " A test commission. " });
-  Object.assign(documentObject.inputs.medium, { value: " Oil on canvas " });
+  Object.assign(documentObject.inputs.medium, { value: " Oil " });
   Object.assign(documentObject.inputs.width, { value: "20" });
   Object.assign(documentObject.inputs.height, { value: "24" });
   Object.assign(documentObject.inputs.price, { value: "100" });
-  Object.assign(documentObject.inputs.sales_tax, { value: "6" });
+  Object.assign(documentObject.inputs.sales_tax_rate, { value: "0.06" });
   Object.assign(documentObject.inputs.shipping, { value: "10" });
   Object.assign(documentObject.inputs.estimated_completion, { value: "" });
 }
@@ -181,7 +186,7 @@ test("admin commission detail opens", async () => {
 
   assert.equal(documentObject.elements["#commission-detail"].hidden, false);
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
-  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Oil on canvas/);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Oil/);
 });
 
 test("admin commission form opens", () => {
@@ -192,8 +197,28 @@ test("admin commission form opens", () => {
 
   assert.equal(documentObject.elements["#commission-create"].hidden, false);
   assert.equal(documentObject.elements["#commission-detail"].hidden, true);
-  assert.equal(documentObject.inputs.sales_tax.value, "0");
+  assert.equal(documentObject.inputs.sales_tax_rate.value, "0.06");
   assert.equal(documentObject.inputs.shipping.value, "0");
+});
+
+test("admin commission form uses the approved medium and tax selects", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(html, /<select name="medium" required>/);
+  for (const medium of ["Acrylic", "Watercolor", "Oil", "Drawing"]) {
+    assert.match(html, new RegExp(`<option value="${medium}">${medium}</option>`));
+  }
+  assert.doesNotMatch(html, /<input[^>]+name="medium"/);
+  assert.match(html, /<select name="sales_tax_rate" required>/);
+  assert.match(html, /value="0\.06">Pennsylvania — 6%/);
+  assert.match(html, /value="0\.07">Allegheny County — 7%/);
+  assert.match(html, /value="0\.08">Philadelphia — 8%/);
+  assert.doesNotMatch(html, /name="sales_tax"/);
+  assert.match(html, /Required Deposit \(50%\)/);
+  assert.match(html, /Estimated Remaining After Deposit/);
 });
 
 test("admin commission client selector loads names and emails", async () => {
@@ -241,7 +266,68 @@ test("admin commission creation sends normalized values", async () => {
   assert.equal(payload.client_id, "1");
   assert.equal(payload.title, "Test Commission");
   assert.equal(payload.price, 100);
+  assert.equal(payload.sales_tax_rate, "0.06");
+  assert.equal(Object.hasOwn(payload, "sales_tax"), false);
   assert.equal(payload.estimated_completion, null);
+});
+
+test("admin commission financial preview calculates the required deposit", () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, async () => jsonResponse({}));
+  documentObject.inputs.price.value = "400";
+  documentObject.inputs.sales_tax_rate.value = "0.06";
+  documentObject.inputs.shipping.value = "20";
+
+  const preview = app.updateFinancialPreview();
+
+  assert.deepEqual(preview, {
+    salesTaxCents: 2400,
+    requiredDepositCents: 20000,
+    estimatedRemainingCents: 24400
+  });
+  assert.equal(documentObject.elements["#sales-tax-preview"].textContent, "$24.00");
+  assert.equal(documentObject.elements["#required-deposit-preview"].textContent, "$200.00");
+  assert.equal(
+    documentObject.elements["#remaining-after-deposit-preview"].textContent,
+    "$244.00"
+  );
+});
+
+test("admin commission required deposit changes only with price", () => {
+  const original = calculateFinancialPreview({
+    price: "400",
+    salesTaxRate: "0.06",
+    shipping: "20"
+  });
+  const differentTaxAndShipping = calculateFinancialPreview({
+    price: "400",
+    salesTaxRate: "0.08",
+    shipping: "50"
+  });
+  const differentPrice = calculateFinancialPreview({
+    price: "600",
+    salesTaxRate: "0.08",
+    shipping: "50"
+  });
+
+  assert.equal(original.requiredDepositCents, 20000);
+  assert.equal(differentTaxAndShipping.requiredDepositCents, 20000);
+  assert.equal(differentPrice.requiredDepositCents, 30000);
+  assert.equal(original.estimatedRemainingCents, 24400);
+  assert.equal(differentTaxAndShipping.estimatedRemainingCents, 28200);
+});
+
+test("admin commission detail separates required and received deposits", () => {
+  const markup = renderDetailMarkup({
+    ...sampleCommission,
+    price: "400.00",
+    deposit_amount: "0.00"
+  });
+
+  assert.match(markup, /Required Deposit \(50%\)/);
+  assert.match(markup, /\$200\.00/);
+  assert.match(markup, /Deposit Amount/);
+  assert.match(markup, /\$0\.00/);
 });
 
 test("admin commission creation updates the list and detail", async () => {
