@@ -115,6 +115,7 @@ function createDocument() {
     "#commission-payments": createElement(),
     "#payment-list": createElement(),
     "#payment-status": createElement(),
+    "#payment-guidance": createElement(),
     "#record-payment": createElement(),
     "#payment-form": paymentForm,
     "#cancel-payment": createElement(),
@@ -863,7 +864,7 @@ test("Payments section and Record Payment form are present", () => {
   assert.match(html, /id="payment-list"/);
 });
 
-test("Payment form exposes only the three approved types and no status", () => {
+test("Payment form exposes only Deposit and Balance and no status", () => {
   const html = readFileSync(
     new URL("../../web/admin/commissions.html", import.meta.url),
     "utf8"
@@ -871,9 +872,9 @@ test("Payment form exposes only the three approved types and no status", () => {
   const form = html.match(/<form[^>]+id="payment-form"[\s\S]*?<\/form>/)[0];
 
   assert.match(form, /value="deposit">Deposit</);
-  assert.match(form, /value="installment">Installment</);
   assert.match(form, /value="balance">Balance</);
-  assert.doesNotMatch(form, /value="refund"|value="adjustment"/);
+  assert.doesNotMatch(form, /value="installment"|value="refund"|value="adjustment"/);
+  assert.equal((form.match(/<option value="(?:deposit|balance)">/g) || []).length, 2);
   assert.doesNotMatch(form, /name="status"/);
 });
 
@@ -967,10 +968,11 @@ test("opening Record Payment creates one request id and opens the form", async (
   assert.equal(uuidCalls, 1);
   assert.equal(documentObject.elements["#payment-form"].hidden, false);
   assert.equal(documentObject.paymentInputs.payment_type.value, "deposit");
+  assert.equal(documentObject.paymentInputs.amount.value, "50.00");
   assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
 });
 
-test("Payment Type immediately autofills only the approved sales tax portion", async () => {
+test("Payment Type immediately autofills the editable Deposit and Balance suggestions", async () => {
   const documentObject = createDocument();
   const commission = {
     ...sampleCommission,
@@ -986,44 +988,101 @@ test("Payment Type immediately autofills only the approved sales tax portion", a
 
   await app.openDetail(commission.id);
   app.openPayment();
-  documentObject.paymentInputs.amount.value = "340.00";
   const paymentTypeChange = documentObject.paymentInputs.payment_type.listeners.get("change");
 
+  assert.equal(documentObject.paymentInputs.amount.value, "250.00");
   assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
   assert.equal(typeof paymentTypeChange, "function");
 
   documentObject.paymentInputs.payment_type.value = "balance";
   paymentTypeChange();
-  assert.equal(documentObject.paymentInputs.sales_tax.value, "30.00");
   assert.equal(documentObject.paymentInputs.amount.value, "340.00");
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "30.00");
   assert.equal(commission.sales_tax, "30.00");
+  assert.equal(
+    documentObject.elements["#payment-guidance"].textContent,
+    "No deposit has been recorded for this commission."
+  );
+  assert.equal(documentObject.elements["#payment-form"].hidden, false);
 
+  documentObject.paymentInputs.amount.value = "300.00";
   documentObject.paymentInputs.sales_tax.value = "12.34";
+  assert.equal(documentObject.paymentInputs.amount.value, "300.00");
   assert.equal(documentObject.paymentInputs.sales_tax.value, "12.34");
 
   documentObject.paymentInputs.payment_type.value = "deposit";
   paymentTypeChange();
+  assert.equal(documentObject.paymentInputs.amount.value, "250.00");
   assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
-  assert.equal(documentObject.paymentInputs.amount.value, "340.00");
-
-  documentObject.paymentInputs.payment_type.value = "balance";
-  paymentTypeChange();
-  documentObject.paymentInputs.payment_type.value = "installment";
-  paymentTypeChange();
-  assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
-  assert.equal(documentObject.paymentInputs.amount.value, "340.00");
+  assert.equal(documentObject.elements["#payment-guidance"].textContent, "");
 });
 
-test("Sales Tax Portion remains editable", () => {
+test("payment amount and tax suggestions remain editable", () => {
   const html = readFileSync(
     new URL("../../web/admin/commissions.html", import.meta.url),
     "utf8"
   );
   const form = html.match(/<form[^>]+id="payment-form"[\s\S]*?<\/form>/)[0];
-  const input = form.match(/<input[^>]+name="sales_tax"[^>]*>/)[0];
+  const amountInput = form.match(/<input[^>]+name="amount"[^>]*>/)[0];
+  const taxInput = form.match(/<input[^>]+name="sales_tax"[^>]*>/)[0];
 
-  assert.doesNotMatch(input, /\sreadonly(?:\s|>|=)/);
-  assert.doesNotMatch(input, /\sdisabled(?:\s|>|=)/);
+  for (const input of [amountInput, taxInput]) {
+    assert.doesNotMatch(input, /\sreadonly(?:\s|>|=)/);
+    assert.doesNotMatch(input, /\sdisabled(?:\s|>|=)/);
+  }
+});
+
+test("an existing deposit defaults to Balance and warns without blocking another Deposit", async () => {
+  const documentObject = createDocument();
+  const commission = {
+    ...sampleCommission,
+    price: "500.00",
+    deposit_amount: "250.00",
+    balance: "340.00",
+    sales_tax: "30.00"
+  };
+  const app = createApp(documentObject, async (url) => url.endsWith("/payments")
+    ? jsonResponse({ success: true, commission, payments: [] })
+    : jsonResponse({ success: true, commission }));
+  app.bindEvents();
+
+  await app.openDetail(commission.id);
+  app.openPayment();
+
+  assert.equal(documentObject.paymentInputs.payment_type.value, "balance");
+  assert.equal(documentObject.paymentInputs.amount.value, "340.00");
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "30.00");
+
+  documentObject.paymentInputs.payment_type.value = "deposit";
+  documentObject.paymentInputs.payment_type.listeners.get("change")();
+
+  assert.equal(documentObject.paymentInputs.amount.value, "250.00");
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
+  assert.equal(
+    documentObject.elements["#payment-guidance"].textContent,
+    "An initial deposit has already been recorded for this commission."
+  );
+  assert.equal(documentObject.elements["#payment-form"].hidden, false);
+});
+
+test("a zero balance displays Paid in full and keeps Record Payment closed", async () => {
+  const documentObject = createDocument();
+  const commission = {
+    ...sampleCommission,
+    deposit_amount: "50.00",
+    amount_paid: "116.00",
+    balance: "0.00"
+  };
+  const app = createApp(documentObject, async (url) => url.endsWith("/payments")
+    ? jsonResponse({ success: true, commission, payments: [] })
+    : jsonResponse({ success: true, commission }));
+
+  await app.openDetail(commission.id);
+
+  assert.equal(documentObject.elements["#payment-status"].textContent, "Paid in full");
+  assert.equal(documentObject.elements["#record-payment"].hidden, true);
+  assert.equal(app.openPayment(), null);
+  assert.equal(documentObject.elements["#payment-form"].hidden, true);
 });
 
 test("payment payload contains only approved normalized fields", () => {
@@ -1142,9 +1201,9 @@ test("successful payment updates history and all received-payment financials", a
   assert.match(detail, /Balance[\s\S]*\$91\.00/);
   assert.equal(documentObject.elements["#payment-status"].textContent, "Payment recorded.");
   assert.equal(documentObject.elements["#payment-form"].hidden, true);
-  assert.equal(documentObject.paymentInputs.payment_type.value, "deposit");
-  assert.equal(documentObject.paymentInputs.amount.value, "");
-  assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
+  assert.equal(documentObject.paymentInputs.payment_type.value, "balance");
+  assert.equal(documentObject.paymentInputs.amount.value, "91.00");
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "6.00");
   assert.equal(documentObject.paymentInputs.payment_method.value, "");
 });
 
