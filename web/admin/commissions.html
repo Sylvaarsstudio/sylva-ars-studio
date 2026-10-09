@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Commissions | Sylva Ars Studio Admin</title>
+
+  <link rel="stylesheet" href="../css/admin.css">
+</head>
+
+<body>
+
+  <main class="admin-page admin-commissions-page">
+
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Commissions</h1>
+        <p>Create and review studio commissions.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="dashboard.html" class="admin-link">Dashboard</a>
+        <a href="clients.html" class="admin-link">Clients</a>
+        <a href="inquiries.html" class="admin-link">Inquiries</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <div class="inquiry-toolbar">
+      <p class="inquiry-count"><strong id="commission-count">0</strong> commissions</p>
+      <button type="button" class="admin-button" id="new-commission">New Commission</button>
+    </div>
+
+    <p class="admin-notice" id="commission-list-status" aria-live="polite"></p>
+
+    <div class="inquiry-workspace">
+      <section class="inquiry-list-panel" aria-label="Commission list">
+        <div class="inquiry-table-wrap">
+          <table class="inquiry-table">
+            <thead>
+              <tr>
+                <th scope="col">Commission Number</th>
+                <th scope="col">Client</th>
+                <th scope="col">Title</th>
+                <th scope="col">Status</th>
+                <th scope="col">Price</th>
+                <th scope="col">Balance</th>
+                <th scope="col">Created</th>
+                <th scope="col">ID</th>
+              </tr>
+            </thead>
+            <tbody id="commission-list"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="inquiry-detail-panel" id="commission-detail" aria-live="polite" hidden>
+        <div class="inquiry-detail-heading">
+          <h2>Commission detail</h2>
+          <button type="button" class="admin-text-button" id="close-commission-detail">Close</button>
+        </div>
+
+        <div id="commission-detail-fields"></div>
+        <p class="admin-notice" id="commission-detail-status" aria-live="polite"></p>
+      </section>
+
+      <section class="inquiry-detail-panel" id="commission-create" aria-live="polite" hidden>
+        <div class="inquiry-detail-heading">
+          <h2>New Commission</h2>
+          <button type="button" class="admin-text-button" id="cancel-commission">Cancel</button>
+        </div>
+
+        <form class="admin-form" id="commission-form">
+          <label>
+            Client
+            <select name="client_id" required>
+              <option value="">Select one</option>
+            </select>
+          </label>
+
+          <label>
+            Title
+            <input type="text" name="title" required>
+          </label>
+
+          <label>
+            Description
+            <textarea name="description" rows="5" required></textarea>
+          </label>
+
+          <label>
+            Medium
+            <input type="text" name="medium" required>
+          </label>
+
+          <label>
+            Width (in)
+            <input type="number" name="width" min="0.01" step="0.01">
+          </label>
+
+          <label>
+            Height (in)
+            <input type="number" name="height" min="0.01" step="0.01">
+          </label>
+
+          <label>
+            Price
+            <input type="number" name="price" min="0" step="0.01" required>
+          </label>
+
+          <label>
+            Sales Tax
+            <input type="number" name="sales_tax" min="0" step="0.01" value="0">
+          </label>
+
+          <label>
+            Shipping
+            <input type="number" name="shipping" min="0" step="0.01" value="0">
+          </label>
+
+          <label>
+            Estimated Completion
+            <input type="date" name="estimated_completion">
+          </label>
+
+          <button type="submit" class="admin-button">Create Commission</button>
+        </form>
+
+        <p class="admin-notice" id="commission-create-status" aria-live="polite"></p>
+      </section>
+    </div>
+
+  </main>
+
+  <script src="../js/admin-commissions.js"></script>
+</body>
+</html>
