@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Clients | Sylva Ars Studio Admin</title>
+
+  <link rel="stylesheet" href="../css/admin.css">
+</head>
+
+<body>
+
+  <main class="admin-page admin-clients-page">
+
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Clients</h1>
+        <p>View and manage studio clients.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="dashboard.html" class="admin-link">Dashboard</a>
+        <a href="inquiries.html" class="admin-link">Inquiries</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <p class="inquiry-count"><strong id="client-count">0</strong> clients</p>
+    <p class="admin-notice" id="client-list-status" aria-live="polite"></p>
+
+    <div class="inquiry-workspace">
+      <section class="inquiry-list-panel" aria-label="Client list">
+        <div class="inquiry-table-wrap">
+          <table class="inquiry-table">
+            <thead>
+              <tr>
+                <th scope="col">Client</th>
+                <th scope="col">Email</th>
+                <th scope="col">Phone</th>
+                <th scope="col">Created</th>
+                <th scope="col">ID</th>
+              </tr>
+            </thead>
+            <tbody id="client-list"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="inquiry-detail-panel" id="client-detail" aria-live="polite" hidden>
+        <div class="inquiry-detail-heading">
+          <h2>Client detail</h2>
+          <button type="button" class="admin-text-button" id="close-client-detail">Close</button>
+        </div>
+
+        <div id="client-detail-fields"></div>
+        <p class="admin-notice" id="client-detail-status" aria-live="polite"></p>
+      </section>
+    </div>
+
+  </main>
+
+  <script src="../js/admin-clients.js"></script>
+</body>
+</html>
