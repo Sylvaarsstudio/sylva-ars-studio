@@ -1,6 +1,7 @@
 (function initializeAdminCommissions(globalObject) {
   const API_PATH = "/admin/api/commissions";
   const CLIENTS_API_PATH = "/admin/api/clients";
+  const DOCUMENTS_API_PATH = "/admin/api/documents";
   const statusTransitions = {
     draft: ["quoted", "cancelled"],
     quoted: ["draft", "approved", "cancelled"],
@@ -16,6 +17,12 @@
     check: "Check",
     zelle: "Zelle",
     paypal: "PayPal"
+  };
+  const documentTypeLabels = {
+    receipt: "Receipt",
+    invoice: "Invoice",
+    contract: "Contract",
+    coa: "COA"
   };
   const labels = {
     commission_number: "Commission Number",
@@ -300,6 +307,23 @@
     `).join("");
   }
 
+  function renderCommissionDocumentsMarkup(documents) {
+    if (!documents.length) {
+      return '<tr><td colspan="6" class="inquiry-empty">No documents for this commission.</td></tr>';
+    }
+
+    return documents.map((document) => `
+      <tr>
+        <td>${escapeHtml(document.document_number)}</td>
+        <td>${escapeHtml(documentTypeLabels[document.document_type] || formatLabel(document.document_type))}</td>
+        <td>v${escapeHtml(document.version)}</td>
+        <td>${escapeHtml(formatDate(document.created_at))}</td>
+        <td>${document.payment ? escapeHtml(formatLabel(document.payment.payment_type)) : "—"}</td>
+        <td><a class="admin-text-link" href="${escapeHtml(document.file_location)}" target="_blank" rel="noopener">View</a></td>
+      </tr>
+    `).join("");
+  }
+
   function readRequired(form, field, label) {
     const value = String(form.elements.namedItem(field).value || "").trim();
 
@@ -449,6 +473,8 @@
       recordPayment: documentObject.querySelector("#record-payment"),
       paymentForm: documentObject.querySelector("#payment-form"),
       cancelPayment: documentObject.querySelector("#cancel-payment"),
+      documentList: documentObject.querySelector("#commission-document-list"),
+      documentStatus: documentObject.querySelector("#commission-documents-status"),
       statusForm: documentObject.querySelector("#commission-status-form"),
       cancelStatus: documentObject.querySelector("#cancel-commission-status"),
       statusConfirmation:
@@ -478,6 +504,7 @@
     let selectedCommission = null;
     let pendingStatus = null;
     let payments = [];
+    let documents = [];
     let paymentRequestId = null;
 
     function showError(element, error) {
@@ -492,6 +519,10 @@
 
     function renderPayments() {
       elements.paymentList.innerHTML = renderPaymentsMarkup(payments);
+    }
+
+    function renderDocuments() {
+      elements.documentList.innerHTML = renderCommissionDocumentsMarkup(documents);
     }
 
     function formatPaymentInput(cents) {
@@ -537,6 +568,9 @@
       elements.workspace.classList?.remove("is-detail-mode");
       payments = [];
       renderPayments();
+      documents = [];
+      renderDocuments();
+      elements.documentStatus.textContent = "";
       cancelPayment();
       selectedCommission = null;
       showReadOnlyDetail();
@@ -660,6 +694,34 @@
       }
     }
 
+    async function loadDocuments() {
+      if (!selectedCommission) {
+        documents = [];
+        renderDocuments();
+        return [];
+      }
+
+      elements.documentStatus.textContent = "Loading documents…";
+      elements.documentStatus.classList?.remove("is-error");
+
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${DOCUMENTS_API_PATH}?commission_id=${encodeURIComponent(selectedCommission.id)}`
+        );
+        documents = body.documents || [];
+        renderDocuments();
+        elements.documentStatus.textContent = "";
+        return documents;
+      } catch {
+        documents = [];
+        renderDocuments();
+        elements.documentStatus.textContent = "Unable to load documents.";
+        elements.documentStatus.classList?.add("is-error");
+        return [];
+      }
+    }
+
     async function openDetail(id) {
       elements.createPanel.hidden = true;
       elements.detail.hidden = false;
@@ -678,6 +740,7 @@
         showReadOnlyDetail();
         elements.detailStatus.textContent = "";
         await loadPayments();
+        await loadDocuments();
         return selectedCommission;
       } catch (error) {
         selectedCommission = null;
@@ -1120,6 +1183,7 @@
       closeCreate,
       loadClients,
       loadList,
+      loadDocuments,
       loadPayments,
       openCreate,
       openDetail,
@@ -1141,6 +1205,7 @@
   const api = {
     API_PATH,
     CLIENTS_API_PATH,
+    DOCUMENTS_API_PATH,
     buildCreatePayload,
     buildEditPayload,
     buildPaymentPayload,
@@ -1150,6 +1215,7 @@
     formatCurrency,
     inferSalesTaxRate,
     paymentMethodLabels,
+    renderCommissionDocumentsMarkup,
     renderClientOptions,
     renderDetailMarkup,
     renderListMarkup,

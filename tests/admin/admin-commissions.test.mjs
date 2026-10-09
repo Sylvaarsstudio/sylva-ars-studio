@@ -13,6 +13,7 @@ const {
   formatCurrency,
   inferSalesTaxRate,
   paymentMethodLabels,
+  renderCommissionDocumentsMarkup,
   renderDetailMarkup,
   renderListMarkup,
   renderPaymentsMarkup,
@@ -120,6 +121,8 @@ function createDocument() {
     "#record-payment": createElement(),
     "#payment-form": paymentForm,
     "#cancel-payment": createElement(),
+    "#commission-document-list": createElement(),
+    "#commission-documents-status": createElement(),
     "#commission-status-form": statusForm,
     "#cancel-commission-status": createElement(),
     "#commission-status-confirmation": createElement(),
@@ -344,7 +347,101 @@ test("admin commission status confirmation can be cancelled without a request", 
   app.cancelStatusConfirmation();
   assert.equal(documentObject.elements["#commission-status-confirmation"].hidden, true);
   assert.equal(documentObject.elements["#commission-status-form"].hidden, false);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
+});
+
+test("Commission detail includes its Documents section", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  assert.match(html, /id="commission-documents"/);
+  assert.match(html, /<h2>Documents<\/h2>/);
+});
+
+test("Commission detail requests documents through the shared filtered endpoint", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    if (url.includes("/payments")) return jsonResponse({ payments: [] });
+    if (url.startsWith("/admin/api/documents")) return jsonResponse({ documents: [] });
+    return jsonResponse({ commission: sampleCommission });
+  });
+  await app.openDetail(sampleCommission.id);
+  assert.ok(calls.includes("/admin/api/documents?commission_id=10"));
+});
+
+test("Commission documents renderer shows only supplied commission documents", () => {
+  const markup = renderCommissionDocumentsMarkup([{
+    document_number: "SAS-REC-2026-0010",
+    document_type: "receipt",
+    version: 1,
+    created_at: "2026-10-09T10:00:00Z",
+    file_location: "/admin/receipts/10.html",
+    payment: null
+  }]);
+  assert.match(markup, /SAS-REC-2026-0010/);
+  assert.doesNotMatch(markup, /SAS-REC-2026-0011/);
+});
+
+test("Commission document View opens the stored file location", () => {
+  const markup = renderCommissionDocumentsMarkup([{
+    document_number: "SAS-INV-2026-0010",
+    document_type: "invoice",
+    version: 1,
+    created_at: "2026-10-09T10:00:00Z",
+    file_location: "/documents/invoice-10.pdf",
+    payment: null
+  }]);
+  assert.match(markup, /href="\/documents\/invoice-10\.pdf"/);
+  assert.match(markup, /target="_blank"[^>]*rel="noopener"/);
+});
+
+test("Commission documents show receipts", () => {
+  const markup = renderCommissionDocumentsMarkup([{
+    document_number: "SAS-REC-2026-0010",
+    document_type: "receipt",
+    version: 1,
+    created_at: "2026-10-09T10:00:00Z",
+    file_location: "/admin/receipts/10.html",
+    payment: null
+  }]);
+  assert.match(markup, />Receipt</);
+});
+
+test("Commission documents show the payment association", () => {
+  const markup = renderCommissionDocumentsMarkup([{
+    document_number: "SAS-REC-2026-0010",
+    document_type: "receipt",
+    version: 1,
+    created_at: "2026-10-09T10:00:00Z",
+    file_location: "/admin/receipts/10.html",
+    payment: { payment_type: "balance" }
+  }]);
+  assert.match(markup, />Balance</);
+});
+
+test("Commission documents use the approved empty state", () => {
+  assert.match(renderCommissionDocumentsMarkup([]), /No documents for this commission\./);
+});
+
+test("Documents failure does not break Payments or Commission Detail", async () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, async (url) => {
+    if (url.startsWith("/admin/api/documents")) {
+      return jsonResponse({ message: "failure" }, 500);
+    }
+    if (url.includes("/payments")) {
+      return jsonResponse({ payments: [] });
+    }
+    return jsonResponse({ commission: sampleCommission });
+  });
+  const result = await app.openDetail(sampleCommission.id);
+  assert.equal(result.id, sampleCommission.id);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
+  assert.match(documentObject.elements["#payment-list"].innerHTML, /No payments recorded\./);
+  assert.equal(documentObject.elements["#commission-documents-status"].textContent, "Unable to load documents.");
 });
 
 test("admin commission edit opens with current values preloaded", async () => {

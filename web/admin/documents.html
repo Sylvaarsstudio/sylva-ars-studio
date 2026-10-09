@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Documents | Sylva Ars Studio Admin</title>
+
+  <link rel="stylesheet" href="../css/admin.css">
+</head>
+
+<body>
+
+  <main class="admin-page admin-documents-page">
+
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Documents</h1>
+        <p>Review persistent studio documents.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="dashboard.html" class="admin-link">Dashboard</a>
+        <a href="commissions.html" class="admin-link">Commissions</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <section class="inquiry-toolbar" aria-label="Document filters">
+      <p class="inquiry-count"><strong id="document-count">0</strong> documents</p>
+      <label>
+        Commission
+        <select name="commission_id" id="document-commission-filter">
+          <option value="">All Commissions</option>
+        </select>
+      </label>
+
+      <label>
+        Document Type
+        <select name="document_type" id="document-type-filter">
+          <option value="">All Types</option>
+          <option value="receipt">Receipt</option>
+          <option value="invoice">Invoice</option>
+          <option value="contract">Contract</option>
+          <option value="coa">COA</option>
+        </select>
+      </label>
+      <a href="/admin/generate-documents.html" class="admin-button">Create Document</a>
+    </section>
+
+    <p class="admin-notice">Manual document generation is not yet added to the persistent Documents index.</p>
+    <p class="admin-notice" id="document-list-status" aria-live="polite"></p>
+
+    <div class="inquiry-table-wrap">
+      <table class="inquiry-table">
+        <thead>
+          <tr>
+            <th scope="col">Document Number</th>
+            <th scope="col">Type</th>
+            <th scope="col">Version</th>
+            <th scope="col">Commission</th>
+            <th scope="col">Client</th>
+            <th scope="col">Created</th>
+            <th scope="col">Payment</th>
+            <th scope="col">View</th>
+          </tr>
+        </thead>
+        <tbody id="document-list"></tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <script src="../js/admin-documents.js"></script>
+</body>
+</html>
