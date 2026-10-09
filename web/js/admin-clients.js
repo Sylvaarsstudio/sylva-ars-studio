@@ -26,6 +26,17 @@
     country: "Country",
     created_at: "Created"
   };
+  const editableFields = [
+    "full_name",
+    "email",
+    "phone",
+    "address_line_1",
+    "address_line_2",
+    "city",
+    "state",
+    "postal_code",
+    "country"
+  ];
 
   function escapeHtml(value) {
     return String(value)
@@ -78,8 +89,25 @@
       `).join("")}</dl>`;
   }
 
-  async function fetchJson(fetchImplementation, url) {
-    const response = await fetchImplementation(url);
+  function buildUpdatePayload(form) {
+    const payload = {};
+
+    for (const field of editableFields) {
+      const value = String(form.elements.namedItem(field).value || "").trim();
+      payload[field] = field === "full_name" || field === "email"
+        ? value
+        : value || null;
+    }
+
+    if (!payload.full_name || !payload.email) {
+      throw new Error("Full Name and Email are required.");
+    }
+
+    return payload;
+  }
+
+  async function fetchJson(fetchImplementation, url, options) {
+    const response = await fetchImplementation(url, options);
 
     if (response.redirected && response.url?.includes("/admin-login.html")) {
       throw new Error("Your admin session expired. Please sign in again.");
@@ -94,7 +122,9 @@
     }
 
     if (!response.ok) {
-      throw new Error(body?.message || "The admin request could not be completed.");
+      const error = new Error(body?.message || "The admin request could not be completed.");
+      error.status = response.status;
+      throw error;
     }
 
     return body;
@@ -107,13 +137,54 @@
       listStatus: documentObject.querySelector("#client-list-status"),
       detail: documentObject.querySelector("#client-detail"),
       detailFields: documentObject.querySelector("#client-detail-fields"),
+      detailActions: documentObject.querySelector("#client-detail-actions"),
       detailStatus: documentObject.querySelector("#client-detail-status"),
+      editClient: documentObject.querySelector("#edit-client"),
+      editForm: documentObject.querySelector("#client-edit-form"),
+      cancelEdit: documentObject.querySelector("#cancel-client-edit"),
       closeDetail: documentObject.querySelector("#close-client-detail")
     };
+    let clients = [];
+    let selectedClient = null;
 
     function showError(element, error) {
       element.textContent = error.message || "An unexpected error occurred.";
       element.classList?.add("is-error");
+    }
+
+    function populateEditForm(client) {
+      for (const field of editableFields) {
+        elements.editForm.elements.namedItem(field).value = client[field] || "";
+      }
+    }
+
+    function showReadOnlyDetail() {
+      elements.detailFields.hidden = false;
+      elements.detailActions.hidden = false;
+      elements.editForm.hidden = true;
+    }
+
+    function beginEdit() {
+      if (!selectedClient) {
+        return;
+      }
+
+      populateEditForm(selectedClient);
+      elements.detailFields.hidden = true;
+      elements.detailActions.hidden = true;
+      elements.editForm.hidden = false;
+      elements.detailStatus.textContent = "";
+      elements.detailStatus.classList?.remove("is-error");
+    }
+
+    function cancelEdit() {
+      if (selectedClient) {
+        populateEditForm(selectedClient);
+      }
+
+      showReadOnlyDetail();
+      elements.detailStatus.textContent = "";
+      elements.detailStatus.classList?.remove("is-error");
     }
 
     async function loadList() {
@@ -122,11 +193,13 @@
 
       try {
         const body = await fetchJson(fetchImplementation, API_PATH);
+        clients = body.clients;
         elements.list.innerHTML = renderListMarkup(body.clients);
         elements.count.textContent = String(body.total);
         elements.listStatus.textContent = "";
         return body.clients;
       } catch (error) {
+        clients = [];
         elements.list.innerHTML = "";
         elements.count.textContent = "0";
         showError(elements.listStatus, error);
@@ -138,18 +211,74 @@
       elements.detailStatus.textContent = "Loading client…";
       elements.detailStatus.classList?.remove("is-error");
       elements.detail.hidden = false;
+      elements.detailActions.hidden = true;
+      elements.editForm.hidden = true;
 
       try {
         const body = await fetchJson(
           fetchImplementation,
           `${API_PATH}/${encodeURIComponent(id)}`
         );
+        selectedClient = body.client;
         elements.detailFields.innerHTML = renderDetailMarkup(body.client);
+        showReadOnlyDetail();
         elements.detailStatus.textContent = "";
         return body.client;
       } catch (error) {
+        selectedClient = null;
         elements.detailFields.innerHTML = "";
+        elements.detailActions.hidden = true;
+        elements.editForm.hidden = true;
         showError(elements.detailStatus, error);
+        return null;
+      }
+    }
+
+    async function saveChanges(event) {
+      event?.preventDefault();
+
+      if (!selectedClient) {
+        return null;
+      }
+
+      let payload;
+
+      try {
+        payload = buildUpdatePayload(elements.editForm);
+      } catch (error) {
+        showError(elements.detailStatus, error);
+        return null;
+      }
+
+      elements.detailStatus.textContent = "Saving changes…";
+      elements.detailStatus.classList?.remove("is-error");
+
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedClient.id)}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+          }
+        );
+        selectedClient = body.client;
+        clients = clients.map((client) => String(client.id) === String(body.client.id)
+          ? body.client
+          : client);
+        elements.detailFields.innerHTML = renderDetailMarkup(body.client);
+        elements.list.innerHTML = renderListMarkup(clients);
+        showReadOnlyDetail();
+        elements.detailStatus.textContent = "Client updated.";
+        return body.client;
+      } catch (error) {
+        const message = error.status === 409
+          ? "Email already belongs to another client."
+          : "Unable to update client.";
+        showError(elements.detailStatus, new Error(message));
         return null;
       }
     }
@@ -162,22 +291,32 @@
           openDetail(button.dataset.clientId);
         }
       });
+      elements.editClient.addEventListener("click", beginEdit);
+      elements.editForm.addEventListener("submit", saveChanges);
+      elements.cancelEdit.addEventListener("click", cancelEdit);
       elements.closeDetail.addEventListener("click", () => {
         elements.detail.hidden = true;
         elements.detailFields.innerHTML = "";
+        elements.detailActions.hidden = true;
+        elements.editForm.hidden = true;
         elements.detailStatus.textContent = "";
+        selectedClient = null;
       });
     }
 
     return {
+      beginEdit,
       bindEvents,
+      cancelEdit,
       loadList,
-      openDetail
+      openDetail,
+      saveChanges
     };
   }
 
   const api = {
     API_PATH,
+    buildUpdatePayload,
     createApp,
     fetchJson,
     renderDetailMarkup,
