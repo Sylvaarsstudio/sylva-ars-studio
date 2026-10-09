@@ -58,7 +58,18 @@ async function listClients(db) {
 
 async function getClient(db, id) {
   const result = await db.pool.query(
-    `SELECT id, full_name, email, phone, created_at
+    `SELECT
+       id,
+       full_name,
+       email,
+       phone,
+       address_line_1,
+       address_line_2,
+       city,
+       state,
+       postal_code,
+       country,
+       created_at
      FROM clients
      WHERE id = $1`,
     [id]

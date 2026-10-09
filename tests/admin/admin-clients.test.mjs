@@ -75,6 +75,12 @@ const sampleClient = {
   full_name: "Test Client",
   email: "test@example.invalid",
   phone: null,
+  address_line_1: null,
+  address_line_2: null,
+  city: null,
+  state: null,
+  postal_code: null,
+  country: null,
   created_at: "2026-01-01T10:00:00Z"
 };
 
@@ -122,6 +128,73 @@ test("admin client detail omits NULL phone", () => {
   assert.doesNotMatch(markup, /Phone/);
   assert.match(markup, /Full Name/);
   assert.match(markup, /Created/);
+});
+
+test("admin client detail displays a complete structured address", () => {
+  const markup = renderDetailMarkup({
+    ...sampleClient,
+    address_line_1: "123 Studio Way",
+    address_line_2: "Suite 4",
+    city: "York",
+    state: "PA",
+    postal_code: "17401",
+    country: "United States"
+  });
+
+  assert.match(markup, /Address Line 1/);
+  assert.match(markup, /123 Studio Way/);
+  assert.match(markup, /Address Line 2/);
+  assert.match(markup, /Suite 4/);
+  assert.match(markup, /City/);
+  assert.match(markup, /York/);
+  assert.match(markup, /State/);
+  assert.match(markup, /PA/);
+  assert.match(markup, /Postal Code/);
+  assert.match(markup, /17401/);
+  assert.match(markup, /Country/);
+  assert.match(markup, /United States/);
+});
+
+test("admin client detail omits a NULL second address line", () => {
+  const markup = renderDetailMarkup({
+    ...sampleClient,
+    address_line_1: "123 Studio Way",
+    city: "York",
+    state: "PA",
+    postal_code: "17401",
+    country: "United States"
+  });
+
+  assert.match(markup, /Address Line 1/);
+  assert.doesNotMatch(markup, /Address Line 2/);
+});
+
+test("admin client detail omits all empty address fields", () => {
+  const markup = renderDetailMarkup(sampleClient);
+
+  assert.doesNotMatch(markup, /Address Line 1/);
+  assert.doesNotMatch(markup, /Address Line 2/);
+  assert.doesNotMatch(markup, /City/);
+  assert.doesNotMatch(markup, /State/);
+  assert.doesNotMatch(markup, /Postal Code/);
+  assert.doesNotMatch(markup, /Country/);
+});
+
+test("admin clients list remains unchanged by address fields", () => {
+  const markup = renderListMarkup([{
+    ...sampleClient,
+    address_line_1: "123 Studio Way",
+    city: "York",
+    state: "PA",
+    postal_code: "17401",
+    country: "United States"
+  }]);
+
+  assert.match(markup, /Test Client/);
+  assert.doesNotMatch(markup, /123 Studio Way/);
+  assert.doesNotMatch(markup, /York/);
+  assert.doesNotMatch(markup, /17401/);
+  assert.doesNotMatch(markup, /United States/);
 });
 
 test("admin clients displays API errors clearly", async () => {

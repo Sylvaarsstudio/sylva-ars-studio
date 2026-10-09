@@ -1,11 +1,29 @@
 (function initializeAdminClients(globalObject) {
   const API_PATH = "/admin/api/clients";
-  const detailFields = ["id", "full_name", "email", "phone", "created_at"];
+  const detailFields = [
+    "id",
+    "full_name",
+    "email",
+    "phone",
+    "address_line_1",
+    "address_line_2",
+    "city",
+    "state",
+    "postal_code",
+    "country",
+    "created_at"
+  ];
   const labels = {
     id: "ID",
     full_name: "Full Name",
     email: "Email",
     phone: "Phone",
+    address_line_1: "Address Line 1",
+    address_line_2: "Address Line 2",
+    city: "City",
+    state: "State",
+    postal_code: "Postal Code",
+    country: "Country",
     created_at: "Created"
   };
 
