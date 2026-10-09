@@ -908,12 +908,27 @@
 
       elements.paymentForm.reset();
       elements.paymentForm.elements.namedItem("payment_type").value = "deposit";
-      elements.paymentForm.elements.namedItem("sales_tax").value = "0";
+      updatePaymentTaxPortion();
       elements.paymentForm.elements.namedItem("payment_method").value = "";
       elements.paymentForm.hidden = false;
       elements.paymentStatus.textContent = "";
       elements.paymentStatus.classList?.remove("is-error");
       return paymentRequestId;
+    }
+
+    function updatePaymentTaxPortion() {
+      if (!selectedCommission) {
+        return null;
+      }
+
+      const paymentType = elements.paymentForm.elements.namedItem("payment_type").value;
+      const salesTaxCents = paymentType === "balance"
+        ? toCents(selectedCommission.sales_tax)
+        : 0;
+      const value = (salesTaxCents / 100).toFixed(2);
+
+      elements.paymentForm.elements.namedItem("sales_tax").value = value;
+      return value;
     }
 
     function cancelPayment() {
@@ -958,8 +973,11 @@
         ]);
         mergeCommissionFinancials(body.commission);
         renderPayments();
+        elements.paymentForm.reset();
+        elements.paymentForm.elements.namedItem("payment_type").value = "deposit";
+        updatePaymentTaxPortion();
         elements.paymentForm.hidden = true;
-        paymentRequestId = null;
+        paymentRequestId = uuidFactory();
         elements.paymentStatus.textContent = "Payment recorded.";
         return body.payment;
       } catch (error) {
@@ -980,6 +998,10 @@
       elements.editCommission.addEventListener("click", openEdit);
       elements.changeStatus.addEventListener("click", openStatus);
       elements.recordPayment.addEventListener("click", openPayment);
+      elements.paymentForm.elements.namedItem("payment_type").addEventListener(
+        "change",
+        updatePaymentTaxPortion
+      );
       elements.paymentForm.addEventListener("submit", submitPayment);
       elements.cancelPayment.addEventListener("click", cancelPayment);
       elements.statusForm.addEventListener("submit", prepareStatusConfirmation);
@@ -1044,7 +1066,8 @@
       submitPayment,
       submitStatus,
       updateEditFinancialPreview,
-      updateFinancialPreview
+      updateFinancialPreview,
+      updatePaymentTaxPortion
     };
   }
 
