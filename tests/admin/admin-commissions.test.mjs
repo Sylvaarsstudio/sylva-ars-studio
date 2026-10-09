@@ -967,7 +967,63 @@ test("opening Record Payment creates one request id and opens the form", async (
   assert.equal(uuidCalls, 1);
   assert.equal(documentObject.elements["#payment-form"].hidden, false);
   assert.equal(documentObject.paymentInputs.payment_type.value, "deposit");
-  assert.equal(documentObject.paymentInputs.sales_tax.value, "0");
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
+});
+
+test("Payment Type immediately autofills only the approved sales tax portion", async () => {
+  const documentObject = createDocument();
+  const commission = {
+    ...sampleCommission,
+    price: "500.00",
+    sales_tax: "30.00",
+    shipping: "60.00",
+    balance: "340.00"
+  };
+  const app = createApp(documentObject, async (url) => url.endsWith("/payments")
+    ? jsonResponse({ success: true, commission, payments: [] })
+    : jsonResponse({ success: true, commission }));
+  app.bindEvents();
+
+  await app.openDetail(commission.id);
+  app.openPayment();
+  documentObject.paymentInputs.amount.value = "340.00";
+  const paymentTypeChange = documentObject.paymentInputs.payment_type.listeners.get("change");
+
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
+  assert.equal(typeof paymentTypeChange, "function");
+
+  documentObject.paymentInputs.payment_type.value = "balance";
+  paymentTypeChange();
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "30.00");
+  assert.equal(documentObject.paymentInputs.amount.value, "340.00");
+  assert.equal(commission.sales_tax, "30.00");
+
+  documentObject.paymentInputs.sales_tax.value = "12.34";
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "12.34");
+
+  documentObject.paymentInputs.payment_type.value = "deposit";
+  paymentTypeChange();
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
+  assert.equal(documentObject.paymentInputs.amount.value, "340.00");
+
+  documentObject.paymentInputs.payment_type.value = "balance";
+  paymentTypeChange();
+  documentObject.paymentInputs.payment_type.value = "installment";
+  paymentTypeChange();
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
+  assert.equal(documentObject.paymentInputs.amount.value, "340.00");
+});
+
+test("Sales Tax Portion remains editable", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  const form = html.match(/<form[^>]+id="payment-form"[\s\S]*?<\/form>/)[0];
+  const input = form.match(/<input[^>]+name="sales_tax"[^>]*>/)[0];
+
+  assert.doesNotMatch(input, /\sreadonly(?:\s|>|=)/);
+  assert.doesNotMatch(input, /\sdisabled(?:\s|>|=)/);
 });
 
 test("payment payload contains only approved normalized fields", () => {
@@ -1086,6 +1142,10 @@ test("successful payment updates history and all received-payment financials", a
   assert.match(detail, /Balance[\s\S]*\$91\.00/);
   assert.equal(documentObject.elements["#payment-status"].textContent, "Payment recorded.");
   assert.equal(documentObject.elements["#payment-form"].hidden, true);
+  assert.equal(documentObject.paymentInputs.payment_type.value, "deposit");
+  assert.equal(documentObject.paymentInputs.amount.value, "");
+  assert.equal(documentObject.paymentInputs.sales_tax.value, "0.00");
+  assert.equal(documentObject.paymentInputs.payment_method.value, "");
 });
 
 test("success creates a different request id for the next payment", async () => {
