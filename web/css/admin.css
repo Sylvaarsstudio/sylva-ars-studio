@@ -672,6 +672,17 @@ body {
   opacity: 0.72;
 }
 
+.admin-commissions-page .commission-payment-guidance:not(:empty) {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border-left: 3px solid #8a7338;
+  background: rgba(138, 115, 56, 0.08);
+}
+
+.admin-commissions-page #payment-status.is-paid-in-full {
+  font-weight: bold;
+}
+
 .admin-commissions-page .commission-compact-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

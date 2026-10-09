@@ -441,6 +441,7 @@
       payments: documentObject.querySelector("#commission-payments"),
       paymentList: documentObject.querySelector("#payment-list"),
       paymentStatus: documentObject.querySelector("#payment-status"),
+      paymentGuidance: documentObject.querySelector("#payment-guidance"),
       recordPayment: documentObject.querySelector("#record-payment"),
       paymentForm: documentObject.querySelector("#payment-form"),
       cancelPayment: documentObject.querySelector("#cancel-payment"),
@@ -487,6 +488,30 @@
 
     function renderPayments() {
       elements.paymentList.innerHTML = renderPaymentsMarkup(payments);
+    }
+
+    function formatPaymentInput(cents) {
+      return (cents / 100).toFixed(2);
+    }
+
+    function isPaidInFull() {
+      return selectedCommission && toCents(selectedCommission.balance) === 0;
+    }
+
+    function updatePaymentAvailability() {
+      const paidInFull = isPaidInFull();
+
+      elements.recordPayment.hidden = Boolean(paidInFull);
+      elements.paymentStatus.classList?.remove("is-error");
+
+      if (paidInFull) {
+        elements.paymentStatus.textContent = "Paid in full";
+        elements.paymentStatus.classList?.add("is-paid-in-full");
+      } else {
+        elements.paymentStatus.classList?.remove("is-paid-in-full");
+      }
+
+      return paidInFull;
     }
 
     function enterDetailMode() {
@@ -619,6 +644,7 @@
 
         renderPayments();
         elements.paymentStatus.textContent = "";
+        updatePaymentAvailability();
         return payments;
       } catch (error) {
         payments = [];
@@ -642,6 +668,7 @@
         );
         selectedCommission = body.commission;
         elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
+        updatePaymentAvailability();
         showReadOnlyDetail();
         elements.detailStatus.textContent = "";
         await loadPayments();
@@ -791,6 +818,7 @@
         elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
         payments = [];
         renderPayments();
+        updatePaymentAvailability();
         enterDetailMode();
         showReadOnlyDetail();
         elements.detailStatus.textContent = "Commission created.";
@@ -902,13 +930,19 @@
         return null;
       }
 
+      if (updatePaymentAvailability()) {
+        elements.paymentForm.hidden = true;
+        return null;
+      }
+
       if (!paymentRequestId) {
         paymentRequestId = uuidFactory();
       }
 
       elements.paymentForm.reset();
-      elements.paymentForm.elements.namedItem("payment_type").value = "deposit";
-      updatePaymentTaxPortion();
+      elements.paymentForm.elements.namedItem("payment_type").value =
+        toCents(selectedCommission.deposit_amount) > 0 ? "balance" : "deposit";
+      updatePaymentSuggestions();
       elements.paymentForm.elements.namedItem("payment_method").value = "";
       elements.paymentForm.hidden = false;
       elements.paymentStatus.textContent = "";
@@ -916,19 +950,37 @@
       return paymentRequestId;
     }
 
-    function updatePaymentTaxPortion() {
+    function updatePaymentSuggestions() {
       if (!selectedCommission) {
         return null;
       }
 
       const paymentType = elements.paymentForm.elements.namedItem("payment_type").value;
-      const salesTaxCents = paymentType === "balance"
-        ? toCents(selectedCommission.sales_tax)
-        : 0;
-      const value = (salesTaxCents / 100).toFixed(2);
+      const isBalance = paymentType === "balance";
+      const amountCents = isBalance
+        ? toCents(selectedCommission.balance)
+        : Math.round(toCents(selectedCommission.price) / 2);
+      const salesTaxCents = isBalance ? toCents(selectedCommission.sales_tax) : 0;
 
-      elements.paymentForm.elements.namedItem("sales_tax").value = value;
-      return value;
+      elements.paymentForm.elements.namedItem("amount").value =
+        formatPaymentInput(amountCents);
+      elements.paymentForm.elements.namedItem("sales_tax").value =
+        formatPaymentInput(salesTaxCents);
+
+      if (!isBalance && toCents(selectedCommission.deposit_amount) > 0) {
+        elements.paymentGuidance.textContent =
+          "An initial deposit has already been recorded for this commission.";
+      } else if (isBalance && toCents(selectedCommission.deposit_amount) === 0) {
+        elements.paymentGuidance.textContent =
+          "No deposit has been recorded for this commission.";
+      } else {
+        elements.paymentGuidance.textContent = "";
+      }
+
+      return {
+        amount: elements.paymentForm.elements.namedItem("amount").value,
+        salesTax: elements.paymentForm.elements.namedItem("sales_tax").value
+      };
     }
 
     function cancelPayment() {
@@ -974,11 +1026,16 @@
         mergeCommissionFinancials(body.commission);
         renderPayments();
         elements.paymentForm.reset();
-        elements.paymentForm.elements.namedItem("payment_type").value = "deposit";
-        updatePaymentTaxPortion();
+        elements.paymentForm.elements.namedItem("payment_type").value =
+          toCents(selectedCommission.deposit_amount) > 0 ? "balance" : "deposit";
+        updatePaymentSuggestions();
         elements.paymentForm.hidden = true;
         paymentRequestId = uuidFactory();
-        elements.paymentStatus.textContent = "Payment recorded.";
+        if (updatePaymentAvailability()) {
+          elements.paymentStatus.textContent = "Paid in full";
+        } else {
+          elements.paymentStatus.textContent = "Payment recorded.";
+        }
         return body.payment;
       } catch (error) {
         showError(elements.paymentStatus, error);
@@ -1000,7 +1057,7 @@
       elements.recordPayment.addEventListener("click", openPayment);
       elements.paymentForm.elements.namedItem("payment_type").addEventListener(
         "change",
-        updatePaymentTaxPortion
+        updatePaymentSuggestions
       );
       elements.paymentForm.addEventListener("submit", submitPayment);
       elements.cancelPayment.addEventListener("click", cancelPayment);
@@ -1067,7 +1124,7 @@
       submitStatus,
       updateEditFinancialPreview,
       updateFinancialPreview,
-      updatePaymentTaxPortion
+      updatePaymentSuggestions
     };
   }
 
