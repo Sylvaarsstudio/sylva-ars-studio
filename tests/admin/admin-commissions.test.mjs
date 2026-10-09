@@ -12,7 +12,9 @@ const {
   formatCurrency,
   inferSalesTaxRate,
   renderDetailMarkup,
-  renderListMarkup
+  renderListMarkup,
+  renderStatusOptions,
+  statusTransitions
 } = require("../../web/js/admin-commissions.js");
 
 const formFields = [
@@ -25,7 +27,8 @@ const formFields = [
   "price",
   "sales_tax_rate",
   "shipping",
-  "estimated_completion"
+  "estimated_completion",
+  "status"
 ];
 
 function createClassList() {
@@ -82,6 +85,7 @@ function createFormElement() {
 function createDocument() {
   const form = createFormElement();
   const editForm = createFormElement();
+  const statusForm = createFormElement();
   const elements = {
     "#commission-count": createElement(),
     "#commission-list": createElement(),
@@ -92,6 +96,13 @@ function createDocument() {
     "#commission-detail-status": createElement(),
     "#close-commission-detail": createElement(),
     "#edit-commission": createElement(),
+    "#change-commission-status": createElement(),
+    "#commission-status-form": statusForm,
+    "#cancel-commission-status": createElement(),
+    "#commission-status-confirmation": createElement(),
+    "#commission-status-confirmation-text": createElement(),
+    "#confirm-commission-status": createElement(),
+    "#cancel-commission-status-confirmation": createElement(),
     "#commission-edit-form": editForm,
     "#edit-sales-tax-preview": createElement(),
     "#edit-required-deposit-preview": createElement(),
@@ -110,6 +121,7 @@ function createDocument() {
     elements,
     inputs: form.inputs,
     editInputs: editForm.inputs,
+    statusInputs: statusForm.inputs,
     querySelector(selector) {
       return elements[selector];
     }
@@ -197,6 +209,83 @@ test("admin commission detail opens", async () => {
   assert.equal(documentObject.elements["#commission-detail"].hidden, false);
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Oil/);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Status/);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Draft/);
+});
+
+test("admin commission status controls expose no payment or document actions", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(html, /id="change-commission-status">Change Status</);
+  assert.match(html, /id="commission-status-form"/);
+  assert.doesNotMatch(html, /name="(?:payment|document)/);
+});
+
+test("admin commission status options include only allowed transitions", () => {
+  assert.deepEqual(statusTransitions, {
+    draft: ["quoted", "cancelled"],
+    quoted: ["draft", "approved", "cancelled"],
+    approved: ["quoted", "in_progress", "cancelled"],
+    in_progress: ["approved", "completed", "cancelled"],
+    completed: ["in_progress"],
+    cancelled: ["draft"]
+  });
+  assert.match(renderStatusOptions("draft"), /Quoted/);
+  assert.match(renderStatusOptions("draft"), /Cancelled/);
+  assert.doesNotMatch(renderStatusOptions("draft"), /Completed/);
+  assert.match(renderStatusOptions("quoted"), /Approved/);
+  assert.equal(
+    renderStatusOptions("completed"),
+    '<option value="in_progress">In Progress</option>'
+  );
+  assert.equal(
+    renderStatusOptions("cancelled"),
+    '<option value="draft">Draft</option>'
+  );
+});
+
+test("admin commission Change Status opens valid choices", async () => {
+  const documentObject = createDocument();
+  const app = createApp(
+    documentObject,
+    async () => jsonResponse({ success: true, commission: sampleCommission })
+  );
+
+  await app.openDetail(sampleCommission.id);
+  app.openStatus();
+
+  assert.equal(documentObject.elements["#commission-status-form"].hidden, false);
+  assert.equal(documentObject.statusInputs.status.value, "quoted");
+  assert.match(documentObject.statusInputs.status.innerHTML, /Quoted/);
+  assert.match(documentObject.statusInputs.status.innerHTML, /Cancelled/);
+  assert.doesNotMatch(documentObject.statusInputs.status.innerHTML, /Completed/);
+});
+
+test("admin commission status confirmation can be cancelled without a request", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ success: true, commission: sampleCommission });
+  });
+
+  await app.openDetail(sampleCommission.id);
+  app.openStatus();
+  documentObject.statusInputs.status.value = "quoted";
+  app.prepareStatusConfirmation();
+
+  assert.equal(
+    documentObject.elements["#commission-status-confirmation-text"].textContent,
+    "Change commission status from DRAFT to QUOTED?"
+  );
+  assert.equal(documentObject.elements["#commission-status-confirmation"].hidden, false);
+  app.cancelStatusConfirmation();
+  assert.equal(documentObject.elements["#commission-status-confirmation"].hidden, true);
+  assert.equal(documentObject.elements["#commission-status-form"].hidden, false);
+  assert.equal(calls.length, 1);
 });
 
 test("admin commission edit opens with current values preloaded", async () => {
@@ -557,6 +646,71 @@ test("admin commission edit displays the approved API error", async () => {
   assert.equal(
     documentObject.elements["#commission-detail-status"].textContent,
     "Unable to update commission."
+  );
+  assert.equal(
+    documentObject.elements["#commission-detail-status"].classList.contains("is-error"),
+    true
+  );
+});
+
+test("admin commission status confirmation uses PATCH and updates UI", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const updated = {
+    ...sampleCommission,
+    status: "quoted"
+  };
+  const app = createApp(documentObject, async (url, options) => {
+    calls.push({ url, options });
+
+    if (url === "/admin/api/commissions") {
+      return jsonResponse({ success: true, total: 1, commissions: [sampleCommission] });
+    }
+
+    if (!options) {
+      return jsonResponse({ success: true, commission: sampleCommission });
+    }
+
+    return jsonResponse({ success: true, commission: updated });
+  });
+
+  await app.loadList();
+  await app.openDetail(sampleCommission.id);
+  app.openStatus();
+  documentObject.statusInputs.status.value = "quoted";
+  app.prepareStatusConfirmation();
+  await app.submitStatus();
+
+  const patchCall = calls.find((call) => call.options?.method === "PATCH");
+  assert.equal(patchCall.url, "/admin/api/commissions/10/status");
+  assert.deepEqual(JSON.parse(patchCall.options.body), { status: "quoted" });
+  assert.match(documentObject.elements["#commission-list"].innerHTML, /Quoted/);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Quoted/);
+  assert.equal(
+    documentObject.elements["#commission-detail-status"].textContent,
+    "Commission status updated."
+  );
+});
+
+test("admin commission status update displays API errors", async () => {
+  const documentObject = createDocument();
+  let call = 0;
+  const app = createApp(documentObject, async () => {
+    call += 1;
+    return call === 1
+      ? jsonResponse({ success: true, commission: sampleCommission })
+      : jsonResponse({ message: "Transition rejected." }, 409);
+  });
+
+  await app.openDetail(sampleCommission.id);
+  app.openStatus();
+  documentObject.statusInputs.status.value = "quoted";
+  app.prepareStatusConfirmation();
+  await app.submitStatus();
+
+  assert.equal(
+    documentObject.elements["#commission-detail-status"].textContent,
+    "Unable to update commission status."
   );
   assert.equal(
     documentObject.elements["#commission-detail-status"].classList.contains("is-error"),

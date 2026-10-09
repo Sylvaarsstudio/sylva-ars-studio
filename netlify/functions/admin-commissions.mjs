@@ -17,6 +17,22 @@ const allowedSalesTaxRates = new Map([
   ["0.07", 7],
   ["0.08", 8]
 ]);
+const allowedCommissionStatuses = new Set([
+  "draft",
+  "quoted",
+  "approved",
+  "in_progress",
+  "completed",
+  "cancelled"
+]);
+const commissionStatusTransitions = new Map([
+  ["draft", new Set(["quoted", "cancelled"])],
+  ["quoted", new Set(["draft", "approved", "cancelled"])],
+  ["approved", new Set(["quoted", "in_progress", "cancelled"])],
+  ["in_progress", new Set(["approved", "completed", "cancelled"])],
+  ["completed", new Set(["in_progress"])],
+  ["cancelled", new Set(["draft"])]
+]);
 const createFields = new Set([
   "client_id",
   "title",
@@ -77,6 +93,26 @@ function getCommissionId(pathname) {
 
   try {
     return decodeURIComponent(encodedId);
+  } catch {
+    return undefined;
+  }
+}
+
+function getCommissionStatusId(pathname) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+
+  if (!normalizedPath.startsWith(`${API_PATH}/`)) {
+    return null;
+  }
+
+  const segments = normalizedPath.slice(API_PATH.length + 1).split("/");
+
+  if (segments.length !== 2 || segments[1] !== "status" || !segments[0]) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(segments[0]);
   } catch {
     return undefined;
   }
@@ -320,6 +356,24 @@ function normalizeCommissionEdit(data) {
   };
 }
 
+function normalizeCommissionStatus(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { error: "Request body must be a JSON object." };
+  }
+
+  const fields = Object.keys(data);
+
+  if (fields.length !== 1 || fields[0] !== "status") {
+    return { error: "Request body must contain only status." };
+  }
+
+  if (typeof data.status !== "string" || !allowedCommissionStatuses.has(data.status)) {
+    return { error: "Status is invalid." };
+  }
+
+  return { status: data.status };
+}
+
 async function listCommissions(db) {
   const result = await db.pool.query(
     `SELECT
@@ -519,6 +573,70 @@ async function updateCommission(db, id, data) {
   return result.rows[0] || null;
 }
 
+async function updateCommissionStatus(db, id, status) {
+  const connection = await db.pool.connect();
+
+  try {
+    await connection.query("BEGIN");
+    const currentResult = await connection.query(
+      `SELECT status
+       FROM commissions
+       WHERE id = $1
+       FOR UPDATE`,
+      [id]
+    );
+    const current = currentResult.rows[0];
+
+    if (!current) {
+      await connection.query("ROLLBACK");
+      return { outcome: "not_found" };
+    }
+
+    if (!commissionStatusTransitions.get(current.status)?.has(status)) {
+      await connection.query("ROLLBACK");
+      return {
+        outcome: "invalid_transition",
+        current_status: current.status
+      };
+    }
+
+    const result = await connection.query(
+      `UPDATE commissions
+       SET status = $1
+       WHERE id = $2
+       RETURNING
+         id,
+         commission_number,
+         client_id,
+         title,
+         description,
+         medium,
+         width,
+         height,
+         price,
+         deposit_amount,
+         sales_tax,
+         shipping,
+         balance,
+         status,
+         estimated_completion,
+         created_at`,
+      [status, id]
+    );
+
+    await connection.query("COMMIT");
+    return {
+      outcome: "success",
+      commission: result.rows[0]
+    };
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 function logFailure(action, error, details = {}) {
   console.error("Admin commission request failed.", {
     action,
@@ -551,7 +669,72 @@ function createHandler({
       });
     }
 
-    const commissionId = getCommissionId(new URL(request.url).pathname);
+    const pathname = new URL(request.url).pathname;
+    const statusCommissionId = getCommissionStatusId(pathname);
+
+    if (statusCommissionId !== null) {
+      if (
+        statusCommissionId === undefined
+        || !commissionIdPattern.test(statusCommissionId)
+      ) {
+        return jsonResponse(400, {
+          success: false,
+          message: "Invalid commission id."
+        });
+      }
+
+      if (request.method !== "PATCH") {
+        return jsonResponse(405, {
+          success: false,
+          message: "Method not allowed. Use PATCH."
+        });
+      }
+
+      const data = await parseJsonBody(request);
+      const normalized = normalizeCommissionStatus(data);
+
+      if (normalized.error) {
+        return jsonResponse(400, {
+          success: false,
+          message: normalized.error
+        });
+      }
+
+      try {
+        const result = await updateCommissionStatus(
+          databaseFactory(),
+          statusCommissionId,
+          normalized.status
+        );
+
+        if (result.outcome === "not_found") {
+          return jsonResponse(404, {
+            success: false,
+            message: "Commission not found."
+          });
+        }
+
+        if (result.outcome === "invalid_transition") {
+          return jsonResponse(409, {
+            success: false,
+            message: "Commission status transition is not allowed."
+          });
+        }
+
+        return jsonResponse(200, {
+          success: true,
+          commission: result.commission
+        });
+      } catch (error) {
+        logFailure("update_status", error, { commission_id: statusCommissionId });
+        return jsonResponse(500, {
+          success: false,
+          message: "Unable to update commission status."
+        });
+      }
+    }
+
+    const commissionId = getCommissionId(pathname);
 
     if (commissionId === undefined) {
       return jsonResponse(404, {
@@ -698,18 +881,22 @@ function createHandler({
 export const config = {
   path: [
     "/admin/api/commissions",
-    "/admin/api/commissions/:id"
+    "/admin/api/commissions/:id",
+    "/admin/api/commissions/:id/status"
   ]
 };
 
 export {
   createCommission,
   createHandler,
+  commissionStatusTransitions,
   getCommission,
   listCommissions,
   normalizeCommissionCreate,
   normalizeCommissionEdit,
-  updateCommission
+  normalizeCommissionStatus,
+  updateCommission,
+  updateCommissionStatus
 };
 
 export default createHandler();
