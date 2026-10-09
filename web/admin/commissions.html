@@ -27,15 +27,15 @@
       </nav>
     </header>
 
-    <div class="inquiry-toolbar">
+    <div class="inquiry-toolbar" id="commission-index-toolbar">
       <p class="inquiry-count"><strong id="commission-count">0</strong> commissions</p>
       <button type="button" class="admin-button" id="new-commission">New Commission</button>
     </div>
 
     <p class="admin-notice" id="commission-list-status" aria-live="polite"></p>
 
-    <div class="inquiry-workspace">
-      <section class="inquiry-list-panel" aria-label="Commission list">
+    <div class="inquiry-workspace commission-workspace" id="commission-workspace">
+      <section class="inquiry-list-panel" id="commission-list-panel" aria-label="Commission list">
         <div class="inquiry-table-wrap">
           <table class="inquiry-table">
             <thead>
@@ -55,17 +55,17 @@
         </div>
       </section>
 
-      <section class="inquiry-detail-panel" id="commission-detail" aria-live="polite" hidden>
-        <div class="inquiry-detail-heading">
-          <h2>Commission detail</h2>
-          <div>
-            <button type="button" class="admin-text-button" id="edit-commission">Edit Commission</button>
-            <button type="button" class="admin-text-button" id="change-commission-status">Change Status</button>
-            <button type="button" class="admin-text-button" id="close-commission-detail">Close</button>
-          </div>
+      <section class="inquiry-detail-panel commission-detail-card" id="commission-detail" aria-live="polite" hidden>
+        <div class="commission-detail-navigation">
+          <button type="button" class="admin-text-button" id="close-commission-detail">← Back to Commissions</button>
         </div>
 
         <div id="commission-detail-fields"></div>
+
+        <div class="commission-detail-actions">
+          <button type="button" class="admin-button" id="edit-commission">Edit Commission</button>
+          <button type="button" class="admin-text-button" id="change-commission-status">Change Status</button>
+        </div>
 
         <section id="commission-payments">
           <div class="inquiry-detail-heading">
@@ -82,18 +82,17 @@
                   <th scope="col">Date</th>
                   <th scope="col">Type</th>
                   <th scope="col">Amount</th>
-                  <th scope="col">Sales Tax Portion</th>
+                  <th scope="col">Tax Portion</th>
                   <th scope="col">Method</th>
                   <th scope="col">Status</th>
                   <th scope="col">Reference</th>
-                  <th scope="col">Notes</th>
                 </tr>
               </thead>
               <tbody id="payment-list"></tbody>
             </table>
           </div>
 
-          <form class="admin-form" id="payment-form" hidden>
+          <form class="admin-form commission-compact-form commission-payment-form" id="payment-form" hidden>
             <label>
               Payment Type
               <select name="payment_type" required>
@@ -115,7 +114,15 @@
 
             <label>
               Payment Method
-              <input type="text" name="payment_method">
+              <select name="payment_method">
+                <option value="">Select payment method</option>
+                <option value="cash">Cash</option>
+                <option value="card">Credit / Debit Card</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="check">Check</option>
+                <option value="zelle">Zelle</option>
+                <option value="paypal">PayPal</option>
+              </select>
             </label>
 
             <label>
@@ -128,19 +135,19 @@
               <input type="text" name="external_reference">
             </label>
 
-            <label>
+            <label class="commission-form-wide">
               Notes
               <textarea name="notes" rows="4"></textarea>
             </label>
 
-            <div>
+            <div class="commission-form-wide commission-form-actions">
               <button type="submit" class="admin-button">Record Payment</button>
               <button type="button" class="admin-text-button" id="cancel-payment">Cancel</button>
             </div>
           </form>
         </section>
 
-        <form class="admin-form" id="commission-status-form" hidden>
+        <form class="admin-form commission-status-form" id="commission-status-form" hidden>
           <label>
             Status
             <select name="status" required></select>
@@ -152,19 +159,19 @@
           </div>
         </form>
 
-        <div id="commission-status-confirmation" hidden>
+        <div class="commission-status-confirmation" id="commission-status-confirmation" hidden>
           <p id="commission-status-confirmation-text"></p>
           <button type="button" class="admin-button" id="confirm-commission-status">Confirm</button>
           <button type="button" class="admin-text-button" id="cancel-commission-status-confirmation">Cancel</button>
         </div>
 
-        <form class="admin-form" id="commission-edit-form" hidden>
+        <form class="admin-form commission-compact-form commission-edit-form" id="commission-edit-form" hidden>
           <label>
             Title
             <input type="text" name="title" required>
           </label>
 
-          <label>
+          <label class="commission-form-wide">
             Description
             <textarea name="description" rows="5" required></textarea>
           </label>
@@ -204,10 +211,12 @@
             </select>
           </label>
 
-          <p>Based on delivery destination in Pennsylvania.</p>
-          <p>Estimated Sales Tax: <strong id="edit-sales-tax-preview">$0.00</strong></p>
-          <p>Required Deposit (50%): <strong id="edit-required-deposit-preview">$0.00</strong></p>
-          <p>Estimated Remaining After Deposit: <strong id="edit-remaining-after-deposit-preview">$0.00</strong></p>
+          <div class="commission-form-wide commission-form-summary">
+            <p>Based on delivery destination in Pennsylvania.</p>
+            <p>Estimated Sales Tax: <strong id="edit-sales-tax-preview">$0.00</strong></p>
+            <p>Required Deposit (50%): <strong id="edit-required-deposit-preview">$0.00</strong></p>
+            <p>Estimated Remaining After Deposit: <strong id="edit-remaining-after-deposit-preview">$0.00</strong></p>
+          </div>
 
           <label>
             Shipping
@@ -219,7 +228,7 @@
             <input type="date" name="estimated_completion">
           </label>
 
-          <div>
+          <div class="commission-form-wide commission-form-actions">
             <button type="submit" class="admin-button">Save Changes</button>
             <button type="button" class="admin-text-button" id="cancel-commission-edit">Cancel</button>
           </div>

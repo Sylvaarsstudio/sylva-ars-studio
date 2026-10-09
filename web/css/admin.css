@@ -511,6 +511,235 @@ body {
   opacity: 0.65;
 }
 
+.admin-commissions-page .commission-workspace.is-detail-mode {
+  display: block;
+}
+
+.admin-commissions-page .commission-detail-card {
+  box-sizing: border-box;
+  position: static;
+  width: calc(100% - 32px);
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 34px;
+}
+
+.admin-commissions-page .commission-detail-navigation {
+  margin-bottom: 22px;
+}
+
+.admin-commissions-page .commission-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.admin-commissions-page .commission-number {
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.admin-commissions-page .commission-detail-header h2 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: normal;
+}
+
+.admin-commissions-page .commission-client {
+  margin: 9px 0 0;
+  line-height: 1.5;
+  opacity: 0.72;
+}
+
+.admin-commissions-page .commission-status-badge {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.admin-commissions-page .commission-description,
+.admin-commissions-page .commission-summary-section,
+.admin-commissions-page .commission-record-information,
+.admin-commissions-page #commission-payments {
+  padding-top: 24px;
+}
+
+.admin-commissions-page .commission-description h3,
+.admin-commissions-page .commission-summary-section h3,
+.admin-commissions-page .commission-record-information h3,
+.admin-commissions-page #commission-payments h2 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: normal;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.admin-commissions-page .commission-description p {
+  max-width: 850px;
+  margin: 0;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.admin-commissions-page .commission-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr);
+  gap: 34px;
+}
+
+.admin-commissions-page .commission-data-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 22px;
+  margin: 0;
+}
+
+.admin-commissions-page .commission-financial-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-commissions-page .commission-data-field {
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.09);
+}
+
+.admin-commissions-page .commission-data-field dt {
+  margin-bottom: 5px;
+  font-size: 11px;
+  letter-spacing: 0.65px;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+
+.admin-commissions-page .commission-data-field dd {
+  margin: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.admin-commissions-page .commission-record-information {
+  margin-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.admin-commissions-page .commission-record-grid {
+  grid-template-columns: repeat(2, minmax(0, 240px));
+}
+
+.admin-commissions-page .commission-detail-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 24px 0 6px;
+}
+
+.admin-commissions-page .commission-detail-actions .admin-button {
+  padding: 12px 18px;
+}
+
+.admin-commissions-page #commission-payments {
+  margin-top: 28px;
+  border-top: 1px solid rgba(0, 0, 0, 0.16);
+}
+
+.admin-commissions-page #commission-payments .inquiry-detail-heading {
+  margin-bottom: 12px;
+}
+
+.admin-commissions-page #commission-payments .inquiry-table th,
+.admin-commissions-page #commission-payments .inquiry-table td {
+  padding: 11px 10px;
+  font-size: 13px;
+}
+
+.admin-commissions-page .commission-payment-notes {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.72;
+}
+
+.admin-commissions-page .commission-compact-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+  margin-top: 24px;
+  padding: 26px;
+}
+
+.admin-commissions-page .commission-compact-form[hidden],
+.admin-commissions-page .commission-status-form[hidden],
+.admin-commissions-page .commission-status-confirmation[hidden] {
+  display: none;
+}
+
+.admin-commissions-page .commission-compact-form label {
+  margin-bottom: 18px;
+}
+
+.admin-commissions-page .commission-form-wide {
+  grid-column: 1 / -1;
+}
+
+.admin-commissions-page .commission-form-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 20px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.admin-commissions-page .commission-form-summary p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.admin-commissions-page .commission-form-summary p:first-child {
+  grid-column: 1 / -1;
+  opacity: 0.7;
+}
+
+.admin-commissions-page .commission-form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.admin-commissions-page .commission-status-form,
+.admin-commissions-page .commission-status-confirmation {
+  max-width: 560px;
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: white;
+}
+
+.admin-commissions-page .commission-status-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 18px;
+}
+
+.admin-commissions-page .commission-status-form label {
+  margin: 0;
+}
+
 @media (max-width: 980px) {
   .admin-page {
     margin: 30px auto;
@@ -527,6 +756,19 @@ body {
 
   .inquiry-detail-panel {
     position: static;
+  }
+
+  .admin-commissions-page .commission-detail-card {
+    width: auto;
+  }
+
+  .admin-commissions-page .commission-summary-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .admin-commissions-page .commission-financial-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
 }
@@ -565,5 +807,80 @@ body {
   .inquiry-status-form label,
   .inquiry-status-form .admin-button {
     width: 100%;
+  }
+
+  .admin-commissions-page .commission-detail-card {
+    padding: 22px 18px;
+  }
+
+  .admin-commissions-page .commission-detail-header,
+  .admin-commissions-page .commission-detail-actions,
+  .admin-commissions-page #commission-payments .inquiry-detail-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-commissions-page .commission-detail-header h2 {
+    font-size: 25px;
+  }
+
+  .admin-commissions-page .commission-data-grid,
+  .admin-commissions-page .commission-financial-grid,
+  .admin-commissions-page .commission-record-grid,
+  .admin-commissions-page .commission-compact-form,
+  .admin-commissions-page .commission-form-summary,
+  .admin-commissions-page .commission-status-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-commissions-page .commission-form-summary p:first-child,
+  .admin-commissions-page .commission-form-wide {
+    grid-column: auto;
+  }
+
+  .admin-commissions-page #commission-payments .inquiry-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .admin-commissions-page #commission-payments .inquiry-table,
+  .admin-commissions-page #commission-payments .inquiry-table tbody,
+  .admin-commissions-page #commission-payments .inquiry-table tr,
+  .admin-commissions-page #commission-payments .inquiry-table td {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .admin-commissions-page #commission-payments .inquiry-table tr {
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  }
+
+  .admin-commissions-page #commission-payments .inquiry-table td {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 10px;
+    padding: 7px 0;
+    border: 0;
+  }
+
+  .admin-commissions-page #commission-payments .inquiry-table td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    opacity: 0.62;
+  }
+
+  .admin-commissions-page #commission-payments .inquiry-empty {
+    display: block;
+  }
+
+  .admin-commissions-page #commission-payments .inquiry-empty::before {
+    content: none;
   }
 }
