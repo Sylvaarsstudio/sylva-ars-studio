@@ -400,6 +400,36 @@ test("phase 9 preserves NULL phone and creates no related records", async () => 
   });
 });
 
+test("phase 11 conversion does not copy shipping location into structured address", async () => {
+  const id = seeded.artwork_inquiry;
+  await db.pool.query(
+    "UPDATE inquiries SET status = 'accepted' WHERE id = $1",
+    [id]
+  );
+
+  const response = await request("POST", `/${id}/convert-client`);
+  const client = await db.pool.query(`
+    SELECT
+      address_line_1,
+      address_line_2,
+      city,
+      state,
+      postal_code,
+      country
+    FROM clients
+  `);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(client.rows[0], {
+    address_line_1: null,
+    address_line_2: null,
+    city: null,
+    state: null,
+    postal_code: null,
+    country: null
+  });
+});
+
 test("phase 8 does not create clients or commissions", async () => {
   await request();
   await request("GET", `/${seeded.artwork_inquiry}`);
