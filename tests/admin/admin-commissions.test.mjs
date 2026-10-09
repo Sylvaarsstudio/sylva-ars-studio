@@ -12,6 +12,7 @@ const {
   createApp,
   formatCurrency,
   inferSalesTaxRate,
+  paymentMethodLabels,
   renderDetailMarkup,
   renderListMarkup,
   renderPaymentsMarkup,
@@ -99,6 +100,9 @@ function createDocument() {
   paymentForm.hidden = true;
   const elements = {
     "#commission-count": createElement(),
+    "#commission-index-toolbar": createElement(),
+    "#commission-workspace": createElement(),
+    "#commission-list-panel": createElement(),
     "#commission-list": createElement(),
     "#commission-list-status": createElement(),
     "#new-commission": createElement(),
@@ -133,6 +137,11 @@ function createDocument() {
     "#remaining-after-deposit-preview": createElement(),
     "#cancel-commission": createElement()
   };
+  elements["#commission-detail"].hidden = true;
+  elements["#commission-edit-form"].hidden = true;
+  elements["#commission-status-form"].hidden = true;
+  elements["#commission-status-confirmation"].hidden = true;
+  elements["#commission-create"].hidden = true;
 
   return {
     elements,
@@ -214,6 +223,8 @@ test("admin commissions renders the list and counter", async () => {
   assert.equal(documentObject.elements["#commission-count"].textContent, "1");
   assert.match(documentObject.elements["#commission-list"].innerHTML, /SAS-COM-2026-0001/);
   assert.match(documentObject.elements["#commission-list"].innerHTML, /Test Client/);
+  assert.equal(documentObject.elements["#commission-list-panel"].hidden, false);
+  assert.equal(documentObject.elements["#commission-detail"].hidden, true);
 });
 
 test("admin commission detail opens", async () => {
@@ -226,10 +237,38 @@ test("admin commission detail opens", async () => {
   await app.openDetail(sampleCommission.id);
 
   assert.equal(documentObject.elements["#commission-detail"].hidden, false);
+  assert.equal(documentObject.elements["#commission-index-toolbar"].hidden, true);
+  assert.equal(documentObject.elements["#commission-list-panel"].hidden, true);
+  assert.equal(
+    documentObject.elements["#commission-workspace"].classList.contains("is-detail-mode"),
+    true
+  );
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Oil/);
-  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Status/);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /commission-status-badge/);
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Draft/);
+});
+
+test("Back to Commissions restores the list without another request", async () => {
+  const documentObject = createDocument();
+  let calls = 0;
+  const app = createApp(documentObject, async (url) => {
+    calls += 1;
+    return commissionDetailFetch()(url);
+  });
+
+  await app.openDetail(sampleCommission.id);
+  const callsAfterOpen = calls;
+  app.showCommissionIndex();
+
+  assert.equal(documentObject.elements["#commission-detail"].hidden, true);
+  assert.equal(documentObject.elements["#commission-index-toolbar"].hidden, false);
+  assert.equal(documentObject.elements["#commission-list-panel"].hidden, false);
+  assert.equal(
+    documentObject.elements["#commission-workspace"].classList.contains("is-detail-mode"),
+    false
+  );
+  assert.equal(calls, callsAfterOpen);
 });
 
 test("admin commission status controls expose no document actions", () => {
@@ -360,7 +399,7 @@ test("admin commission form uses the approved medium and tax selects", () => {
     "utf8"
   );
   const commissionForms = [
-    html.match(/<form class="admin-form" id="commission-edit-form"[\s\S]*?<\/form>/)[0],
+    html.match(/<form[^>]+id="commission-edit-form"[\s\S]*?<\/form>/)[0],
     html.match(/<form class="admin-form" id="commission-form"[\s\S]*?<\/form>/)[0]
   ].join("\n");
 
@@ -393,7 +432,7 @@ test("admin commission edit exposes no protected inputs", () => {
     new URL("../../web/admin/commissions.html", import.meta.url),
     "utf8"
   );
-  const editForm = html.match(/<form class="admin-form" id="commission-edit-form"[\s\S]*?<\/form>/)[0];
+  const editForm = html.match(/<form[^>]+id="commission-edit-form"[\s\S]*?<\/form>/)[0];
 
   for (const field of [
     "id",
@@ -784,7 +823,7 @@ const samplePayment = {
   payment_type: "deposit",
   amount: "25.00",
   sales_tax: "1.50",
-  payment_method: "Credit card",
+  payment_method: "card",
   payment_date: "2026-10-09",
   status: "completed",
   external_reference: "reference-50",
@@ -806,7 +845,7 @@ function fillPaymentForm(documentObject) {
   documentObject.paymentInputs.payment_type.value = "deposit";
   documentObject.paymentInputs.amount.value = "25.00";
   documentObject.paymentInputs.sales_tax.value = "1.50";
-  documentObject.paymentInputs.payment_method.value = " Credit card ";
+  documentObject.paymentInputs.payment_method.value = "card";
   documentObject.paymentInputs.payment_date.value = "2026-10-09";
   documentObject.paymentInputs.external_reference.value = " reference-50 ";
   documentObject.paymentInputs.notes.value = " Initial payment ";
@@ -829,13 +868,65 @@ test("Payment form exposes only the three approved types and no status", () => {
     new URL("../../web/admin/commissions.html", import.meta.url),
     "utf8"
   );
-  const form = html.match(/<form class="admin-form" id="payment-form"[\s\S]*?<\/form>/)[0];
+  const form = html.match(/<form[^>]+id="payment-form"[\s\S]*?<\/form>/)[0];
 
   assert.match(form, /value="deposit">Deposit</);
   assert.match(form, /value="installment">Installment</);
   assert.match(form, /value="balance">Balance</);
   assert.doesNotMatch(form, /value="refund"|value="adjustment"/);
   assert.doesNotMatch(form, /name="status"/);
+});
+
+test("Payment Method is a controlled select with the exact approved choices", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  const form = html.match(/<form[^>]+id="payment-form"[\s\S]*?<\/form>/)[0];
+  const methodSelect = form.match(/<select name="payment_method">[\s\S]*?<\/select>/)[0];
+  const expectedOptions = [
+    ["cash", "Cash"],
+    ["card", "Credit / Debit Card"],
+    ["bank_transfer", "Bank Transfer"],
+    ["check", "Check"],
+    ["zelle", "Zelle"],
+    ["paypal", "PayPal"]
+  ];
+
+  assert.deepEqual(paymentMethodLabels, Object.fromEntries(expectedOptions));
+  assert.match(methodSelect, /<option value="">Select payment method<\/option>/);
+  for (const [value, label] of expectedOptions) {
+    assert.equal(
+      (methodSelect.match(new RegExp(`<option value="${value}">${label.replace("/", "\\/")}<\\/option>`, "g")) || []).length,
+      1
+    );
+  }
+  assert.equal((methodSelect.match(/<option /g) || []).length, 7);
+  assert.doesNotMatch(form, /<input[^>]+name="payment_method"/);
+});
+
+test("commission forms stay hidden until their actions are selected", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(html, /id="commission-edit-form" hidden/);
+  assert.match(html, /id="commission-status-form" hidden/);
+  assert.match(html, /id="payment-form" hidden/);
+  assert.match(html, /id="close-commission-detail">← Back to Commissions<\/button>/);
+});
+
+test("commission layout CSS is scoped, compact, and responsive", () => {
+  const css = readFileSync(
+    new URL("../../web/css/admin.css", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(css, /\.admin-commissions-page \.commission-detail-card/);
+  assert.match(css, /max-width: 1160px/);
+  assert.match(css, /\.admin-commissions-page \.commission-summary-grid[\s\S]*grid-template-columns: repeat\(2/);
+  assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.admin-commissions-page \.commission-compact-form[\s\S]*grid-template-columns: 1fr/);
 });
 
 test("Payment history renders all approved fields including sales tax portion", () => {
@@ -845,7 +936,8 @@ test("Payment history renders all approved fields including sales tax portion", 
   assert.match(markup, /Deposit/);
   assert.match(markup, /\$25\.00/);
   assert.match(markup, /\$1\.50/);
-  assert.match(markup, /Credit card/);
+  assert.match(markup, /Credit \/ Debit Card/);
+  assert.doesNotMatch(markup, />card</);
   assert.match(markup, /Completed/);
   assert.match(markup, /reference-50/);
   assert.match(markup, /Initial payment/);
@@ -896,7 +988,7 @@ test("payment payload contains only approved normalized fields", () => {
     "external_reference",
     "notes"
   ]);
-  assert.equal(payload.payment_method, "Credit card");
+  assert.equal(payload.payment_method, "card");
   assert.equal(payload.external_reference, "reference-50");
   assert.equal(payload.notes, "Initial payment");
   assert.equal(Object.hasOwn(payload, "status"), false);
@@ -1041,6 +1133,15 @@ test("commission financial summary clearly shows total and payment fields", () =
     balance: "244.00"
   });
 
+  assert.match(markup, /class="commission-detail-summary"/);
+  assert.match(markup, /class="commission-detail-header"/);
+  assert.match(markup, /Test Client/);
+  assert.match(markup, /test@example\.invalid/);
+  assert.match(markup, /class="commission-description"/);
+  assert.match(markup, /A test commission\./);
+  assert.match(markup, /class="commission-summary-grid"/);
+  assert.match(markup, /class="commission-record-information"/);
+  assert.match(markup, /data-field="id"[\s\S]*>10</);
   assert.match(markup, /Total[\s\S]*\$444\.00/);
   assert.match(markup, /Required Deposit \(50%\)[\s\S]*\$200\.00/);
   assert.match(markup, /Deposit Amount[\s\S]*\$200\.00/);

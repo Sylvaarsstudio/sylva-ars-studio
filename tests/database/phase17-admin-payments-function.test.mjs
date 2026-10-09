@@ -103,7 +103,7 @@ function paymentPayload(overrides = {}) {
     payment_type: "deposit",
     amount: "25.00",
     sales_tax: "0.00",
-    payment_method: "Credit card",
+    payment_method: "card",
     payment_date: "2026-10-09",
     external_reference: "processor-ref",
     notes: "Initial deposit",
@@ -201,6 +201,34 @@ for (const paymentType of ["deposit", "installment", "balance"]) {
     assert.equal(Object.hasOwn(body.payment, "request_id"), false);
   });
 }
+
+for (const paymentMethod of [
+  "cash",
+  "card",
+  "bank_transfer",
+  "check",
+  "zelle",
+  "paypal"
+]) {
+  test(`POST accepts payment method ${paymentMethod}`, async () => {
+    const response = await request("POST", undefined, paymentPayload({
+      payment_method: paymentMethod
+    }));
+    const body = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(body.payment.payment_method, paymentMethod);
+  });
+}
+
+test("POST rejects an unsupported payment method", async () => {
+  const response = await request("POST", undefined, paymentPayload({
+    payment_method: "other"
+  }));
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).message, "Payment method is unsupported.");
+});
 
 for (const paymentType of ["refund", "adjustment", "pending", ""]) {
   test(`POST rejects unsupported payment type ${JSON.stringify(paymentType)}`, async () => {

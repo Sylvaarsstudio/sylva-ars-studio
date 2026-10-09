@@ -6,6 +6,14 @@ const API_PATH_PATTERN = /^\/admin\/api\/commissions\/([^/]+)\/payments\/?$/;
 const commissionIdPattern = /^[1-9][0-9]*$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const allowedPaymentTypes = new Set(["deposit", "installment", "balance"]);
+const allowedPaymentMethods = new Set([
+  "cash",
+  "card",
+  "bank_transfer",
+  "check",
+  "zelle",
+  "paypal"
+]);
 const createFields = new Set([
   "request_id",
   "payment_type",
@@ -88,6 +96,20 @@ function normalizeOptionalText(value) {
   return { value: value.trim() || null };
 }
 
+function normalizePaymentMethod(value) {
+  const normalized = normalizeOptionalText(value);
+
+  if (normalized.error) {
+    return { error: "Payment method is unsupported." };
+  }
+
+  if (normalized.value !== null && !allowedPaymentMethods.has(normalized.value)) {
+    return { error: "Payment method is unsupported." };
+  }
+
+  return normalized;
+}
+
 function formatCents(cents) {
   return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
 }
@@ -165,7 +187,7 @@ function normalizePaymentCreate(data) {
 
   const amount = normalizeMoney(data.amount, "Amount", { required: true });
   const salesTax = normalizeMoney(data.sales_tax, "Sales tax");
-  const paymentMethod = normalizeOptionalText(data.payment_method);
+  const paymentMethod = normalizePaymentMethod(data.payment_method);
   const paymentDate = normalizeDate(data.payment_date);
   const externalReference = normalizeOptionalText(data.external_reference);
   const notes = normalizeOptionalText(data.notes);
@@ -550,6 +572,7 @@ export const config = {
 };
 
 export {
+  allowedPaymentMethods,
   allowedPaymentTypes,
   createHandler,
   createPayment,

@@ -9,28 +9,14 @@
     completed: ["in_progress"],
     cancelled: ["draft"]
   };
-  const detailFields = [
-    "commission_number",
-    "client_name",
-    "client_email",
-    "title",
-    "description",
-    "medium",
-    "width",
-    "height",
-    "price",
-    "sales_tax",
-    "shipping",
-    "total",
-    "required_deposit",
-    "deposit_amount",
-    "amount_paid",
-    "balance",
-    "status",
-    "estimated_completion",
-    "created_at",
-    "id"
-  ];
+  const paymentMethodLabels = {
+    cash: "Cash",
+    card: "Credit / Debit Card",
+    bank_transfer: "Bank Transfer",
+    check: "Check",
+    zelle: "Zelle",
+    paypal: "PayPal"
+  };
   const labels = {
     commission_number: "Commission Number",
     client_name: "Client",
@@ -203,15 +189,63 @@
       ) / 100,
       required_deposit: Math.round(toCents(commission.price) / 2) / 100
     };
+    const renderField = (field) => hasContent(detail[field]) ? `
+      <div class="commission-data-field" data-field="${escapeHtml(field)}">
+        <dt>${escapeHtml(labels[field])}</dt>
+        <dd>${escapeHtml(formatDetailValue(field, detail[field]))}</dd>
+      </div>
+    ` : "";
 
-    return `<dl class="inquiry-detail-list">${detailFields
-      .filter((field) => hasContent(detail[field]))
-      .map((field) => `
-        <div class="inquiry-detail-field">
-          <dt>${escapeHtml(labels[field])}</dt>
-          <dd>${escapeHtml(formatDetailValue(field, detail[field]))}</dd>
+    return `
+      <article class="commission-detail-summary">
+        <header class="commission-detail-header">
+          <div>
+            <p class="commission-number">${escapeHtml(detail.commission_number)}</p>
+            <h2>${escapeHtml(detail.title)}</h2>
+            <p class="commission-client">${escapeHtml(detail.client_name)} · ${escapeHtml(detail.client_email)}</p>
+          </div>
+          <span class="commission-status-badge">${escapeHtml(formatLabel(detail.status))}</span>
+        </header>
+
+        <section class="commission-description">
+          <h3>Description</h3>
+          <p>${escapeHtml(detail.description)}</p>
+        </section>
+
+        <div class="commission-summary-grid">
+          <section class="commission-summary-section">
+            <h3>Artwork</h3>
+            <dl class="commission-data-grid commission-artwork-grid">
+              ${renderField("medium")}
+              ${renderField("width")}
+              ${renderField("height")}
+              ${renderField("estimated_completion")}
+            </dl>
+          </section>
+
+          <section class="commission-summary-section commission-financial-section">
+            <h3>Financial</h3>
+            <dl class="commission-data-grid commission-financial-grid">
+              ${renderField("price")}
+              ${renderField("sales_tax")}
+              ${renderField("shipping")}
+              ${renderField("total")}
+              ${renderField("required_deposit")}
+              ${renderField("deposit_amount")}
+              ${renderField("amount_paid")}
+              ${renderField("balance")}
+            </dl>
+          </section>
         </div>
-      `).join("")}</dl>`;
+
+        <section class="commission-record-information">
+          <h3>Record Information</h3>
+          <dl class="commission-data-grid commission-record-grid">
+            ${renderField("created_at")}
+            ${renderField("id")}
+          </dl>
+        </section>
+      </article>`;
   }
 
   function renderClientOptions(clients) {
@@ -244,19 +278,21 @@
 
   function renderPaymentsMarkup(payments) {
     if (!payments.length) {
-      return '<tr><td colspan="8" class="inquiry-empty">No payments recorded.</td></tr>';
+      return '<tr><td colspan="7" class="inquiry-empty">No payments recorded.</td></tr>';
     }
 
     return sortPayments(payments).map((payment) => `
       <tr>
-        <td>${payment.payment_date ? escapeHtml(formatDateOnly(payment.payment_date)) : "—"}</td>
-        <td>${escapeHtml(formatLabel(payment.payment_type))}</td>
-        <td>${escapeHtml(formatCurrency(payment.amount))}</td>
-        <td>${escapeHtml(formatCurrency(payment.sales_tax))}</td>
-        <td>${hasContent(payment.payment_method) ? escapeHtml(payment.payment_method) : "—"}</td>
-        <td>${escapeHtml(formatLabel(payment.status))}</td>
-        <td>${hasContent(payment.external_reference) ? escapeHtml(payment.external_reference) : "—"}</td>
-        <td>${hasContent(payment.notes) ? escapeHtml(payment.notes) : "—"}</td>
+        <td data-label="Date">${payment.payment_date ? escapeHtml(formatDateOnly(payment.payment_date)) : "—"}</td>
+        <td data-label="Type">${escapeHtml(formatLabel(payment.payment_type))}</td>
+        <td data-label="Amount">${escapeHtml(formatCurrency(payment.amount))}</td>
+        <td data-label="Tax Portion">${escapeHtml(formatCurrency(payment.sales_tax))}</td>
+        <td data-label="Method">${hasContent(payment.payment_method) ? escapeHtml(paymentMethodLabels[payment.payment_method] || payment.payment_method) : "—"}</td>
+        <td data-label="Status">${escapeHtml(formatLabel(payment.status))}</td>
+        <td data-label="Reference">
+          ${hasContent(payment.external_reference) ? escapeHtml(payment.external_reference) : "—"}
+          ${hasContent(payment.notes) ? `<span class="commission-payment-notes"><strong>Notes:</strong> ${escapeHtml(payment.notes)}</span>` : ""}
+        </td>
       </tr>
     `).join("");
   }
@@ -390,6 +426,9 @@
   ) {
     const elements = {
       count: documentObject.querySelector("#commission-count"),
+      indexToolbar: documentObject.querySelector("#commission-index-toolbar"),
+      workspace: documentObject.querySelector("#commission-workspace"),
+      listPanel: documentObject.querySelector("#commission-list-panel"),
       list: documentObject.querySelector("#commission-list"),
       listStatus: documentObject.querySelector("#commission-list-status"),
       newCommission: documentObject.querySelector("#new-commission"),
@@ -448,6 +487,29 @@
 
     function renderPayments() {
       elements.paymentList.innerHTML = renderPaymentsMarkup(payments);
+    }
+
+    function enterDetailMode() {
+      elements.indexToolbar.hidden = true;
+      elements.listStatus.hidden = true;
+      elements.listPanel.hidden = true;
+      elements.workspace.classList?.add("is-detail-mode");
+    }
+
+    function showCommissionIndex() {
+      elements.detail.hidden = true;
+      elements.detailFields.innerHTML = "";
+      elements.detailStatus.textContent = "";
+      elements.paymentStatus.textContent = "";
+      elements.indexToolbar.hidden = false;
+      elements.listStatus.hidden = false;
+      elements.listPanel.hidden = false;
+      elements.workspace.classList?.remove("is-detail-mode");
+      payments = [];
+      renderPayments();
+      cancelPayment();
+      selectedCommission = null;
+      showReadOnlyDetail();
     }
 
     function mergeCommissionFinancials(financials) {
@@ -569,6 +631,7 @@
     async function openDetail(id) {
       elements.createPanel.hidden = true;
       elements.detail.hidden = false;
+      enterDetailMode();
       elements.detailStatus.textContent = "Loading commission…";
       elements.detailStatus.classList?.remove("is-error");
 
@@ -728,6 +791,7 @@
         elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
         payments = [];
         renderPayments();
+        enterDetailMode();
         showReadOnlyDetail();
         elements.detailStatus.textContent = "Commission created.";
         return selectedCommission;
@@ -845,6 +909,7 @@
       elements.paymentForm.reset();
       elements.paymentForm.elements.namedItem("payment_type").value = "deposit";
       elements.paymentForm.elements.namedItem("sales_tax").value = "0";
+      elements.paymentForm.elements.namedItem("payment_method").value = "";
       elements.paymentForm.hidden = false;
       elements.paymentStatus.textContent = "";
       elements.paymentStatus.classList?.remove("is-error");
@@ -953,15 +1018,7 @@
       );
       elements.cancelCreate.addEventListener("click", closeCreate);
       elements.closeDetail.addEventListener("click", () => {
-        elements.detail.hidden = true;
-        elements.detailFields.innerHTML = "";
-        elements.detailStatus.textContent = "";
-        elements.paymentStatus.textContent = "";
-        payments = [];
-        renderPayments();
-        cancelPayment();
-        selectedCommission = null;
-        showReadOnlyDetail();
+        showCommissionIndex();
       });
     }
 
@@ -981,6 +1038,7 @@
       openPayment,
       openStatus,
       prepareStatusConfirmation,
+      showCommissionIndex,
       submitCreate,
       submitEdit,
       submitPayment,
@@ -1001,6 +1059,7 @@
     fetchJson,
     formatCurrency,
     inferSalesTaxRate,
+    paymentMethodLabels,
     renderClientOptions,
     renderDetailMarkup,
     renderListMarkup,
