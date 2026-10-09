@@ -109,6 +109,11 @@ function createPayload(overrides = {}) {
   };
 }
 
+function editPayload(overrides = {}) {
+  const { client_id, ...payload } = createPayload(overrides);
+  return payload;
+}
+
 function request(method = "GET", path = "", body, cookie = sessionCookie) {
   const headers = {};
 
@@ -148,7 +153,8 @@ test("phase 13 authenticated admin can list commissions", async () => {
 for (const [method, path, body] of [
   ["GET", "", undefined],
   ["GET", "/1", undefined],
-  ["POST", "", {}]
+  ["POST", "", {}],
+  ["PATCH", "/1", {}]
 ]) {
   test(`phase 13 rejects unauthenticated ${method} ${path || "list"}`, async () => {
     const response = await request(method, path, body, "");
@@ -186,6 +192,144 @@ test("phase 13 returns 404 for an unknown commission", async () => {
   assert.equal((await response.json()).message, "Commission not found.");
 });
 
+for (const [field, value, responseField, expected] of [
+  ["title", "Updated Title", "title", "Updated Title"],
+  ["description", "Updated description.", "description", "Updated description."],
+  ["medium", "Drawing", "medium", "Drawing"],
+  ["width", "30.25", "width", "30.25"],
+  ["height", "40.50", "height", "40.50"],
+  ["price", "500.00", "price", "500.00"],
+  ["sales_tax_rate", "0.08", "sales_tax", "8.00"],
+  ["shipping", "25.00", "shipping", "25.00"],
+  ["estimated_completion", "2027-08-15", "estimated_completion", "2027-08-15"]
+]) {
+  test(`commission edit updates approved field ${field}`, async () => {
+    const id = commissions["Earlier Commission"];
+    const response = await request("PATCH", `/${id}`, editPayload({ [field]: value }));
+    const body = await response.json();
+    const actual = responseField === "estimated_completion"
+      ? String(body.commission[responseField]).slice(0, 10)
+      : String(body.commission[responseField]);
+
+    assert.equal(response.status, 200);
+    assert.equal(body.success, true);
+    assert.equal(actual, expected);
+  });
+}
+
+for (const [field, value, message] of [
+  ["title", "   ", "Title is required."],
+  ["description", "", "Description is required."],
+  ["medium", "Fresco", "Medium is unsupported."],
+  ["sales_tax_rate", "0.09", "Sales tax rate is unsupported."],
+  ["width", "0", "Width must be greater than 0."],
+  ["height", "-1", "Height must be greater than 0."],
+  ["price", "-0.01", "Price must be 0 or greater."],
+  ["shipping", "-0.01", "Shipping must be 0 or greater."]
+]) {
+  test(`commission edit rejects invalid ${field}`, async () => {
+    const id = commissions["Earlier Commission"];
+    const response = await request("PATCH", `/${id}`, editPayload({ [field]: value }));
+
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).message, message);
+  });
+}
+
+test("commission edit returns 404 for an unknown commission", async () => {
+  const response = await request("PATCH", "/999999999", editPayload());
+
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).message, "Commission not found.");
+});
+
+for (const field of [
+  "id",
+  "commission_number",
+  "client_id",
+  "deposit_amount",
+  "balance",
+  "status",
+  "created_at",
+  "sales_tax"
+]) {
+  test(`commission edit rejects protected field ${field}`, async () => {
+    const id = commissions["Earlier Commission"];
+    const response = await request("PATCH", `/${id}`, {
+      ...editPayload(),
+      [field]: "protected"
+    });
+
+    assert.equal(response.status, 400);
+    assert.equal(
+      (await response.json()).message,
+      "Request body contains unsupported fields."
+    );
+  });
+}
+
+test("commission edit preserves immutable and workflow fields", async () => {
+  const id = commissions["Earlier Commission"];
+  await db.pool.query(
+    "UPDATE commissions SET deposit_amount = 25, status = 'approved' WHERE id = $1",
+    [id]
+  );
+  const before = (await db.pool.query(
+    `SELECT commission_number, client_id, deposit_amount, status, created_at
+     FROM commissions
+     WHERE id = $1`,
+    [id]
+  )).rows[0];
+
+  const response = await request("PATCH", `/${id}`, editPayload({
+    title: "Immutable Fields Preserved",
+    price: "200.00"
+  }));
+  const after = (await db.pool.query(
+    `SELECT commission_number, client_id, deposit_amount, status, created_at
+     FROM commissions
+     WHERE id = $1`,
+    [id]
+  )).rows[0];
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(after, before);
+});
+
+test("commission edit recalculates tax and generated balance", async () => {
+  const id = commissions["Earlier Commission"];
+  const response = await request("PATCH", `/${id}`, editPayload({
+    price: "400.00",
+    sales_tax_rate: "0.07",
+    shipping: "20.00"
+  }));
+  const commission = (await response.json()).commission;
+
+  assert.equal(response.status, 200);
+  assert.equal(commission.price, "400.00");
+  assert.equal(commission.sales_tax, "28.00");
+  assert.equal(commission.shipping, "20.00");
+  assert.equal(commission.deposit_amount, "0.00");
+  assert.equal(commission.balance, "448.00");
+});
+
+test("commission edit changes no inquiries, payments, or documents", async () => {
+  const id = commissions["Earlier Commission"];
+  const inquiriesBefore = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
+
+  const response = await request("PATCH", `/${id}`, editPayload());
+  const inquiriesAfter = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
+  const relatedCounts = await db.pool.query(`
+    SELECT
+      (SELECT count(*)::integer FROM payments) AS payments,
+      (SELECT count(*)::integer FROM documents) AS documents
+  `);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(inquiriesAfter.rows, inquiriesBefore.rows);
+  assert.deepEqual(relatedCounts.rows[0], { payments: 0, documents: 0 });
+});
+
 test("phase 13 creates a valid draft commission", async () => {
   const response = await request("POST", "", createPayload());
   const body = await response.json();
@@ -219,6 +363,7 @@ test("phase 14 rejects an unsupported medium", async () => {
 });
 
 for (const [rate, expectedTax] of [
+  ["0.00", "0.00"],
   ["0.06", "24.00"],
   ["0.07", "28.00"],
   ["0.08", "32.00"]
@@ -237,6 +382,22 @@ for (const [rate, expectedTax] of [
     assert.equal(commission.balance, String((400 + Number(expectedTax)).toFixed(2)));
   });
 }
+
+test("commission edit accepts the outside-Pennsylvania zero-tax rate", async () => {
+  const id = commissions["Earlier Commission"];
+  const response = await request("PATCH", `/${id}`, editPayload({
+    price: "400.00",
+    sales_tax_rate: "0.00",
+    shipping: "20.00"
+  }));
+  const commission = (await response.json()).commission;
+
+  assert.equal(response.status, 200);
+  assert.equal(commission.sales_tax, "0.00");
+  assert.equal(commission.deposit_amount, "0.00");
+  assert.equal(commission.shipping, "20.00");
+  assert.equal(commission.balance, "420.00");
+});
 
 for (const rate of ["", "0.05", "0.09", "7"] ) {
   test(`phase 14 rejects sales tax rate ${JSON.stringify(rate)}`, async () => {

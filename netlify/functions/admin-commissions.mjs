@@ -12,12 +12,24 @@ const allowedMediums = new Set([
   "Drawing"
 ]);
 const allowedSalesTaxRates = new Map([
+  ["0.00", 0],
   ["0.06", 6],
   ["0.07", 7],
   ["0.08", 8]
 ]);
 const createFields = new Set([
   "client_id",
+  "title",
+  "description",
+  "medium",
+  "width",
+  "height",
+  "price",
+  "sales_tax_rate",
+  "shipping",
+  "estimated_completion"
+]);
+const editFields = new Set([
   "title",
   "description",
   "medium",
@@ -153,7 +165,7 @@ function normalizeSalesTaxRate(value) {
 
   const percent = allowedSalesTaxRates.get(normalized);
 
-  if (!percent) {
+  if (percent === undefined) {
     return { error: "Sales tax rate is unsupported." };
   }
 
@@ -237,6 +249,64 @@ function normalizeCommissionCreate(data) {
   return {
     commission: {
       client_id: clientId,
+      title: title.value,
+      description: description.value,
+      medium: medium.value,
+      width: width.value,
+      height: height.value,
+      price: price.value,
+      sales_tax: formatCents(salesTaxCents),
+      shipping: shipping.value,
+      estimated_completion: estimatedCompletion.value
+    }
+  };
+}
+
+function normalizeCommissionEdit(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { error: "Request body must be a JSON object." };
+  }
+
+  if (Object.keys(data).some((field) => !editFields.has(field))) {
+    return { error: "Request body contains unsupported fields." };
+  }
+
+  const title = normalizeRequiredText(data.title, "Title");
+  const description = normalizeRequiredText(data.description, "Description");
+  const medium = normalizeRequiredText(data.medium, "Medium");
+  const width = normalizeNumber(data.width, { label: "Width", positive: true });
+  const height = normalizeNumber(data.height, { label: "Height", positive: true });
+  const price = normalizeMoney(data.price, "Price");
+  const salesTaxRate = normalizeSalesTaxRate(data.sales_tax_rate);
+  const shipping = normalizeNumber(data.shipping, {
+    label: "Shipping",
+    defaultValue: 0
+  });
+  const estimatedCompletion = normalizeDate(data.estimated_completion);
+  const firstError = [
+    title,
+    description,
+    medium,
+    width,
+    height,
+    price,
+    salesTaxRate,
+    shipping,
+    estimatedCompletion
+  ].find((result) => result.error);
+
+  if (firstError) {
+    return { error: firstError.error };
+  }
+
+  if (!allowedMediums.has(medium.value)) {
+    return { error: "Medium is unsupported." };
+  }
+
+  const salesTaxCents = Math.round(price.cents * salesTaxRate.percent / 100);
+
+  return {
+    commission: {
       title: title.value,
       description: description.value,
       medium: medium.value,
@@ -401,6 +471,54 @@ async function createCommission(db, data, year = new Date().getUTCFullYear()) {
   }
 }
 
+async function updateCommission(db, id, data) {
+  const result = await db.pool.query(
+    `UPDATE commissions
+     SET
+       title = $1,
+       description = $2,
+       medium = $3,
+       width = $4,
+       height = $5,
+       price = $6,
+       sales_tax = $7,
+       shipping = $8,
+       estimated_completion = $9
+     WHERE id = $10
+     RETURNING
+       id,
+       commission_number,
+       client_id,
+       title,
+       description,
+       medium,
+       width,
+       height,
+       price,
+       deposit_amount,
+       sales_tax,
+       shipping,
+       balance,
+       status,
+       estimated_completion,
+       created_at`,
+    [
+      data.title,
+      data.description,
+      data.medium,
+      data.width,
+      data.height,
+      data.price,
+      data.sales_tax,
+      data.shipping,
+      data.estimated_completion,
+      id
+    ]
+  );
+
+  return result.rows[0] || null;
+}
+
 function logFailure(action, error, details = {}) {
   console.error("Admin commission request failed.", {
     action,
@@ -508,10 +626,48 @@ function createHandler({
       });
     }
 
+    if (request.method === "PATCH") {
+      const data = await parseJsonBody(request);
+      const normalized = normalizeCommissionEdit(data);
+
+      if (normalized.error) {
+        return jsonResponse(400, {
+          success: false,
+          message: normalized.error
+        });
+      }
+
+      try {
+        const commission = await updateCommission(
+          databaseFactory(),
+          commissionId,
+          normalized.commission
+        );
+
+        if (!commission) {
+          return jsonResponse(404, {
+            success: false,
+            message: "Commission not found."
+          });
+        }
+
+        return jsonResponse(200, {
+          success: true,
+          commission
+        });
+      } catch (error) {
+        logFailure("update", error, { commission_id: commissionId });
+        return jsonResponse(500, {
+          success: false,
+          message: "Unable to update commission."
+        });
+      }
+    }
+
     if (request.method !== "GET") {
       return jsonResponse(405, {
         success: false,
-        message: "Method not allowed. Use GET."
+        message: "Method not allowed. Use GET or PATCH."
       });
     }
 
@@ -551,7 +707,9 @@ export {
   createHandler,
   getCommission,
   listCommissions,
-  normalizeCommissionCreate
+  normalizeCommissionCreate,
+  normalizeCommissionEdit,
+  updateCommission
 };
 
 export default createHandler();
