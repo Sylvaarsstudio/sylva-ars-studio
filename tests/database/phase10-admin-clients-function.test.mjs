@@ -7,7 +7,8 @@ import { getDatabase } from "@netlify/database";
 import {
   config,
   createHandler,
-  getClient
+  getClient,
+  updateClient
 } from "../../netlify/functions/admin-clients.mjs";
 import {
   COOKIE_NAME,
@@ -91,6 +92,37 @@ function request(path = "", cookie = sessionCookie) {
   }
 
   return handler(new Request(`${apiUrl}${path}`, { headers }));
+}
+
+function clientUpdate(overrides = {}) {
+  return {
+    full_name: "Second Client",
+    email: "second@example.invalid",
+    phone: "555-0102",
+    address_line_1: null,
+    address_line_2: null,
+    city: null,
+    state: null,
+    postal_code: null,
+    country: null,
+    ...overrides
+  };
+}
+
+function patchClient(id, body, cookie = sessionCookie) {
+  const headers = {
+    "Content-Type": "application/json"
+  };
+
+  if (cookie) {
+    headers.Cookie = cookie;
+  }
+
+  return handler(new Request(`${apiUrl}/${id}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(body)
+  }));
 }
 
 test("phase 10 exposes only protected admin client paths", () => {
@@ -250,6 +282,225 @@ test("phase 10 client detail uses parameterized SQL", async () => {
   assert.match(calls[0].text, /id = \$1/);
   assert.deepEqual(calls[0].values, ["42"]);
   assert.equal(calls[0].text.includes("42"), false);
+});
+
+test("phase 12 updates a client full name", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, clientUpdate({
+    full_name: "  Updated Client  "
+  }));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.client.full_name, "Updated Client");
+  assert.equal(
+    (await db.pool.query("SELECT full_name FROM clients WHERE id = $1", [id])).rows[0].full_name,
+    "Updated Client"
+  );
+});
+
+test("phase 12 updates a client email", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, clientUpdate({
+    email: "  updated@example.invalid  "
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).client.email, "updated@example.invalid");
+});
+
+test("phase 12 updates a client phone", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, clientUpdate({
+    phone: "  555-0199  "
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).client.phone, "555-0199");
+});
+
+test("phase 12 updates a complete structured address", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, clientUpdate({
+    address_line_1: "  45 Gallery Road  ",
+    address_line_2: "  Floor 2  ",
+    city: "  Baltimore  ",
+    state: "  MD  ",
+    postal_code: "  21201  ",
+    country: "  United States  "
+  }));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    {
+      address_line_1: body.client.address_line_1,
+      address_line_2: body.client.address_line_2,
+      city: body.client.city,
+      state: body.client.state,
+      postal_code: body.client.postal_code,
+      country: body.client.country
+    },
+    {
+      address_line_1: "45 Gallery Road",
+      address_line_2: "Floor 2",
+      city: "Baltimore",
+      state: "MD",
+      postal_code: "21201",
+      country: "United States"
+    }
+  );
+});
+
+test("phase 12 converts empty optional fields to NULL", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, clientUpdate({
+    phone: "   ",
+    address_line_1: " ",
+    address_line_2: "",
+    city: " ",
+    state: "",
+    postal_code: " ",
+    country: ""
+  }));
+  const client = (await response.json()).client;
+
+  assert.equal(response.status, 200);
+  for (const field of [
+    "phone",
+    "address_line_1",
+    "address_line_2",
+    "city",
+    "state",
+    "postal_code",
+    "country"
+  ]) {
+    assert.equal(client[field], null);
+  }
+});
+
+for (const [field, message] of [
+  ["full_name", "Full name is required."],
+  ["email", "Email is required."]
+]) {
+  test(`phase 12 rejects an empty ${field}`, async () => {
+    const id = seededClients["Second Client"];
+    const response = await patchClient(id, clientUpdate({ [field]: "   " }));
+
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).message, message);
+  });
+}
+
+test("phase 12 returns 404 when updating an unknown client", async () => {
+  const response = await patchClient("999999999", clientUpdate());
+
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).message, "Client not found.");
+});
+
+test("phase 12 rejects another client's email with 409", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, clientUpdate({
+    email: "  FIRST@EXAMPLE.INVALID  "
+  }));
+
+  assert.equal(response.status, 409);
+  assert.equal(
+    (await response.json()).message,
+    "Email already belongs to another client."
+  );
+});
+
+test("phase 12 allows a client to keep its own email", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, clientUpdate({
+    email: "  SECOND@EXAMPLE.INVALID  "
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).client.email, "SECOND@EXAMPLE.INVALID");
+});
+
+test("phase 12 preserves id and created_at", async () => {
+  const id = seededClients["Second Client"];
+  const before = (await db.pool.query(
+    "SELECT id, created_at FROM clients WHERE id = $1",
+    [id]
+  )).rows[0];
+  const response = await patchClient(id, clientUpdate({ full_name: "New Name" }));
+  const client = (await response.json()).client;
+
+  assert.equal(response.status, 200);
+  assert.equal(String(client.id), String(before.id));
+  assert.equal(
+    new Date(client.created_at).toISOString(),
+    before.created_at.toISOString()
+  );
+});
+
+test("phase 12 rejects fields outside the approved edit list", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, {
+    ...clientUpdate(),
+    id: "999"
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(
+    (await response.json()).message,
+    "Request body contains unsupported fields."
+  );
+});
+
+test("phase 12 rejects an unauthenticated update", async () => {
+  const id = seededClients["Second Client"];
+  const response = await patchClient(id, clientUpdate(), "");
+
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).message, "Unauthorized.");
+});
+
+test("phase 12 update uses parameterized SQL", async () => {
+  const calls = [];
+  const fakeDb = {
+    pool: {
+      async query(text, values) {
+        calls.push({ text, values });
+        return { rows: [] };
+      }
+    }
+  };
+
+  await updateClient(fakeDb, "42", clientUpdate());
+
+  assert.match(calls[0].text, /full_name = \$1/);
+  assert.match(calls[0].text, /email = \$2/);
+  assert.match(calls[0].text, /WHERE id = \$10/);
+  assert.equal(calls[0].values.at(-1), "42");
+  assert.equal(calls[0].text.includes("second@example.invalid"), false);
+});
+
+test("phase 12 update does not affect inquiries or related tables", async () => {
+  const id = seededClients["Second Client"];
+  const inquiriesBefore = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
+
+  const response = await patchClient(id, clientUpdate({ full_name: "Updated Client" }));
+  const inquiriesAfter = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
+  const relatedCounts = await db.pool.query(`
+    SELECT
+      (SELECT count(*)::integer FROM commissions) AS commissions,
+      (SELECT count(*)::integer FROM payments) AS payments,
+      (SELECT count(*)::integer FROM documents) AS documents
+  `);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(inquiriesAfter.rows, inquiriesBefore.rows);
+  assert.deepEqual(relatedCounts.rows[0], {
+    commissions: 0,
+    payments: 0,
+    documents: 0
+  });
 });
 
 test("phase 10 reads do not modify studio data", async () => {

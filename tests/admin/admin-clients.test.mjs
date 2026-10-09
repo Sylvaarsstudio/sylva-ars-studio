@@ -40,19 +40,51 @@ function createElement() {
   };
 }
 
+const editableFields = [
+  "full_name",
+  "email",
+  "phone",
+  "address_line_1",
+  "address_line_2",
+  "city",
+  "state",
+  "postal_code",
+  "country"
+];
+
+function createFormElement() {
+  const form = createElement();
+  const inputs = Object.fromEntries(
+    editableFields.map((field) => [field, { value: "" }])
+  );
+  form.elements = {
+    namedItem(name) {
+      return inputs[name];
+    }
+  };
+  form.inputs = inputs;
+  return form;
+}
+
 function createDocument() {
+  const editForm = createFormElement();
   const elements = {
     "#client-count": createElement(),
     "#client-list": createElement(),
     "#client-list-status": createElement(),
     "#client-detail": createElement(),
     "#client-detail-fields": createElement(),
+    "#client-detail-actions": createElement(),
     "#client-detail-status": createElement(),
+    "#edit-client": createElement(),
+    "#client-edit-form": editForm,
+    "#cancel-client-edit": createElement(),
     "#close-client-detail": createElement()
   };
 
   return {
     elements,
+    editInputs: editForm.inputs,
     querySelector(selector) {
       return elements[selector];
     }
@@ -196,6 +228,219 @@ test("admin clients list remains unchanged by address fields", () => {
   assert.doesNotMatch(markup, /17401/);
   assert.doesNotMatch(markup, /United States/);
 });
+
+test("admin client edit opens with current values preloaded", async () => {
+  const documentObject = createDocument();
+  const client = {
+    ...sampleClient,
+    phone: "555-0100",
+    address_line_1: "123 Studio Way",
+    city: "York",
+    country: "United States"
+  };
+  const app = createApp(
+    documentObject,
+    async () => jsonResponse({ success: true, client })
+  );
+
+  await app.openDetail(client.id);
+  app.beginEdit();
+
+  assert.equal(documentObject.elements["#client-edit-form"].hidden, false);
+  assert.equal(documentObject.elements["#client-detail-fields"].hidden, true);
+  assert.equal(documentObject.editInputs.full_name.value, "Test Client");
+  assert.equal(documentObject.editInputs.email.value, "test@example.invalid");
+  assert.equal(documentObject.editInputs.phone.value, "555-0100");
+  assert.equal(documentObject.editInputs.address_line_1.value, "123 Studio Way");
+  assert.equal(documentObject.editInputs.city.value, "York");
+  assert.equal(documentObject.editInputs.country.value, "United States");
+});
+
+test("admin client edit renders NULL fields as empty inputs", async () => {
+  const documentObject = createDocument();
+  const app = createApp(
+    documentObject,
+    async () => jsonResponse({ success: true, client: sampleClient })
+  );
+
+  await app.openDetail(sampleClient.id);
+  app.beginEdit();
+
+  assert.equal(documentObject.editInputs.phone.value, "");
+  assert.equal(documentObject.editInputs.address_line_1.value, "");
+  assert.equal(documentObject.editInputs.address_line_2.value, "");
+  assert.equal(documentObject.editInputs.city.value, "");
+  assert.equal(documentObject.editInputs.state.value, "");
+  assert.equal(documentObject.editInputs.postal_code.value, "");
+  assert.equal(documentObject.editInputs.country.value, "");
+});
+
+test("admin client edit cancel restores read-only detail without saving", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ success: true, client: sampleClient });
+  });
+
+  await app.openDetail(sampleClient.id);
+  app.beginEdit();
+  documentObject.editInputs.full_name.value = "Unsaved Name";
+  app.cancelEdit();
+
+  assert.equal(documentObject.elements["#client-edit-form"].hidden, true);
+  assert.equal(documentObject.elements["#client-detail-fields"].hidden, false);
+  assert.equal(documentObject.editInputs.full_name.value, "Test Client");
+  assert.equal(calls.length, 1);
+});
+
+test("admin client save sends the approved PATCH payload", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const updatedClient = {
+    ...sampleClient,
+    full_name: "Updated Client",
+    phone: "555-0199"
+  };
+  const app = createApp(documentObject, async (url, options) => {
+    calls.push({ url, options });
+
+    if (options?.method === "PATCH") {
+      return jsonResponse({ success: true, client: updatedClient });
+    }
+
+    return jsonResponse({ success: true, client: sampleClient });
+  });
+
+  await app.openDetail(sampleClient.id);
+  app.beginEdit();
+  documentObject.editInputs.full_name.value = "  Updated Client  ";
+  documentObject.editInputs.phone.value = "  555-0199  ";
+  await app.saveChanges();
+
+  const patchCall = calls.find(({ options }) => options?.method === "PATCH");
+  const payload = JSON.parse(patchCall.options.body);
+  assert.equal(patchCall.url, "/admin/api/clients/1");
+  assert.equal(patchCall.options.headers["Content-Type"], "application/json");
+  assert.equal(payload.full_name, "Updated Client");
+  assert.equal(payload.phone, "555-0199");
+  assert.equal(payload.address_line_1, null);
+});
+
+test("admin client save updates the detail immediately", async () => {
+  const documentObject = createDocument();
+  const updatedClient = {
+    ...sampleClient,
+    full_name: "Updated Client"
+  };
+  const app = createApp(documentObject, async (url, options) => {
+    return options?.method === "PATCH"
+      ? jsonResponse({ success: true, client: updatedClient })
+      : jsonResponse({ success: true, client: sampleClient });
+  });
+
+  await app.openDetail(sampleClient.id);
+  app.beginEdit();
+  documentObject.editInputs.full_name.value = "Updated Client";
+  await app.saveChanges();
+
+  assert.match(documentObject.elements["#client-detail-fields"].innerHTML, /Updated Client/);
+  assert.equal(documentObject.elements["#client-edit-form"].hidden, true);
+  assert.equal(documentObject.elements["#client-detail-status"].textContent, "Client updated.");
+});
+
+test("admin client save updates the existing list row", async () => {
+  const documentObject = createDocument();
+  const updatedClient = {
+    ...sampleClient,
+    full_name: "Updated Client",
+    email: "updated@example.invalid",
+    phone: "555-0199"
+  };
+  const app = createApp(documentObject, async (url, options) => {
+    if (options?.method === "PATCH") {
+      return jsonResponse({ success: true, client: updatedClient });
+    }
+
+    if (url === "/admin/api/clients") {
+      return jsonResponse({ success: true, total: 1, clients: [sampleClient] });
+    }
+
+    return jsonResponse({ success: true, client: sampleClient });
+  });
+
+  await app.loadList();
+  await app.openDetail(sampleClient.id);
+  app.beginEdit();
+  documentObject.editInputs.full_name.value = "Updated Client";
+  documentObject.editInputs.email.value = "updated@example.invalid";
+  documentObject.editInputs.phone.value = "555-0199";
+  await app.saveChanges();
+
+  const listMarkup = documentObject.elements["#client-list"].innerHTML;
+  assert.match(listMarkup, /Updated Client/);
+  assert.match(listMarkup, /updated@example\.invalid/);
+  assert.match(listMarkup, /555-0199/);
+  assert.doesNotMatch(listMarkup, />Test Client</);
+});
+
+test("admin client edit displays a duplicate email conflict", async () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, async (url, options) => {
+    return options?.method === "PATCH"
+      ? jsonResponse({ message: "Email already belongs to another client." }, 409)
+      : jsonResponse({ success: true, client: sampleClient });
+  });
+
+  await app.openDetail(sampleClient.id);
+  app.beginEdit();
+  await app.saveChanges();
+
+  assert.equal(
+    documentObject.elements["#client-detail-status"].textContent,
+    "Email already belongs to another client."
+  );
+});
+
+test("admin client edit displays a general update error", async () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, async (url, options) => {
+    return options?.method === "PATCH"
+      ? jsonResponse({ message: "Internal detail" }, 500)
+      : jsonResponse({ success: true, client: sampleClient });
+  });
+
+  await app.openDetail(sampleClient.id);
+  app.beginEdit();
+  await app.saveChanges();
+
+  assert.equal(
+    documentObject.elements["#client-detail-status"].textContent,
+    "Unable to update client."
+  );
+});
+
+for (const field of ["full_name", "email"]) {
+  test(`admin client edit rejects an empty ${field} before PATCH`, async () => {
+    const documentObject = createDocument();
+    const calls = [];
+    const app = createApp(documentObject, async (url, options) => {
+      calls.push({ url, options });
+      return jsonResponse({ success: true, client: sampleClient });
+    });
+
+    await app.openDetail(sampleClient.id);
+    app.beginEdit();
+    documentObject.editInputs[field].value = "   ";
+    await app.saveChanges();
+
+    assert.equal(calls.some(({ options }) => options?.method === "PATCH"), false);
+    assert.equal(
+      documentObject.elements["#client-detail-status"].textContent,
+      "Full Name and Email are required."
+    );
+  });
+}
 
 test("admin clients displays API errors clearly", async () => {
   const documentObject = createDocument();

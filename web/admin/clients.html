@@ -54,6 +54,63 @@
         </div>
 
         <div id="client-detail-fields"></div>
+
+        <div class="admin-actions" id="client-detail-actions" hidden>
+          <button type="button" class="admin-button" id="edit-client">Edit Client</button>
+        </div>
+
+        <form class="admin-form" id="client-edit-form" hidden>
+          <label>
+            Full Name
+            <input type="text" name="full_name" required>
+          </label>
+
+          <label>
+            Email
+            <input type="email" name="email" required>
+          </label>
+
+          <label>
+            Phone
+            <input type="tel" name="phone">
+          </label>
+
+          <label>
+            Address Line 1
+            <input type="text" name="address_line_1">
+          </label>
+
+          <label>
+            Address Line 2
+            <input type="text" name="address_line_2">
+          </label>
+
+          <label>
+            City
+            <input type="text" name="city">
+          </label>
+
+          <label>
+            State
+            <input type="text" name="state">
+          </label>
+
+          <label>
+            Postal Code
+            <input type="text" name="postal_code">
+          </label>
+
+          <label>
+            Country
+            <input type="text" name="country">
+          </label>
+
+          <div class="admin-actions">
+            <button type="submit" class="admin-button">Save Changes</button>
+            <button type="button" class="admin-text-button" id="cancel-client-edit">Cancel</button>
+          </div>
+        </form>
+
         <p class="admin-notice" id="client-detail-status" aria-live="polite"></p>
       </section>
     </div>
