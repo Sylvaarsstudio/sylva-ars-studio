@@ -11,6 +11,7 @@
     "width",
     "height",
     "price",
+    "required_deposit",
     "deposit_amount",
     "sales_tax",
     "shipping",
@@ -30,6 +31,7 @@
     width: "Width (in)",
     height: "Height (in)",
     price: "Price",
+    required_deposit: "Required Deposit (50%)",
     deposit_amount: "Deposit Amount",
     sales_tax: "Sales Tax",
     shipping: "Shipping",
@@ -41,6 +43,7 @@
   };
   const moneyFields = new Set([
     "price",
+    "required_deposit",
     "deposit_amount",
     "sales_tax",
     "shipping",
@@ -65,6 +68,35 @@
       style: "currency",
       currency: "USD"
     }).format(Number(value));
+  }
+
+  function toCents(value) {
+    const normalized = String(value ?? "").trim();
+
+    if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
+      return 0;
+    }
+
+    const [whole, fraction = ""] = normalized.split(".");
+    const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+    return Number.isSafeInteger(cents) ? cents : 0;
+  }
+
+  function calculateFinancialPreview({ price, salesTaxRate, shipping }) {
+    const priceCents = toCents(price);
+    const shippingCents = toCents(shipping);
+    const rate = Number(salesTaxRate);
+    const salesTaxCents = Number.isFinite(rate)
+      ? Math.round(priceCents * rate)
+      : 0;
+    const requiredDepositCents = Math.round(priceCents / 2);
+
+    return {
+      salesTaxCents,
+      requiredDepositCents,
+      estimatedRemainingCents:
+        priceCents - requiredDepositCents + salesTaxCents + shippingCents
+    };
   }
 
   function formatDate(value) {
@@ -135,12 +167,17 @@
   }
 
   function renderDetailMarkup(commission) {
+    const detail = {
+      ...commission,
+      required_deposit: Math.round(toCents(commission.price) / 2) / 100
+    };
+
     return `<dl class="inquiry-detail-list">${detailFields
-      .filter((field) => hasContent(commission[field]))
+      .filter((field) => hasContent(detail[field]))
       .map((field) => `
         <div class="inquiry-detail-field">
           <dt>${escapeHtml(labels[field])}</dt>
-          <dd>${escapeHtml(formatDetailValue(field, commission[field]))}</dd>
+          <dd>${escapeHtml(formatDetailValue(field, detail[field]))}</dd>
         </div>
       `).join("")}</dl>`;
   }
@@ -198,7 +235,7 @@
       width: readNumber(form, "width", "Width", { positive: true }),
       height: readNumber(form, "height", "Height", { positive: true }),
       price: readNumber(form, "price", "Price", { required: true }),
-      sales_tax: readNumber(form, "sales_tax", "Sales tax", { defaultValue: 0 }),
+      sales_tax_rate: readRequired(form, "sales_tax_rate", "Sales tax rate"),
       shipping: readNumber(form, "shipping", "Shipping", { defaultValue: 0 }),
       estimated_completion:
         String(form.elements.namedItem("estimated_completion").value || "").trim() || null
@@ -240,6 +277,10 @@
       createPanel: documentObject.querySelector("#commission-create"),
       createForm: documentObject.querySelector("#commission-form"),
       createStatus: documentObject.querySelector("#commission-create-status"),
+      salesTaxPreview: documentObject.querySelector("#sales-tax-preview"),
+      requiredDepositPreview: documentObject.querySelector("#required-deposit-preview"),
+      remainingAfterDepositPreview:
+        documentObject.querySelector("#remaining-after-deposit-preview"),
       cancelCreate: documentObject.querySelector("#cancel-commission")
     };
     let commissions = [];
@@ -252,6 +293,21 @@
     function renderList() {
       elements.list.innerHTML = renderListMarkup(commissions);
       elements.count.textContent = String(commissions.length);
+    }
+
+    function updateFinancialPreview() {
+      const preview = calculateFinancialPreview({
+        price: elements.createForm.elements.namedItem("price").value,
+        salesTaxRate: elements.createForm.elements.namedItem("sales_tax_rate").value,
+        shipping: elements.createForm.elements.namedItem("shipping").value
+      });
+
+      elements.salesTaxPreview.textContent = formatCurrency(preview.salesTaxCents / 100);
+      elements.requiredDepositPreview.textContent =
+        formatCurrency(preview.requiredDepositCents / 100);
+      elements.remainingAfterDepositPreview.textContent =
+        formatCurrency(preview.estimatedRemainingCents / 100);
+      return preview;
     }
 
     async function loadList() {
@@ -309,8 +365,9 @@
       elements.detail.hidden = true;
       elements.createPanel.hidden = false;
       elements.createForm.reset();
-      elements.createForm.elements.namedItem("sales_tax").value = "0";
+      elements.createForm.elements.namedItem("sales_tax_rate").value = "0.06";
       elements.createForm.elements.namedItem("shipping").value = "0";
+      updateFinancialPreview();
       elements.createStatus.textContent = "";
       elements.createStatus.classList?.remove("is-error");
     }
@@ -365,6 +422,18 @@
       });
       elements.newCommission.addEventListener("click", openCreate);
       elements.createForm.addEventListener("submit", submitCreate);
+      elements.createForm.elements.namedItem("price").addEventListener(
+        "input",
+        updateFinancialPreview
+      );
+      elements.createForm.elements.namedItem("sales_tax_rate").addEventListener(
+        "change",
+        updateFinancialPreview
+      );
+      elements.createForm.elements.namedItem("shipping").addEventListener(
+        "input",
+        updateFinancialPreview
+      );
       elements.cancelCreate.addEventListener("click", closeCreate);
       elements.closeDetail.addEventListener("click", () => {
         elements.detail.hidden = true;
@@ -380,7 +449,8 @@
       loadList,
       openCreate,
       openDetail,
-      submitCreate
+      submitCreate,
+      updateFinancialPreview
     };
   }
 
@@ -388,6 +458,7 @@
     API_PATH,
     CLIENTS_API_PATH,
     buildCreatePayload,
+    calculateFinancialPreview,
     createApp,
     fetchJson,
     formatCurrency,

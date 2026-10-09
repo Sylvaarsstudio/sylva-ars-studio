@@ -5,6 +5,17 @@ import { hasValidAdminSession } from "../shared/admin-session.mjs";
 const API_PATH = "/admin/api/commissions";
 const commissionIdPattern = /^[1-9][0-9]*$/;
 const commissionNumberLockNamespace = 20260910;
+const allowedMediums = new Set([
+  "Acrylic",
+  "Watercolor",
+  "Oil",
+  "Drawing"
+]);
+const allowedSalesTaxRates = new Map([
+  ["0.06", 6],
+  ["0.07", 7],
+  ["0.08", 8]
+]);
 const createFields = new Set([
   "client_id",
   "title",
@@ -13,7 +24,7 @@ const createFields = new Set([
   "width",
   "height",
   "price",
-  "sales_tax",
+  "sales_tax_rate",
   "shipping",
   "estimated_completion"
 ]);
@@ -101,6 +112,54 @@ function normalizeNumber(value, options = {}) {
   return { value: number };
 }
 
+function formatCents(cents) {
+  return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
+}
+
+function normalizeMoney(value, label) {
+  const normalized = typeof value === "string" ? value.trim() : String(value ?? "");
+
+  if (!normalized) {
+    return { error: `${label} is required.` };
+  }
+
+  if (normalized.startsWith("-")) {
+    return { error: `${label} must be 0 or greater.` };
+  }
+
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
+    return { error: `${label} must be a valid monetary amount.` };
+  }
+
+  const [whole, fraction = ""] = normalized.split(".");
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+
+  if (!Number.isSafeInteger(cents) || cents > 999999999999) {
+    return { error: `${label} is outside the supported range.` };
+  }
+
+  return {
+    cents,
+    value: formatCents(cents)
+  };
+}
+
+function normalizeSalesTaxRate(value) {
+  const normalized = typeof value === "string" ? value.trim() : String(value ?? "");
+
+  if (!normalized) {
+    return { error: "Sales tax rate is required." };
+  }
+
+  const percent = allowedSalesTaxRates.get(normalized);
+
+  if (!percent) {
+    return { error: "Sales tax rate is unsupported." };
+  }
+
+  return { percent };
+}
+
 function normalizeDate(value) {
   if (value === null || value === undefined || value === "") {
     return { value: null };
@@ -146,11 +205,8 @@ function normalizeCommissionCreate(data) {
   const medium = normalizeRequiredText(data.medium, "Medium");
   const width = normalizeNumber(data.width, { label: "Width", positive: true });
   const height = normalizeNumber(data.height, { label: "Height", positive: true });
-  const price = normalizeNumber(data.price, { label: "Price", required: true });
-  const salesTax = normalizeNumber(data.sales_tax, {
-    label: "Sales tax",
-    defaultValue: 0
-  });
+  const price = normalizeMoney(data.price, "Price");
+  const salesTaxRate = normalizeSalesTaxRate(data.sales_tax_rate);
   const shipping = normalizeNumber(data.shipping, {
     label: "Shipping",
     defaultValue: 0
@@ -163,7 +219,7 @@ function normalizeCommissionCreate(data) {
     width,
     height,
     price,
-    salesTax,
+    salesTaxRate,
     shipping,
     estimatedCompletion
   ].find((result) => result.error);
@@ -171,6 +227,12 @@ function normalizeCommissionCreate(data) {
   if (firstError) {
     return { error: firstError.error };
   }
+
+  if (!allowedMediums.has(medium.value)) {
+    return { error: "Medium is unsupported." };
+  }
+
+  const salesTaxCents = Math.round(price.cents * salesTaxRate.percent / 100);
 
   return {
     commission: {
@@ -181,7 +243,7 @@ function normalizeCommissionCreate(data) {
       width: width.value,
       height: height.value,
       price: price.value,
-      sales_tax: salesTax.value,
+      sales_tax: formatCents(salesTaxCents),
       shipping: shipping.value,
       estimated_completion: estimatedCompletion.value
     }

@@ -91,7 +91,13 @@
 
           <label>
             Medium
-            <input type="text" name="medium" required>
+            <select name="medium" required>
+              <option value="">Select one</option>
+              <option value="Acrylic">Acrylic</option>
+              <option value="Watercolor">Watercolor</option>
+              <option value="Oil">Oil</option>
+              <option value="Drawing">Drawing</option>
+            </select>
           </label>
 
           <label>
@@ -111,8 +117,17 @@
 
           <label>
             Sales Tax
-            <input type="number" name="sales_tax" min="0" step="0.01" value="0">
+            <select name="sales_tax_rate" required>
+              <option value="0.06">Pennsylvania — 6%</option>
+              <option value="0.07">Allegheny County — 7%</option>
+              <option value="0.08">Philadelphia — 8%</option>
+            </select>
           </label>
+
+          <p>Based on delivery destination in Pennsylvania.</p>
+          <p>Estimated Sales Tax: <strong id="sales-tax-preview">$0.00</strong></p>
+          <p>Required Deposit (50%): <strong id="required-deposit-preview">$0.00</strong></p>
+          <p>Estimated Remaining After Deposit: <strong id="remaining-after-deposit-preview">$0.00</strong></p>
 
           <label>
             Shipping
