@@ -5,6 +5,46 @@ body {
   font-family: Georgia, serif;
 }
 
+.invoice-page {
+  padding: 24px;
+}
+
+.invoice-actions {
+  display: flex;
+  justify-content: space-between;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.invoice-action {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.invoice-load-status {
+  max-width: 900px;
+  margin: 32px auto;
+}
+
+.invoice-paid-status {
+  letter-spacing: 0.12em;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.invoice-meta dt {
+  margin-top: 8px;
+  opacity: 0.65;
+}
+
+.invoice-meta dd {
+  margin: 2px 0 0;
+}
+
 .invoice {
   max-width: 900px;
   margin: 60px auto;
@@ -234,6 +274,15 @@ footer {
     -webkit-print-color-adjust: exact;
   }
 
+  .invoice-page {
+    padding: 0;
+  }
+
+  .invoice-actions,
+  .invoice-load-status {
+    display: none !important;
+  }
+
   .invoice {
     width: auto;
     max-width: none;
@@ -325,6 +374,14 @@ footer {
 }
 
 @media screen and (max-width: 768px) {
+  .invoice-page {
+    padding: 0;
+  }
+
+  .invoice-actions {
+    margin: 20px;
+  }
+
   .invoice {
     padding: 35px;
     margin: 20px;

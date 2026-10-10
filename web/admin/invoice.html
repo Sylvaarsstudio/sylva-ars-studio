@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Final Invoice | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/invoice.css">
+</head>
+
+<body>
+  <main class="invoice-page">
+    <nav class="invoice-actions" aria-label="Invoice actions">
+      <a class="invoice-action" id="back-to-commission" href="/admin/commissions.html">Back to Commission</a>
+      <button class="invoice-action" id="print-invoice" type="button">Print / Save PDF</button>
+    </nav>
+
+    <p class="invoice-load-status" id="invoice-status" aria-live="polite">Loading invoice…</p>
+    <article class="invoice" id="final-invoice" hidden></article>
+  </main>
+
+  <script src="../js/admin-invoice.js"></script>
+</body>
+
+</html>
