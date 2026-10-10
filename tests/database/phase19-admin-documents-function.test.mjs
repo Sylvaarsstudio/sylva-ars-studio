@@ -64,12 +64,13 @@ before(async () => {
 
   await db.pool.query(
     `INSERT INTO documents
-       (commission_id, document_type, document_number, version, file_location, created_at, payment_id, receipt_snapshot)
+       (commission_id, document_type, document_number, version, file_location, created_at,
+        payment_id, receipt_snapshot, document_snapshot)
      VALUES
-       ($1, 'contract', 'SAS-CON-2026-0001', 1, '/documents/contract.pdf', '2026-10-08T12:00:00Z', NULL, NULL),
-       ($1, 'invoice', 'SAS-INV-2026-0001', 2, '/documents/invoice.pdf', '2026-10-09T12:00:00Z', NULL, NULL),
-       ($2, 'coa', 'SAS-COA-2026-0001', 1, '/documents/coa.pdf', '2026-10-09T12:00:00Z', NULL, NULL),
-       ($1, 'receipt', 'SAS-REC-2026-0001', 1, '/admin/receipts/1.html', '2026-10-10T12:00:00Z', $3, '{}'::jsonb)`,
+       ($1, 'contract', 'SAS-CON-2026-0001', 1, '/documents/contract.pdf', '2026-10-08T12:00:00Z', NULL, NULL, NULL),
+       ($1, 'invoice', 'SAS-INV-2026-0001', 2, '/documents/invoice.pdf', '2026-10-09T12:00:00Z', NULL, NULL, '{"type":"invoice"}'::jsonb),
+       ($2, 'coa', 'SAS-COA-2026-0001', 1, '/documents/coa.pdf', '2026-10-09T12:00:00Z', NULL, NULL, NULL),
+       ($1, 'receipt', 'SAS-REC-2026-0001', 1, '/admin/receipts/1.html', '2026-10-10T12:00:00Z', $3, '{}'::jsonb, NULL)`,
     [firstCommissionId, secondCommissionId, paymentId]
   );
 });

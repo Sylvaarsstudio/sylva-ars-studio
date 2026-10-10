@@ -352,11 +352,13 @@ test("payment creation creates no non-receipt documents", async () => {
 
 test("existing contract invoice and coa rows remain unchanged", async () => {
   await db.pool.query(`
-    INSERT INTO documents (commission_id, document_type, document_number, version, file_location)
+    INSERT INTO documents (
+      commission_id, document_type, document_number, version, file_location, document_snapshot
+    )
     VALUES
-      ($1, 'contract', 'CON-1801', 1, '/contract'),
-      ($1, 'invoice', 'INV-1801', 1, '/invoice'),
-      ($1, 'coa', 'COA-1801', 1, '/coa')
+      ($1, 'contract', 'CON-1801', 1, '/contract', NULL),
+      ($1, 'invoice', 'INV-1801', 1, '/invoice', '{"type":"invoice"}'::jsonb),
+      ($1, 'coa', 'COA-1801', 1, '/coa', NULL)
   `, [commissionId]);
   const before = await db.pool.query(
     "SELECT * FROM documents WHERE document_type <> 'receipt' ORDER BY id"
