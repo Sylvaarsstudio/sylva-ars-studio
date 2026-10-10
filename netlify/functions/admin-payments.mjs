@@ -416,6 +416,22 @@ function subtractMoney(total, ...values) {
   );
 }
 
+function getCalendarDateInTimeZone(date, timeZone = "America/New_York") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function buildReceiptSnapshot({ receiptNumber, issuedAt, payment, commission }) {
   return {
     receipt: {
@@ -665,7 +681,8 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
       );
       snapshot = buildFinalInvoiceSnapshot({
         invoiceNumber: documentNumber,
-        invoiceDate: issuedAt.slice(0, 10),
+        invoiceDate: data.payment_date
+          || getCalendarDateInTimeZone(new Date(issuedAt)),
         commission: updatedCommission,
         payments: [
           ...historyResult.rows,
@@ -1076,6 +1093,7 @@ export {
   createPayment,
   getReceiptByPaymentId,
   getInvoiceByRequestId,
+  getCalendarDateInTimeZone,
   getCommissionId,
   listPayments,
   normalizePaymentCreate,

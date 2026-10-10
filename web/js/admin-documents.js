@@ -34,15 +34,30 @@
     }).format(new Date(value));
   }
 
+  function describeDocument(document) {
+    if (document.document_type === "receipt") {
+      return document.payment?.payment_type === "deposit"
+        ? "Deposit Receipt"
+        : "Payment Receipt";
+    }
+
+    return {
+      invoice: "Final Invoice — Paid in full",
+      contract: "Contract",
+      coa: "Certificate of Authenticity"
+    }[document.document_type] || formatLabel(document.document_type);
+  }
+
   function renderDocumentsMarkup(documents, emptyMessage = "No documents found.") {
     if (!documents.length) {
-      return `<tr><td colspan="8" class="inquiry-empty">${escapeHtml(emptyMessage)}</td></tr>`;
+      return `<tr><td colspan="9" class="inquiry-empty">${escapeHtml(emptyMessage)}</td></tr>`;
     }
 
     return documents.map((document) => `
       <tr>
         <td>${escapeHtml(document.document_number)}</td>
         <td>${escapeHtml(documentTypeLabels[document.document_type] || formatLabel(document.document_type))}</td>
+        <td>${escapeHtml(describeDocument(document))}</td>
         <td>v${escapeHtml(document.version)}</td>
         <td>${escapeHtml(document.commission.commission_number)} — ${escapeHtml(document.commission.title)}</td>
         <td>${escapeHtml(document.client.full_name)}</td>
@@ -154,6 +169,7 @@
     COMMISSIONS_API_PATH,
     buildDocumentsUrl,
     createApp,
+    describeDocument,
     documentTypeLabels,
     fetchJson,
     formatDate,
