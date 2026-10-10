@@ -10,6 +10,7 @@ const {
   buildPaymentPayload,
   calculateFinancialPreview,
   createApp,
+  describeDocument,
   formatCurrency,
   inferSalesTaxRate,
   paymentMethodLabels,
@@ -424,6 +425,36 @@ test("Commission documents show the payment association", () => {
 
 test("Commission documents use the approved empty state", () => {
   assert.match(renderCommissionDocumentsMarkup([]), /No documents for this commission\./);
+});
+
+test("Commission Documents derives and displays friendly descriptions", () => {
+  const depositReceipt = {
+    id: "5",
+    document_number: "SAS-REC-2026-0003",
+    document_type: "receipt",
+    version: 1,
+    created_at: "2026-10-09T10:00:00Z",
+    file_location: "/admin/payment-receipt.html?receipt=5",
+    payment: { id: "8", payment_type: "deposit", payment_date: "2026-10-09" }
+  };
+  const invoice = {
+    ...depositReceipt,
+    id: "6",
+    document_number: "SAS-INV-2026-0001",
+    document_type: "invoice",
+    file_location: "/admin/invoice.html?document=6",
+    payment: null
+  };
+  const markup = renderCommissionDocumentsMarkup([depositReceipt, invoice]);
+
+  assert.equal(describeDocument(depositReceipt), "Deposit Receipt");
+  assert.equal(describeDocument(invoice), "Final Invoice — Paid in full");
+  assert.match(markup, /Deposit Receipt/);
+  assert.match(markup, /Final Invoice — Paid in full/);
+  assert.match(
+    readFileSync("web/admin/commissions.html", "utf8"),
+    /<th scope="col">Description<\/th>/
+  );
 });
 
 test("Documents failure does not break Payments or Commission Detail", async () => {

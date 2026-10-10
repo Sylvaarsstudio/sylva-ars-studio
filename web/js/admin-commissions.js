@@ -314,15 +314,30 @@
     }).join("");
   }
 
+  function describeDocument(document) {
+    if (document.document_type === "receipt") {
+      return document.payment?.payment_type === "deposit"
+        ? "Deposit Receipt"
+        : "Payment Receipt";
+    }
+
+    return {
+      invoice: "Final Invoice — Paid in full",
+      contract: "Contract",
+      coa: "Certificate of Authenticity"
+    }[document.document_type] || formatLabel(document.document_type);
+  }
+
   function renderCommissionDocumentsMarkup(documents) {
     if (!documents.length) {
-      return '<tr><td colspan="6" class="inquiry-empty">No documents for this commission.</td></tr>';
+      return '<tr><td colspan="7" class="inquiry-empty">No documents for this commission.</td></tr>';
     }
 
     return documents.map((document) => `
       <tr>
         <td>${escapeHtml(document.document_number)}</td>
         <td>${escapeHtml(documentTypeLabels[document.document_type] || formatLabel(document.document_type))}</td>
+        <td>${escapeHtml(describeDocument(document))}</td>
         <td>v${escapeHtml(document.version)}</td>
         <td>${escapeHtml(formatDate(document.created_at))}</td>
         <td>${document.payment ? escapeHtml(formatLabel(document.payment.payment_type)) : "—"}</td>
@@ -1227,6 +1242,7 @@
     buildPaymentPayload,
     calculateFinancialPreview,
     createApp,
+    describeDocument,
     fetchJson,
     formatCurrency,
     inferSalesTaxRate,

@@ -5,7 +5,10 @@ import { after, afterEach, before, beforeEach, test } from "node:test";
 import { getDatabase } from "@netlify/database";
 import { NetlifyDB } from "@netlify/database-dev";
 
-import { createHandler as createPaymentsHandler } from "../../netlify/functions/admin-payments.mjs";
+import {
+  createHandler as createPaymentsHandler,
+  getCalendarDateInTimeZone
+} from "../../netlify/functions/admin-payments.mjs";
 import {
   config as invoiceConfig,
   createHandler as createInvoicesHandler
@@ -200,6 +203,21 @@ test("final invoice stores document_snapshot", async () => {
 test("snapshot financial status is PAID", async () => {
   await createFinal();
   assert.equal((await invoiceRow()).document_snapshot.invoice.financial_status, "PAID");
+});
+
+test("final invoice uses the final payment date as its commercial date", async () => {
+  await createFinal({ payment_date: "2026-10-09" });
+  assert.equal(
+    (await invoiceRow()).document_snapshot.invoice.invoice_date,
+    "2026-10-09"
+  );
+});
+
+test("invoice date fallback uses the America/New_York calendar date", () => {
+  assert.equal(
+    getCalendarDateInTimeZone(new Date("2026-10-10T01:35:00.000Z")),
+    "2026-10-09"
+  );
 });
 
 test("snapshot balance is zero", async () => {

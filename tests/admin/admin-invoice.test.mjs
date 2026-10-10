@@ -122,6 +122,11 @@ test("invoice number and PAID status render", () => {
   assert.match(markup, /PAID/);
 });
 
+test("invoice renderer uses the persisted commercial date", () => {
+  assert.match(renderInvoiceMarkup(snapshot), /October 9, 2026/);
+  assert.doesNotMatch(renderInvoiceMarkup(snapshot), /October 10, 2026/);
+});
+
 test("client snapshot renders", () => {
   const markup = renderInvoiceMarkup(snapshot);
   assert.match(markup, /Invoice Client/);

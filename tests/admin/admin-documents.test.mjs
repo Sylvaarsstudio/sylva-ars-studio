@@ -8,6 +8,7 @@ const {
   API_PATH,
   buildDocumentsUrl,
   createApp,
+  describeDocument,
   documentTypeLabels,
   renderCommissionOptions,
   renderDocumentsMarkup
@@ -111,6 +112,26 @@ test("Receipt uses its friendly label", () => assert.equal(documentTypeLabels.re
 test("Invoice uses its friendly label", () => assert.equal(documentTypeLabels.invoice, "Invoice"));
 test("Contract uses its friendly label", () => assert.equal(documentTypeLabels.contract, "Contract"));
 test("COA uses its friendly label", () => assert.equal(documentTypeLabels.coa, "COA"));
+
+test("Documents derives friendly descriptions without stored description data", () => {
+  assert.equal(describeDocument(sampleDocument), "Payment Receipt");
+  assert.equal(
+    describeDocument({
+      ...sampleDocument,
+      payment: { ...sampleDocument.payment, payment_type: "deposit" }
+    }),
+    "Deposit Receipt"
+  );
+  assert.equal(
+    describeDocument({ ...sampleDocument, document_type: "invoice", payment: null }),
+    "Final Invoice — Paid in full"
+  );
+});
+
+test("Documents page and rows show Description", () => {
+  assert.match(readFileSync("web/admin/documents.html", "utf8"), /<th scope="col">Description<\/th>/);
+  assert.match(renderDocumentsMarkup([sampleDocument]), /Payment Receipt/);
+});
 
 test("Document versions render as v1 and v2", () => {
   const markup = renderDocumentsMarkup([
