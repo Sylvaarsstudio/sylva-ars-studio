@@ -1057,6 +1057,34 @@ test("Payment history shows View Receipt only when a receipt exists", () => {
   assert.doesNotMatch(renderPaymentsMarkup([samplePayment]), /View Receipt/);
 });
 
+test("Payment history shows View Final Invoice for the final payment document", () => {
+  const finalPayment = {
+    ...samplePayment,
+    payment_type: "balance",
+    document: {
+      id: "80",
+      document_type: "invoice",
+      document_number: "SAS-INV-2026-0001",
+      file_location: "/admin/invoice.html?document=80"
+    },
+    receipt: null
+  };
+  const markup = renderPaymentsMarkup([finalPayment]);
+
+  assert.match(markup, /View Final Invoice/);
+  assert.match(markup, /invoice\.html\?document=80/);
+  assert.doesNotMatch(markup, /View Receipt/);
+});
+
+test("Payment history labels its action column Document", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(html, /<th scope="col">Document<\/th>/);
+});
+
 test("Payment history shows an empty state without broken values", () => {
   assert.match(renderPaymentsMarkup([]), /No payments recorded/);
   assert.doesNotMatch(renderPaymentsMarkup([]), /undefined|null/);

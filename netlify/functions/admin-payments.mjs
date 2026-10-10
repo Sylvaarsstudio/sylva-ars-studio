@@ -16,6 +16,7 @@ const allowedPaymentMethods = new Set([
   "paypal"
 ]);
 const receiptNumberLockNamespace = 18518;
+const invoiceNumberLockNamespace = 18519;
 const createFields = new Set([
   "request_id",
   "payment_type",
@@ -51,6 +52,10 @@ const receiptCommissionSelect = `
   c.id,
   c.commission_number,
   c.title,
+  c.description,
+  c.medium,
+  c.width,
+  c.height,
   c.price,
   c.deposit_amount,
   c.amount_paid,
@@ -278,23 +283,78 @@ async function getReceiptByPaymentId(connection, paymentId) {
   return result.rows[0] || null;
 }
 
-function attachReceipt(payment) {
+async function getInvoiceByRequestId(connection, requestId) {
+  const result = await connection.query(
+    `SELECT id, document_type, document_number, file_location
+     FROM documents
+     WHERE document_type = 'invoice'
+       AND request_id = $1`,
+    [requestId]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function getPaymentDocument(connection, paymentId, requestId) {
+  const receipt = await getReceiptByPaymentId(connection, paymentId);
+
+  if (receipt) {
+    return { ...receipt, document_type: "receipt" };
+  }
+
+  return getInvoiceByRequestId(connection, requestId);
+}
+
+function attachPaymentDocument(payment) {
   const {
-    receipt_id: receiptId,
-    receipt_document_number: documentNumber,
-    receipt_file_location: fileLocation,
+    document_id: documentId,
+    document_type: documentType,
+    document_number: documentNumber,
+    document_file_location: fileLocation,
     ...paymentFields
   } = payment;
+  const document = documentId
+    ? {
+        id: documentId,
+        document_type: documentType,
+        document_number: documentNumber,
+        file_location: fileLocation
+      }
+    : null;
 
   return {
     ...paymentFields,
-    receipt: receiptId
-      ? {
-          id: receiptId,
-          document_number: documentNumber,
-          file_location: fileLocation
-        }
-      : null
+    document,
+    receipt: document?.document_type === "receipt" ? document : null
+  };
+}
+
+function normalizePaymentRow(payment) {
+  return {
+    id: String(payment.id),
+    commission_id: String(payment.commission_id),
+    payment_type: payment.payment_type,
+    amount: Number(payment.amount).toFixed(2),
+    sales_tax: Number(payment.sales_tax).toFixed(2),
+    payment_method: payment.payment_method,
+    payment_date: payment.payment_date,
+    status: payment.status,
+    external_reference: payment.external_reference,
+    notes: payment.notes,
+    balance_after_payment: Number(payment.balance_after_payment).toFixed(2),
+    created_at: payment.created_at
+  };
+}
+
+function normalizeCommissionRow(commission) {
+  return {
+    id: String(commission.id),
+    price: Number(commission.price).toFixed(2),
+    deposit_amount: Number(commission.deposit_amount).toFixed(2),
+    amount_paid: Number(commission.amount_paid).toFixed(2),
+    sales_tax: Number(commission.sales_tax).toFixed(2),
+    shipping: Number(commission.shipping).toFixed(2),
+    balance: Number(commission.balance).toFixed(2)
   };
 }
 
@@ -319,13 +379,17 @@ async function listPayments(db, commissionId) {
        p.notes,
        p.balance_after_payment,
        p.created_at,
-       d.id AS receipt_id,
-       d.document_number AS receipt_document_number,
-       d.file_location AS receipt_file_location
+       COALESCE(r.id, i.id) AS document_id,
+       COALESCE(r.document_type, i.document_type) AS document_type,
+       COALESCE(r.document_number, i.document_number) AS document_number,
+       COALESCE(r.file_location, i.file_location) AS document_file_location
      FROM payments AS p
-     LEFT JOIN documents AS d
-       ON d.payment_id = p.id
-      AND d.document_type = 'receipt'
+     LEFT JOIN documents AS r
+       ON r.payment_id = p.id
+      AND r.document_type = 'receipt'
+     LEFT JOIN documents AS i
+       ON i.request_id = p.request_id
+      AND i.document_type = 'invoice'
      WHERE p.commission_id = $1
      ORDER BY p.payment_date DESC NULLS LAST, p.created_at DESC, p.id DESC`,
     [commissionId]
@@ -334,7 +398,7 @@ async function listPayments(db, commissionId) {
   return {
     outcome: "success",
     commission,
-    payments: result.rows.map(attachReceipt)
+    payments: result.rows.map(attachPaymentDocument)
   };
 }
 
@@ -398,8 +462,95 @@ function buildReceiptSnapshot({ receiptNumber, issuedAt, payment, commission }) 
   };
 }
 
-async function createPayment(db, commissionId, data) {
+function buildFinalInvoiceSnapshot({ invoiceNumber, invoiceDate, commission, payments }) {
+  const sortableDate = (value) => {
+    if (!value) {
+      return "9999-12-31";
+    }
+
+    const normalized = String(value);
+    return /^\d{4}-\d{2}-\d{2}/.test(normalized)
+      ? normalized.slice(0, 10)
+      : new Date(value).toISOString().slice(0, 10);
+  };
+  const chronologicalPayments = [...payments].sort((left, right) => {
+    const leftDate = sortableDate(left.payment_date);
+    const rightDate = sortableDate(right.payment_date);
+    const dateDifference = leftDate.localeCompare(rightDate);
+
+    if (dateDifference) {
+      return dateDifference;
+    }
+
+    if (Boolean(left.is_final_payment) !== Boolean(right.is_final_payment)) {
+      return left.is_final_payment ? 1 : -1;
+    }
+
+    const leftCreatedAt = left.created_at ? new Date(left.created_at).getTime() : 0;
+    const rightCreatedAt = right.created_at ? new Date(right.created_at).getTime() : 0;
+    const createdDifference = leftCreatedAt - rightCreatedAt;
+    return createdDifference || Number(left.id || 0) - Number(right.id || 0);
+  });
+
+  return {
+    schema_version: 1,
+    invoice: {
+      number: invoiceNumber,
+      version: 1,
+      invoice_date: invoiceDate,
+      financial_status: "PAID"
+    },
+    client: {
+      name: commission.client_name,
+      email: commission.client_email,
+      phone: commission.client_phone,
+      address_line_1: commission.address_line_1,
+      address_line_2: commission.address_line_2,
+      city: commission.city,
+      state: commission.state,
+      postal_code: commission.postal_code,
+      country: commission.country
+    },
+    commission: {
+      id: commission.id,
+      number: commission.commission_number,
+      title: commission.title,
+      description: commission.description,
+      medium: commission.medium,
+      width: commission.width,
+      height: commission.height
+    },
+    financial: {
+      price: commission.price,
+      sales_tax: commission.sales_tax,
+      shipping: commission.shipping,
+      total: addMoney(commission.price, commission.sales_tax, commission.shipping),
+      amount_paid: commission.amount_paid,
+      balance: "0.00"
+    },
+    payments: chronologicalPayments.map((payment) => ({
+      payment_type: payment.payment_type,
+      amount: payment.amount,
+      sales_tax: payment.sales_tax,
+      payment_method: payment.payment_method,
+      payment_date: payment.payment_date,
+      external_reference: payment.external_reference,
+      receipt_number: payment.receipt_number || null
+    })),
+    studio: {
+      name: businessInformation.name,
+      address_line_1: businessInformation.addressLine1,
+      address_line_2: businessInformation.addressLine2,
+      email: businessInformation.email,
+      phone: businessInformation.phone,
+      website: businessInformation.website
+    }
+  };
+}
+
+async function createPayment(db, commissionId, data, numberRetryCount = 0) {
   const connection = await db.pool.connect();
+  let connectionReleased = false;
 
   try {
     await connection.query("BEGIN");
@@ -407,14 +558,19 @@ async function createPayment(db, commissionId, data) {
 
     if (existing) {
       const commission = await getCommission(connection, existing.commission_id);
-      const receipt = await getReceiptByPaymentId(connection, existing.id);
+      const document = await getPaymentDocument(
+        connection,
+        existing.id,
+        data.request_id
+      );
       await connection.query("COMMIT");
       return String(existing.commission_id) === String(commissionId)
         ? {
             outcome: "success",
             created: false,
             payment: existing,
-            receipt,
+            document,
+            receipt: document?.document_type === "receipt" ? document : null,
             commission
           }
         : { outcome: "request_id_conflict" };
@@ -442,14 +598,19 @@ async function createPayment(db, commissionId, data) {
     existing = await getPaymentByRequestId(connection, data.request_id);
 
     if (existing) {
-      const receipt = await getReceiptByPaymentId(connection, existing.id);
+      const document = await getPaymentDocument(
+        connection,
+        existing.id,
+        data.request_id
+      );
       await connection.query("COMMIT");
       return String(existing.commission_id) === String(commissionId)
         ? {
             outcome: "success",
             created: false,
             payment: existing,
-            receipt,
+            document,
+            receipt: document?.document_type === "receipt" ? document : null,
             commission: lockedCommission
           }
         : { outcome: "request_id_conflict" };
@@ -460,63 +621,97 @@ async function createPayment(db, commissionId, data) {
       return { outcome: "overpayment" };
     }
 
+    const issuedAt = new Date().toISOString();
+    const documentYear = new Date(issuedAt).getUTCFullYear();
+    const balanceAfterPayment = subtractMoney(lockedCommission.balance, data.amount);
+    const isFinalPayment = Number(balanceAfterPayment) === 0;
     const updatedCommission = {
-      id: lockedCommission.id,
-      price: lockedCommission.price,
+      ...lockedCommission,
       deposit_amount: data.payment_type === "deposit"
         ? addMoney(lockedCommission.deposit_amount, data.amount)
         : lockedCommission.deposit_amount,
       amount_paid: addMoney(lockedCommission.amount_paid, data.amount),
-      sales_tax: lockedCommission.sales_tax,
-      shipping: lockedCommission.shipping,
-      balance: subtractMoney(
-        addMoney(
-          lockedCommission.price,
-          lockedCommission.sales_tax,
-          lockedCommission.shipping
-        ),
-        addMoney(lockedCommission.amount_paid, data.amount)
-      )
+      balance: balanceAfterPayment
     };
+    const numberNamespace = isFinalPayment
+      ? invoiceNumberLockNamespace
+      : receiptNumberLockNamespace;
+    const numberPrefix = isFinalPayment ? "SAS-INV" : "SAS-REC";
+    const documentType = isFinalPayment ? "invoice" : "receipt";
 
-    const issuedAt = new Date().toISOString();
-    const receiptYear = new Date(issuedAt).getUTCFullYear();
+    const documentNumber = `${numberPrefix}-${documentYear}-0000`;
+    let snapshot;
 
-    await connection.query(
-      "SELECT pg_advisory_xact_lock($1::integer, $2::integer)",
-      [receiptNumberLockNamespace, receiptYear]
-    );
-    const sequenceResult = await connection.query(
-      `SELECT COALESCE(MAX(split_part(document_number, '-', 4)::integer), 0) + 1 AS next_number
-       FROM documents
-       WHERE document_type = 'receipt'
-         AND document_number LIKE $1`,
-      [`SAS-REC-${receiptYear}-%`]
-    );
-    const receiptNumber = `SAS-REC-${receiptYear}-${String(
-      Number(sequenceResult.rows[0].next_number)
-    ).padStart(4, "0")}`;
-    const snapshot = buildReceiptSnapshot({
-      receiptNumber,
-      issuedAt,
-      payment: {
-        id: null,
-        payment_type: data.payment_type,
-        amount: data.amount,
-        sales_tax: data.sales_tax,
-        payment_method: data.payment_method,
-        payment_date: data.payment_date,
-        external_reference: data.external_reference,
-        notes: data.notes,
-        balance_after_payment: updatedCommission.balance
-      },
-      commission: {
-        ...lockedCommission,
-        ...updatedCommission
-      }
-    });
+    if (isFinalPayment) {
+      const historyResult = await connection.query(
+        `SELECT
+           p.payment_type,
+           p.amount,
+           p.sales_tax,
+           p.payment_method,
+           p.payment_date,
+           p.external_reference,
+           p.created_at,
+           p.id,
+           r.document_number AS receipt_number
+         FROM payments AS p
+         LEFT JOIN documents AS r
+           ON r.payment_id = p.id
+          AND r.document_type = 'receipt'
+         WHERE p.commission_id = $1
+           AND p.status = 'completed'
+         ORDER BY p.payment_date ASC NULLS LAST, p.created_at ASC, p.id ASC`,
+        [commissionId]
+      );
+      snapshot = buildFinalInvoiceSnapshot({
+        invoiceNumber: documentNumber,
+        invoiceDate: issuedAt.slice(0, 10),
+        commission: updatedCommission,
+        payments: [
+          ...historyResult.rows,
+          {
+            payment_type: data.payment_type,
+            amount: data.amount,
+            sales_tax: data.sales_tax,
+            payment_method: data.payment_method,
+            payment_date: data.payment_date,
+            external_reference: data.external_reference,
+            created_at: issuedAt,
+            id: Number.MAX_SAFE_INTEGER,
+            is_final_payment: true,
+            receipt_number: null
+          }
+        ]
+      });
+    } else {
+      snapshot = buildReceiptSnapshot({
+        receiptNumber: documentNumber,
+        issuedAt,
+        payment: {
+          id: null,
+          ...data,
+          balance_after_payment: balanceAfterPayment
+        },
+        commission: updatedCommission
+      });
+    }
+
     const creationResult = await connection.query(
-      `WITH locked_commission AS MATERIALIZED (
+      `WITH number_lock AS MATERIALIZED (
+         SELECT pg_advisory_xact_lock($13::integer, $14::integer)
+       ),
+       next_document_number AS MATERIALIZED (
+         SELECT $15::text || '-' || $14::text || '-' || lpad(
+           (COALESCE(MAX(split_part(d.document_number, '-', 4)::integer), 0) + 1)::text,
+           4,
+           '0'
+         ) AS document_number
+         FROM documents AS d
+         CROSS JOIN number_lock
+         WHERE d.document_type = $10
+           AND d.document_number LIKE $15::text || '-' || $14::text || '-%'
+       ),
+       locked_commission AS MATERIALIZED (
          SELECT id, balance
          FROM commissions
          WHERE id = $1
@@ -525,20 +720,11 @@ async function createPayment(db, commissionId, data) {
        ),
        inserted_payment AS (
          INSERT INTO payments (
-           commission_id,
-           request_id,
-           payment_type,
-           amount,
-           sales_tax,
-           payment_method,
-           payment_date,
-           status,
-           external_reference,
-           notes,
+           commission_id, request_id, payment_type, amount, sales_tax,
+           payment_method, payment_date, status, external_reference, notes,
            balance_after_payment
          )
-         SELECT
-           $1, $2, $3, $4, $5, $6, $7, 'completed', $8, $9, lc.balance - $4
+         SELECT $1, $2, $3, $4, $5, $6, $7, 'completed', $8, $9, lc.balance - $4
          FROM locked_commission AS lc
          ON CONFLICT (request_id) DO NOTHING
          RETURNING *
@@ -554,41 +740,50 @@ async function createPayment(db, commissionId, data) {
          RETURNING c.id, c.price, c.deposit_amount, c.amount_paid,
                    c.sales_tax, c.shipping, c.balance
        ),
-       inserted_receipt AS (
+       inserted_document AS (
          INSERT INTO documents (
-           commission_id,
-           payment_id,
-           document_type,
-           document_number,
-           version,
-           file_location,
-           receipt_snapshot
+           commission_id, payment_id, document_type, document_number, version,
+           file_location, receipt_snapshot, document_snapshot, request_id
          )
          SELECT
            $1,
-           p.id,
-           'receipt',
+           CASE WHEN $10 = 'receipt' THEN p.id ELSE NULL END,
            $10,
+           n.document_number,
            1,
-           '/admin/payment-receipt.html',
-           jsonb_set(
-             jsonb_set($11::jsonb, '{payment,id}', to_jsonb(p.id), false),
-             '{payment,balance_after_payment}',
-             to_jsonb(p.balance_after_payment::text),
-             false
-           )
+           $11,
+           CASE WHEN $10 = 'receipt' THEN
+             jsonb_set(
+               jsonb_set(
+                 jsonb_set($12::jsonb, '{receipt,number}', to_jsonb(n.document_number), false),
+                 '{payment,id}',
+                 to_jsonb(p.id),
+                 false
+               ),
+               '{payment,balance_after_payment}',
+               to_jsonb(p.balance_after_payment::text),
+               false
+             )
+           ELSE NULL END,
+           CASE WHEN $10 = 'invoice' THEN
+             jsonb_set($12::jsonb, '{invoice,number}', to_jsonb(n.document_number), false)
+           ELSE NULL END,
+           CASE WHEN $10 = 'invoice' THEN $2::uuid ELSE NULL END
          FROM inserted_payment AS p
          JOIN updated_commission AS c ON c.id = p.commission_id
-         RETURNING id, document_number
+         CROSS JOIN next_document_number AS n
+         ON CONFLICT (document_number, version) DO NOTHING
+         RETURNING id, document_type, document_number
        )
        SELECT
          row_to_json(p) AS payment,
          row_to_json(c) AS commission,
-         r.id AS receipt_id,
-         r.document_number
+         d.id AS document_id,
+         d.document_type,
+         d.document_number
        FROM updated_commission AS c
        CROSS JOIN inserted_payment AS p
-       CROSS JOIN inserted_receipt AS r`,
+       CROSS JOIN inserted_document AS d`,
       [
         commissionId,
         data.request_id,
@@ -599,77 +794,101 @@ async function createPayment(db, commissionId, data) {
         data.payment_date,
         data.external_reference,
         data.notes,
-        receiptNumber,
-        JSON.stringify(snapshot)
+        documentType,
+        isFinalPayment ? "/admin/invoice.html" : "/admin/payment-receipt.html",
+        JSON.stringify(snapshot),
+        numberNamespace,
+        documentYear,
+        numberPrefix
       ]
     );
 
     if (!creationResult.rows[0]) {
       await connection.query("ROLLBACK");
-      existing = await getPaymentByRequestId(connection, data.request_id);
+      existing = await getPaymentByRequestId(db.pool, data.request_id);
 
       if (existing) {
-        const commission = await getCommission(connection, existing.commission_id);
-        const receipt = await getReceiptByPaymentId(connection, existing.id);
+        const commission = await getCommission(db.pool, existing.commission_id);
+        const document = await getPaymentDocument(db.pool, existing.id, data.request_id);
         return String(existing.commission_id) === String(commissionId)
           ? {
               outcome: "success",
               created: false,
               payment: existing,
-              receipt,
+              document,
+              receipt: document?.document_type === "receipt" ? document : null,
               commission
             }
           : { outcome: "request_id_conflict" };
       }
 
+      const currentCommission = await getCommission(db.pool, commissionId);
+
+      if (
+        currentCommission
+        && Number(data.amount) <= Number(currentCommission.balance)
+        && numberRetryCount < 2
+      ) {
+        connection.release();
+        connectionReleased = true;
+        return createPayment(db, commissionId, data, numberRetryCount + 1);
+      }
+
       return { outcome: "overpayment" };
     }
-    const rawPayment = creationResult.rows[0].payment;
-    const payment = {
-      id: String(rawPayment.id),
-      commission_id: String(rawPayment.commission_id),
-      payment_type: rawPayment.payment_type,
-      amount: Number(rawPayment.amount).toFixed(2),
-      sales_tax: Number(rawPayment.sales_tax).toFixed(2),
-      payment_method: rawPayment.payment_method,
-      payment_date: rawPayment.payment_date,
-      status: rawPayment.status,
-      external_reference: rawPayment.external_reference,
-      notes: rawPayment.notes,
-      balance_after_payment: Number(rawPayment.balance_after_payment).toFixed(2),
-      created_at: rawPayment.created_at
-    };
-    const rawCommission = creationResult.rows[0].commission;
-    const commission = {
-      id: String(rawCommission.id),
-      price: Number(rawCommission.price).toFixed(2),
-      deposit_amount: Number(rawCommission.deposit_amount).toFixed(2),
-      amount_paid: Number(rawCommission.amount_paid).toFixed(2),
-      sales_tax: Number(rawCommission.sales_tax).toFixed(2),
-      shipping: Number(rawCommission.shipping).toFixed(2),
-      balance: Number(rawCommission.balance).toFixed(2)
-    };
-    const receiptId = String(creationResult.rows[0].receipt_id);
-    const fileLocation = `/admin/payment-receipt.html?receipt=${receiptId}`;
-    const storedReceipt = (await connection.query(
+
+    const payment = normalizePaymentRow(creationResult.rows[0].payment);
+    const commission = normalizeCommissionRow(creationResult.rows[0].commission);
+    const documentId = String(creationResult.rows[0].document_id);
+    const fileLocation = isFinalPayment
+      ? `/admin/invoice.html?document=${documentId}`
+      : `/admin/payment-receipt.html?receipt=${documentId}`;
+    const storedDocument = (await connection.query(
       `UPDATE documents
        SET file_location = $1
        WHERE id = $2
-       RETURNING id, document_number, file_location`,
-      [fileLocation, receiptId]
+       RETURNING id, document_type, document_number, file_location`,
+      [fileLocation, documentId]
     )).rows[0];
-    const receipt = {
-      id: String(storedReceipt.id),
-      document_number: storedReceipt.document_number,
-      file_location: storedReceipt.file_location
+    const document = {
+      id: String(storedDocument.id),
+      document_type: storedDocument.document_type,
+      document_number: storedDocument.document_number,
+      file_location: storedDocument.file_location
     };
 
     await connection.query("COMMIT");
+    const canonicalPayment = await getPaymentByRequestId(db.pool, data.request_id);
+
+    if (canonicalPayment && String(canonicalPayment.id) !== String(payment.id)) {
+      const canonicalDocument = await getPaymentDocument(
+        db.pool,
+        canonicalPayment.id,
+        data.request_id
+      );
+      const canonicalCommission = await getCommission(
+        db.pool,
+        canonicalPayment.commission_id
+      );
+
+      return {
+        outcome: "success",
+        created: false,
+        payment: canonicalPayment,
+        document: canonicalDocument,
+        receipt: canonicalDocument?.document_type === "receipt"
+          ? canonicalDocument
+          : null,
+        commission: canonicalCommission
+      };
+    }
+
     return {
       outcome: "success",
       created: true,
       payment,
-      receipt,
+      document,
+      receipt: document.document_type === "receipt" ? document : null,
       commission
     };
   } catch (error) {
@@ -680,14 +899,19 @@ async function createPayment(db, commissionId, data) {
 
       if (existing) {
         const commission = await getCommission(db.pool, existing.commission_id);
-        const receipt = await getReceiptByPaymentId(db.pool, existing.id);
+        const document = await getPaymentDocument(
+          db.pool,
+          existing.id,
+          data.request_id
+        );
 
         return String(existing.commission_id) === String(commissionId)
           ? {
               outcome: "success",
               created: false,
               payment: existing,
-              receipt,
+              document,
+              receipt: document?.document_type === "receipt" ? document : null,
               commission
             }
           : { outcome: "request_id_conflict" };
@@ -696,7 +920,9 @@ async function createPayment(db, commissionId, data) {
 
     throw error;
   } finally {
-    connection.release();
+    if (!connectionReleased) {
+      connection.release();
+    }
   }
 }
 
@@ -823,6 +1049,7 @@ function createHandler({
         success: true,
         created: result.created,
         payment: result.payment,
+        document: result.document,
         receipt: result.receipt,
         commission: result.commission
       });
@@ -843,13 +1070,16 @@ export const config = {
 export {
   allowedPaymentMethods,
   allowedPaymentTypes,
+  buildFinalInvoiceSnapshot,
   buildReceiptSnapshot,
   createHandler,
   createPayment,
   getReceiptByPaymentId,
+  getInvoiceByRequestId,
   getCommissionId,
   listPayments,
   normalizePaymentCreate,
+  invoiceNumberLockNamespace,
   receiptNumberLockNamespace
 };
 
