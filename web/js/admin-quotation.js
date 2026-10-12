@@ -32,6 +32,11 @@
 
   function buildPayload(form, shippingEstimateSnapshot = null) {
     return {
+      artwork_title: String(form.elements.namedItem("artwork_title").value || "").trim(),
+      artwork_description: String(form.elements.namedItem("artwork_description").value || "").trim(),
+      artwork_medium: String(form.elements.namedItem("artwork_medium").value || "").trim(),
+      artwork_width: String(form.elements.namedItem("artwork_width").value || "").trim() || null,
+      artwork_height: String(form.elements.namedItem("artwork_height").value || "").trim() || null,
       price: String(form.elements.namedItem("price").value || "").trim(),
       sales_tax_rate: String(form.elements.namedItem("sales_tax_rate").value || "").trim(),
       shipping_charge: String(form.elements.namedItem("shipping_charge").value || "").trim(),
@@ -113,7 +118,7 @@
 
   function renderSummary(quotation) {
     const expired = quotation.is_expired ? " · Expired by date" : "";
-    return `<article class="commission-detail-summary"><p class="commission-number">${escapeHtml(quotation.quotation_number)} · v${escapeHtml(quotation.version)}</p><h2>${escapeHtml(quotation.commission_title)}</h2><p>${escapeHtml(quotation.client_name)} · ${escapeHtml(quotation.commission_number)}</p><p><strong>Status:</strong> ${escapeHtml(quotation.quotation_status)}${expired}</p></article>`;
+    return `<article class="commission-detail-summary"><p class="commission-number">${escapeHtml(quotation.quotation_number)} · v${escapeHtml(quotation.version)}</p><h2>${escapeHtml(quotation.artwork_title || quotation.commission_title)}</h2><p>${escapeHtml(quotation.client_name)}${quotation.commission_number ? ` · ${escapeHtml(quotation.commission_number)}` : " · Pre-Commission"}</p><p><strong>Status:</strong> ${escapeHtml(quotation.quotation_status)}${expired}</p></article>`;
   }
 
   function renderSnapshot(snapshot) {
@@ -190,7 +195,9 @@
       getShippingEstimate: documentObject.querySelector("#get-shipping-estimate"),
       shippingEstimateStatus: documentObject.querySelector("#shipping-estimate-status"),
       shippingEstimateResults: documentObject.querySelector("#shipping-estimate-results"),
-      preview: documentObject.querySelector("#quotation-preview")
+      preview: documentObject.querySelector("#quotation-preview"),
+      commissionAction: documentObject.querySelector("#quotation-commission-action"),
+      createCommission: documentObject.querySelector("#create-commission-from-quotation")
     };
     let quotation = null;
     let acceptance = null;
@@ -198,6 +205,8 @@
     let selectedShippingEstimate = null;
     const createRequestId = uuidFactory();
     let acceptanceRequestId = null;
+    let pendingClientId = null;
+    let pendingInquiryId = null;
 
     function updatePreview() {
       const preview = calculatePreview({
@@ -216,7 +225,7 @@
       elements.panel.hidden = false;
       elements.summary.innerHTML = renderSummary(quotation);
       elements.form.hidden = !isDraft;
-      elements.issue.hidden = !isDraft;
+      elements.issue.hidden = !isDraft || !quotation.id;
       elements.markSent.hidden = quotation.quotation_status !== "issued";
       const acceptanceEligible = canRecordAcceptance(quotation) && !acceptance;
       elements.recordAcceptance.hidden = !acceptanceEligible;
@@ -226,9 +235,17 @@
       elements.acceptanceRecord.hidden = !acceptance;
       elements.acceptanceRecord.innerHTML = renderAcceptanceRecord(acceptance);
       if (quotation.quotation_status !== "accepted") elements.contractAction.hidden = true;
+      if (elements.commissionAction) {
+        elements.commissionAction.hidden = quotation.quotation_status !== "accepted" || Boolean(quotation.source_commission_id);
+      }
       elements.preview.hidden = isDraft;
       elements.preview.innerHTML = renderSnapshot(quotation.quotation_snapshot);
       if (isDraft) {
+        elements.form.elements.namedItem("artwork_title").value = quotation.artwork_title || quotation.commission_title || "";
+        elements.form.elements.namedItem("artwork_description").value = quotation.artwork_description || quotation.commission_description || "";
+        elements.form.elements.namedItem("artwork_medium").value = quotation.artwork_medium || quotation.commission_medium || "Acrylic";
+        elements.form.elements.namedItem("artwork_width").value = quotation.artwork_width || quotation.commission_width || "";
+        elements.form.elements.namedItem("artwork_height").value = quotation.artwork_height || quotation.commission_height || "";
         elements.form.elements.namedItem("price").value = quotation.price;
         elements.form.elements.namedItem("sales_tax_rate").value = Number(quotation.sales_tax_rate).toFixed(2);
         elements.form.elements.namedItem("shipping_charge").value = quotation.shipping_charge;
@@ -297,15 +314,16 @@
     }
 
     async function loadContractEligibility() {
-      if (!quotation || quotation.quotation_status !== "accepted") return null;
+      const commissionId = quotation?.source_commission_id || quotation?.commission_id;
+      if (!quotation || quotation.quotation_status !== "accepted" || !commissionId) return null;
       const body = await fetchJson(
         fetchImplementation,
-        `${CONTRACT_ELIGIBILITY_API_PATH}?commission_id=${encodeURIComponent(quotation.commission_id)}`
+        `${CONTRACT_ELIGIBILITY_API_PATH}?commission_id=${encodeURIComponent(commissionId)}`
       );
       elements.contractStatus.textContent = body.message;
       elements.contractAction.hidden = !body.eligible;
       if (body.eligible) {
-        elements.prepareContract.href = `create-contract.html?commission_id=${encodeURIComponent(quotation.commission_id)}`;
+        elements.prepareContract.href = `create-contract.html?commission_id=${encodeURIComponent(commissionId)}`;
       }
       return body;
     }
@@ -313,23 +331,27 @@
     async function load() {
       const params = new URLSearchParams(locationObject.search);
       const id = params.get("id");
-      const commissionId = params.get("commission_id");
+      const clientId = params.get("client_id");
+      const inquiryId = params.get("inquiry_id");
+      pendingClientId = clientId;
+      pendingInquiryId = inquiryId;
       elements.status.textContent = "Loading quotation…";
       try {
         const body = id
           ? await fetchJson(fetchImplementation, `${API_PATH}/${encodeURIComponent(id)}`)
-          : await fetchJson(fetchImplementation, `/admin/api/commissions/${encodeURIComponent(commissionId)}/quotations`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ request_id: createRequestId })
-          });
-        quotation = body.quotation;
-        if (!id && quotation?.id) {
-          historyObject?.replaceState?.(null, "", `quotation.html?id=${encodeURIComponent(quotation.id)}`);
-        }
-        elements.status.textContent = body.created ? "Quotation draft created." : "";
+          : await fetchJson(fetchImplementation, `/admin/api/clients/${encodeURIComponent(clientId)}`);
+        quotation = id ? body.quotation : {
+          quotation_status: "draft", quotation_number: "New Quotation", version: 1,
+          client_id: body.client.id, client_name: body.client.full_name,
+          artwork_title: "", artwork_description: "", artwork_medium: "Acrylic",
+          artwork_width: null, artwork_height: null, price: "0.00",
+          sales_tax_rate: "0.0600", sales_tax: "0.00", shipping_charge: "0.00",
+          estimated_completion: null, special_terms: null, shipping_estimate_snapshot: null
+        };
+        elements.status.textContent = "";
         render();
         if (quotation.quotation_status !== "draft") await loadAcceptance();
-        if (quotation.quotation_status === "accepted") await loadContractEligibility();
+        if (quotation.quotation_status === "accepted" && (quotation.source_commission_id || quotation.commission_id)) await loadContractEligibility();
         return quotation;
       } catch (error) {
         elements.status.textContent = error.message;
@@ -363,7 +385,6 @@
         elements.acceptancePanel.hidden = true;
         elements.status.textContent = "Quotation acceptance recorded.";
         render();
-        await loadContractEligibility();
         return acceptance;
       } catch (error) {
         elements.status.textContent = error.message;
@@ -374,12 +395,34 @@
     async function save(event) {
       event?.preventDefault();
       try {
-        const body = await fetchJson(fetchImplementation, `${API_PATH}/${quotation.id}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildPayload(elements.form, selectedShippingEstimate))
+        const payload = buildPayload(elements.form, selectedShippingEstimate);
+        const creating = !quotation.id;
+        const body = await fetchJson(fetchImplementation, creating
+          ? `/admin/api/clients/${encodeURIComponent(pendingClientId)}/quotations`
+          : `${API_PATH}/${quotation.id}`, {
+          method: creating ? "POST" : "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(creating
+            ? { ...payload, inquiry_id: pendingInquiryId, request_id: createRequestId }
+            : payload)
         });
-        quotation = body.quotation; render(); elements.status.textContent = "Draft saved."; return quotation;
+        quotation = body.quotation;
+        if (creating) historyObject?.replaceState?.(null, "", `quotation.html?id=${encodeURIComponent(quotation.id)}`);
+        render(); elements.status.textContent = creating ? "Quotation draft created." : "Draft saved."; return quotation;
       } catch (error) { elements.status.textContent = error.message; return null; }
+    }
+
+    async function createCommission() {
+      try {
+        const body = await fetchJson(fetchImplementation, `${API_PATH}/${quotation.id}/create-commission`, { method: "POST" });
+        quotation = { ...quotation, source_commission_id: body.commission.id, source_commission_number: body.commission.commission_number };
+        elements.status.textContent = body.created ? "Commission created from accepted Quotation." : "Commission already exists.";
+        render();
+        locationObject.href = `commissions.html?commission_id=${encodeURIComponent(body.commission.id)}`;
+        return body.commission;
+      } catch (error) {
+        elements.status.textContent = error.message;
+        return null;
+      }
     }
 
     async function action(name) {
@@ -407,9 +450,10 @@
       elements.recordAcceptance.addEventListener("click", openAcceptance);
       elements.cancelAcceptance.addEventListener("click", () => { elements.acceptancePanel.hidden = true; });
       elements.acceptanceForm.addEventListener("submit", submitAcceptance);
+      elements.createCommission?.addEventListener("click", createCommission);
     }
 
-    return { action, bindEvents, getShippingEstimate, load, loadAcceptance, loadContractEligibility, openAcceptance, render, save, submitAcceptance, updatePreview, useShippingRate };
+    return { action, bindEvents, createCommission, getShippingEstimate, load, loadAcceptance, loadContractEligibility, openAcceptance, render, save, submitAcceptance, updatePreview, useShippingRate };
   }
 
   const api = { API_PATH, CONTRACT_ELIGIBILITY_API_PATH, SHIPPING_ESTIMATE_API_PATH, buildAcceptancePayload, buildPayload, buildShippingEstimateRequest, buildShippingEstimateSnapshot, calculatePreview, canRecordAcceptance, createApp, renderAcceptanceRecord, renderShippingRates, renderSnapshot, renderSummary };

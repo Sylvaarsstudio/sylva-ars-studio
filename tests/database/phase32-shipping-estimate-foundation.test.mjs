@@ -42,7 +42,6 @@ let db;
 let cookie;
 let quotationHandler;
 let clientId;
-let commissionId;
 
 before(async () => {
   database = new NetlifyDB({ logger: () => {} });
@@ -63,16 +62,6 @@ before(async () => {
 beforeEach(async () => {
   clientId = (await db.pool.query(
     "INSERT INTO clients (full_name, email) VALUES ('Estimate Client', 'estimate@example.invalid') RETURNING id"
-  )).rows[0].id;
-  commissionId = (await db.pool.query(
-    `INSERT INTO commissions (
-       commission_number, client_id, title, description, medium,
-       price, sales_tax, shipping, status
-     ) VALUES (
-       'SAS-COM-2026-9951', $1, 'Shipping Estimate',
-       'Phase 10B.5A test', 'Oil', 400, 24, 20, 'draft'
-     ) RETURNING id`,
-    [clientId]
   )).rows[0].id;
 });
 
@@ -162,9 +151,23 @@ function quotationRequest(path, method = "GET", body) {
 
 async function createDraft() {
   const response = await quotationRequest(
-    `/admin/api/commissions/${commissionId}/quotations`,
+    `/admin/api/clients/${clientId}/quotations`,
     "POST",
-    { request_id: randomUUID() }
+    {
+      artwork_title: "Shipping Estimate",
+      artwork_description: "Phase 10B.5A test",
+      artwork_medium: "Oil",
+      artwork_width: 20,
+      artwork_height: 24,
+      price: "400.00",
+      sales_tax_rate: "0.06",
+      shipping_charge: "20.00",
+      estimated_completion: "2027-01-15",
+      special_terms: null,
+      shipping_estimate_snapshot: null,
+      inquiry_id: null,
+      request_id: randomUUID()
+    }
   );
   return (await response.json()).quotation;
 }
@@ -318,9 +321,8 @@ test("draft stores only a validated estimate snapshot without silently changing 
     "city", "country", "postal_code", "state_region"
   ]);
   assert.equal((await db.pool.query(
-    "SELECT count(*)::integer AS count FROM commission_events WHERE commission_id = $1",
-    [commissionId]
-  )).rows[0].count, 1);
+    "SELECT count(*)::integer AS count FROM commission_events"
+  )).rows[0].count, 0);
   assert.equal((await db.pool.query(
     "SELECT count(*)::integer AS count FROM commission_obligations"
   )).rows[0].count, 0);

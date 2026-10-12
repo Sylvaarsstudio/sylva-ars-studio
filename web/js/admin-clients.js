@@ -62,6 +62,15 @@
     }).format(new Date(value));
   }
 
+  function formatCurrency(value) {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
+  }
+
+  function renderQuotationsMarkup(quotations) {
+    if (!quotations.length) return '<tr><td colspan="7" class="inquiry-empty">No quotations for this client.</td></tr>';
+    return quotations.map((quotation) => `<tr><td>${escapeHtml(quotation.quotation_number)}</td><td>v${escapeHtml(quotation.version)}</td><td>${escapeHtml(quotation.quotation_status)}</td><td>${escapeHtml(formatCurrency(quotation.quotation_snapshot?.commercial?.total ?? (Number(quotation.price) + Number(quotation.sales_tax) + Number(quotation.shipping_charge))))}</td><td>${quotation.issued_at ? escapeHtml(formatDate(quotation.issued_at)) : "—"}</td><td>${quotation.expires_at ? escapeHtml(formatDate(quotation.expires_at)) : "—"}</td><td><a class="admin-text-link" href="quotation.html?id=${encodeURIComponent(quotation.id)}">View</a></td></tr>`).join("");
+  }
+
   function renderListMarkup(clients) {
     if (!clients.length) {
       return '<tr><td colspan="5" class="inquiry-empty">No clients yet.</td></tr>';
@@ -142,7 +151,14 @@
       editClient: documentObject.querySelector("#edit-client"),
       editForm: documentObject.querySelector("#client-edit-form"),
       cancelEdit: documentObject.querySelector("#cancel-client-edit"),
-      closeDetail: documentObject.querySelector("#close-client-detail")
+      closeDetail: documentObject.querySelector("#close-client-detail"),
+      newClient: documentObject.querySelector("#new-client"),
+      createPanel: documentObject.querySelector("#client-create"),
+      createForm: documentObject.querySelector("#client-create-form"),
+      createStatus: documentObject.querySelector("#client-create-status"),
+      cancelCreate: documentObject.querySelector("#cancel-client-create"),
+      newQuotation: documentObject.querySelector("#new-client-quotation"),
+      quotations: documentObject.querySelector("#client-quotations")
     };
     let clients = [];
     let selectedClient = null;
@@ -221,6 +237,11 @@
         );
         selectedClient = body.client;
         elements.detailFields.innerHTML = renderDetailMarkup(body.client);
+        if (elements.newQuotation) elements.newQuotation.href = `quotation.html?client_id=${encodeURIComponent(body.client.id)}`;
+        if (elements.quotations) {
+          const quotationBody = await fetchJson(fetchImplementation, `${API_PATH}/${encodeURIComponent(id)}/quotations`);
+          elements.quotations.innerHTML = renderQuotationsMarkup(quotationBody.quotations);
+        }
         showReadOnlyDetail();
         elements.detailStatus.textContent = "";
         return body.client;
@@ -230,6 +251,25 @@
         elements.detailActions.hidden = true;
         elements.editForm.hidden = true;
         showError(elements.detailStatus, error);
+        return null;
+      }
+    }
+
+    async function createClient(event) {
+      event?.preventDefault();
+      try {
+        const payload = buildUpdatePayload(elements.createForm);
+        const body = await fetchJson(fetchImplementation, API_PATH, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+        });
+        elements.createForm.reset();
+        elements.createPanel.hidden = true;
+        elements.createStatus.textContent = "Client created.";
+        await loadList();
+        await openDetail(body.client.id);
+        return body.client;
+      } catch (error) {
+        showError(elements.createStatus, error);
         return null;
       }
     }
@@ -302,12 +342,16 @@
         elements.detailStatus.textContent = "";
         selectedClient = null;
       });
+      elements.newClient?.addEventListener("click", () => { elements.createPanel.hidden = false; });
+      elements.cancelCreate?.addEventListener("click", () => { elements.createPanel.hidden = true; });
+      elements.createForm?.addEventListener("submit", createClient);
     }
 
     return {
       beginEdit,
       bindEvents,
       cancelEdit,
+      createClient,
       loadList,
       openDetail,
       saveChanges
@@ -320,7 +364,8 @@
     createApp,
     fetchJson,
     renderDetailMarkup,
-    renderListMarkup
+    renderListMarkup,
+    renderQuotationsMarkup
   };
 
   if (typeof module !== "undefined" && module.exports) {

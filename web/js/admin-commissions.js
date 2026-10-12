@@ -216,10 +216,11 @@
         <dd>${escapeHtml(formatDetailValue(field, detail[field]))}</dd>
       </div>
     ` : "";
-    const inquiries = Array.isArray(detail.inquiries) ? detail.inquiries : [];
-
     return `
-      <article class="commission-detail-summary">
+      <article class="commission-detail-summary" aria-labelledby="commission-overview-title">
+        <div class="commission-overview-heading">
+          <h2 id="commission-overview-title">Overview ${renderHelpTrigger("commission_overview", "Commission Overview")}</h2>
+        </div>
         <header class="commission-detail-header">
           <div>
             <p class="commission-number">${escapeHtml(detail.commission_number)}</p>
@@ -270,12 +271,80 @@
             ${renderField("id")}
           </dl>
         </section>
-
-        <section class="commission-record-information commission-source-inquiries">
-          <h3>Source / Inquiries</h3>
-          ${renderProvenanceMarkup(inquiries)}
-        </section>
       </article>`;
+  }
+
+  function renderCommercialSourceMarkup(commission) {
+    const inquiries = Array.isArray(commission?.inquiries) ? commission.inquiries : [];
+    const sourceLabel = commission?.source_quotation_number
+      ? `${commission.source_quotation_number}${hasContent(commission.source_quotation_version) ? ` · v${commission.source_quotation_version}` : ""}`
+      : "View Source Quotation";
+    const source = commission?.source_quotation_id
+      ? `<p><strong>Source Accepted Quotation</strong><br><a class="admin-text-link" href="quotation.html?id=${encodeURIComponent(commission.source_quotation_id)}">${escapeHtml(sourceLabel)}</a></p>
+         <p><strong>Acceptance</strong><br>Recorded with the accepted Source Quotation.</p>`
+      : '<p class="inquiry-empty">Legacy Commission — no canonical source quotation or Acceptance has been fabricated.</p>';
+
+    return `${source}
+      <div class="commission-commercial-inquiries">
+        <h3>Source Inquiry</h3>
+        ${renderProvenanceMarkup(inquiries)}
+      </div>`;
+  }
+
+  function describeCommercialSection(commission, contractEligibility) {
+    if (!commission?.source_quotation_id) return "Commercial — Legacy record";
+    if (!contractEligibility) return "Commercial — Quote accepted · Contract status unavailable";
+    const contractState = contractEligibility?.eligible ? "Contract ready" : "Contract pending";
+    return `Commercial — Quote accepted · ${contractState}`;
+  }
+
+  function describeProductionSection(production) {
+    return `Production — ${production?.initialized
+      ? formatLabel(production.production_status)
+      : "Not initialized"}`;
+  }
+
+  function describeFinancialSection(commission) {
+    if (!commission) return "Financial — Unavailable";
+    if (!hasContent(commission.amount_paid) || !hasContent(commission.balance)) {
+      return "Financial — Details available";
+    }
+    return `Financial — ${formatCurrency(commission.amount_paid)} paid · ${formatCurrency(commission.balance)} outstanding`;
+  }
+
+  function describeDeliverySection(model) {
+    const delivery = model?.delivery;
+    if (!model?.initialized || !delivery) return "Delivery — Not configured";
+    if (delivery.delivery_status === "scheduled" && delivery.scheduled_at) {
+      return `Delivery — Pickup scheduled ${formatDate(delivery.scheduled_at)}`;
+    }
+    if (delivery.delivery_status === "shipped" && hasContent(delivery.carrier)) {
+      return `Delivery — Shipped · ${delivery.carrier}`;
+    }
+    return `Delivery — ${formatLabel(delivery.delivery_status)}`;
+  }
+
+  function describeCommunicationsSection(communications) {
+    const count = communications.length;
+    if (!count) return "Communications — None";
+    const ready = communications.filter((communication) =>
+      communication.communication_status === "ready"
+    ).length;
+    return `Communications — ${count} ${count === 1 ? "record" : "records"}${ready ? ` · ${ready} Ready` : ""}`;
+  }
+
+  function describeDocumentsSection(documents) {
+    return documents.length
+      ? `Documents — ${documents.length} issued`
+      : "Documents — None";
+  }
+
+  function describeTimelineSection(entries) {
+    return `Timeline — ${entries.length} ${entries.length === 1 ? "milestone" : "milestones"}`;
+  }
+
+  function describeActivitySection(events) {
+    return `Activity — ${events.length} ${events.length === 1 ? "event" : "events"}`;
   }
 
   function renderProvenanceMarkup(inquiries) {
@@ -525,13 +594,15 @@
     }
 
     const actionLink = nextAction.state === "action" && nextAction.target?.href
-      ? `<p><a class="admin-text-link" href="${escapeHtml(nextAction.target.href)}">${escapeHtml(nextAction.target.label || nextAction.label)}</a></p>`
+      ? `<p class="commission-next-action-link"><a class="admin-text-link" href="${escapeHtml(nextAction.target.href)}">${escapeHtml(nextAction.target.label || nextAction.label)} →</a></p>`
       : "";
 
     return `<article class="commission-production-summary commission-next-action-summary" data-next-action-state="${escapeHtml(nextAction.state)}" data-next-action-code="${escapeHtml(nextAction.code)}">
-      <p><span class="commission-status-badge">${escapeHtml(formatLabel(nextAction.state))}</span></p>
-      <h3>${escapeHtml(nextAction.label)}</h3>
-      <p>${escapeHtml(nextAction.reason)}</p>
+      <div class="commission-next-action-heading">
+        <span class="commission-status-badge">${escapeHtml(formatLabel(nextAction.state))}</span>
+        <h3>${escapeHtml(nextAction.label)}</h3>
+      </div>
+      <p class="commission-next-action-reason">${escapeHtml(nextAction.reason)}</p>
       ${actionLink}
     </article>`;
   }
@@ -926,6 +997,15 @@
       closeDetail: documentObject.querySelector("#close-commission-detail"),
       editCommission: documentObject.querySelector("#edit-commission"),
       changeStatus: documentObject.querySelector("#change-commission-status"),
+      commercialSourceDetail: documentObject.querySelector("#commission-commercial-source-detail"),
+      commercialSummary: documentObject.querySelector("#commission-commercial-summary"),
+      productionSummary: documentObject.querySelector("#commission-production-summary"),
+      financialSummary: documentObject.querySelector("#commission-financial-summary"),
+      deliverySummary: documentObject.querySelector("#commission-delivery-summary"),
+      communicationsSummary: documentObject.querySelector("#commission-communications-summary"),
+      documentsSummary: documentObject.querySelector("#commission-documents-summary"),
+      timelineSummary: documentObject.querySelector("#commission-timeline-summary"),
+      activitySummary: documentObject.querySelector("#commission-activity-summary"),
       payments: documentObject.querySelector("#commission-payments"),
       paymentList: documentObject.querySelector("#payment-list"),
       paymentStatus: documentObject.querySelector("#payment-status"),
@@ -1009,6 +1089,7 @@
     let commissionTimeline = [];
     let production = { initialized: false };
     let nextAction = null;
+    let contractEligibility = null;
     let obligations = { initialized: false, obligations: [] };
     let delivery = { initialized: false, delivery: null };
     let paymentRequestId = null;
@@ -1025,30 +1106,37 @@
 
     function renderPayments() {
       elements.paymentList.innerHTML = renderPaymentsMarkup(payments);
+      updateSectionSummaries();
     }
 
     function renderDocuments() {
       elements.documentList.innerHTML = renderCommissionDocumentsMarkup(documents);
+      updateSectionSummaries();
     }
 
     function renderCommunications() {
       elements.communicationsList.innerHTML = renderCommissionCommunicationsMarkup(communications);
+      updateSectionSummaries();
     }
 
     function renderQuotations() {
       elements.quotationList.innerHTML = renderQuotationsMarkup(quotations);
+      updateSectionSummaries();
     }
 
     function renderCommissionEvents() {
       elements.activityList.innerHTML = renderCommissionEventsMarkup(commissionEvents);
+      updateSectionSummaries();
     }
 
     function renderCommissionTimeline() {
       elements.timelineList.innerHTML = renderCommissionTimelineMarkup(commissionTimeline);
+      updateSectionSummaries();
     }
 
     function renderObligations() {
       elements.obligationsDetail.innerHTML = renderObligationsMarkup(obligations);
+      updateSectionSummaries();
     }
 
     function renderDelivery() {
@@ -1061,6 +1149,32 @@
         delivery.initialized || !delivery.release_eligibility?.eligible
       );
       elements.editDelivery.hidden = !delivery.initialized || terminal;
+      updateSectionSummaries();
+    }
+
+    function renderCommercialSource() {
+      if (elements.commercialSourceDetail) {
+        elements.commercialSourceDetail.innerHTML = selectedCommission
+          ? renderCommercialSourceMarkup(selectedCommission)
+          : "";
+      }
+      updateSectionSummaries();
+    }
+
+    function updateSectionSummaries() {
+      const summaries = [
+        [elements.commercialSummary, describeCommercialSection(selectedCommission, contractEligibility)],
+        [elements.productionSummary, describeProductionSection(production)],
+        [elements.financialSummary, describeFinancialSection(selectedCommission)],
+        [elements.deliverySummary, describeDeliverySection(delivery)],
+        [elements.communicationsSummary, describeCommunicationsSection(communications)],
+        [elements.documentsSummary, describeDocumentsSection(documents)],
+        [elements.timelineSummary, describeTimelineSection(commissionTimeline)],
+        [elements.activitySummary, describeActivitySection(commissionEvents)]
+      ];
+      summaries.forEach(([element, value]) => {
+        if (element) element.textContent = value;
+      });
     }
 
     function formatPaymentInput(cents) {
@@ -1094,6 +1208,23 @@
       elements.workspace.classList?.add("is-detail-mode");
     }
 
+    function resetCommissionSections() {
+      documentObject.querySelectorAll?.("details.commission-section").forEach((section) => {
+        section.open = false;
+      });
+    }
+
+    function openTargetedSection() {
+      const hash = String(globalObject.location?.hash || "").slice(1);
+      if (!hash) return null;
+      const target = documentObject.getElementById?.(hash);
+      const section = target?.matches?.("details.commission-section")
+        ? target
+        : target?.closest?.("details.commission-section");
+      if (section) section.open = true;
+      return section || null;
+    }
+
     function showCommissionIndex() {
       elements.detail.hidden = true;
       elements.detailFields.innerHTML = "";
@@ -1114,13 +1245,17 @@
       renderQuotations();
       commissionEvents = [];
       renderCommissionEvents();
+      commissionTimeline = [];
+      renderCommissionTimeline();
       elements.activityStatus.textContent = "";
+      elements.timelineStatus.textContent = "";
       production = { initialized: false };
       elements.productionDetail.innerHTML = renderProductionMarkup(production);
       elements.productionStatus.textContent = "";
       nextAction = null;
       elements.nextActionDetail.innerHTML = renderNextActionMarkup(nextAction);
       elements.nextActionStatus.textContent = "";
+      contractEligibility = null;
       obligations = { initialized: false, obligations: [] };
       renderObligations();
       elements.obligationsStatus.textContent = "";
@@ -1136,6 +1271,7 @@
       elements.contractEligibilityStatus.textContent = "Contract unavailable — Accepted Quotation required.";
       cancelPayment();
       selectedCommission = null;
+      renderCommercialSource();
       showReadOnlyDetail();
     }
 
@@ -1151,6 +1287,8 @@
       );
       renderList();
       elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
+      renderCommercialSource();
+      updateSectionSummaries();
     }
 
     function updateFinancialPreview() {
@@ -1294,6 +1432,7 @@
 
       elements.documentStatus.textContent = "Loading documents…";
       elements.documentStatus.classList?.remove("is-error");
+      if (elements.documentsSummary) elements.documentsSummary.textContent = "Documents — Loading…";
 
       try {
         const body = await fetchJson(
@@ -1309,6 +1448,7 @@
         renderDocuments();
         elements.documentStatus.textContent = "Unable to load documents.";
         elements.documentStatus.classList?.add("is-error");
+        if (elements.documentsSummary) elements.documentsSummary.textContent = "Documents — Unavailable";
         return [];
       }
     }
@@ -1322,6 +1462,7 @@
 
       elements.communicationsStatus.textContent = "Loading communications…";
       elements.communicationsStatus.classList?.remove("is-error");
+      if (elements.communicationsSummary) elements.communicationsSummary.textContent = "Communications — Loading…";
       elements.createCommunication.href = `communications.html?commission_id=${encodeURIComponent(selectedCommission.id)}&action=template`;
       elements.newCommunicationDraft.href = `communications.html?commission_id=${encodeURIComponent(selectedCommission.id)}&action=draft`;
       elements.recordManualCommunication.href = `communications.html?commission_id=${encodeURIComponent(selectedCommission.id)}&action=manual`;
@@ -1339,6 +1480,7 @@
         communications = [];
         renderCommunications();
         showError(elements.communicationsStatus, error);
+        if (elements.communicationsSummary) elements.communicationsSummary.textContent = "Communications — Unavailable";
         return [];
       }
     }
@@ -1353,9 +1495,6 @@
         );
         quotations = body.quotations || [];
         renderQuotations();
-        elements.prepareQuotation.href = `quotation.html?commission_id=${encodeURIComponent(selectedCommission.id)}`;
-        elements.prepareQuotation.hidden = quotations.length > 0;
-        elements.prepareQuotation.textContent = "Prepare Quotation";
         elements.quotationStatus.textContent = "";
         return quotations;
       } catch (error) {
@@ -1370,20 +1509,27 @@
       if (!selectedCommission) return null;
       elements.prepareContract.hidden = true;
       elements.contractEligibilityStatus.textContent = "Checking Contract eligibility…";
+      if (elements.commercialSummary && selectedCommission.source_quotation_id) {
+        elements.commercialSummary.textContent = "Commercial — Quote accepted · Checking Contract…";
+      }
       try {
         const body = await fetchJson(
           fetchImplementation,
           `${CONTRACT_ELIGIBILITY_API_PATH}?commission_id=${encodeURIComponent(selectedCommission.id)}`
         );
+        contractEligibility = body;
         elements.contractEligibilityStatus.textContent = body.message;
         elements.prepareContract.hidden = !body.eligible;
         if (body.eligible) {
           elements.prepareContract.href = `create-contract.html?commission_id=${encodeURIComponent(selectedCommission.id)}`;
         }
+        updateSectionSummaries();
         return body;
       } catch (error) {
+        contractEligibility = null;
         elements.prepareContract.hidden = true;
         showError(elements.contractEligibilityStatus, error);
+        updateSectionSummaries();
         return null;
       }
     }
@@ -1392,6 +1538,7 @@
       if (!selectedCommission) return [];
       elements.activityStatus.textContent = "Loading activity…";
       elements.activityStatus.classList?.remove("is-error");
+      if (elements.activitySummary) elements.activitySummary.textContent = "Activity — Loading…";
       try {
         const body = await fetchJson(
           fetchImplementation,
@@ -1405,6 +1552,7 @@
         commissionEvents = [];
         renderCommissionEvents();
         showError(elements.activityStatus, error);
+        if (elements.activitySummary) elements.activitySummary.textContent = "Activity — Unavailable";
         return [];
       }
     }
@@ -1413,6 +1561,7 @@
       if (!selectedCommission) return [];
       elements.timelineStatus.textContent = "Loading timeline…";
       elements.timelineStatus.classList?.remove("is-error");
+      if (elements.timelineSummary) elements.timelineSummary.textContent = "Timeline — Loading…";
       try {
         const body = await fetchJson(
           fetchImplementation,
@@ -1426,6 +1575,7 @@
         commissionTimeline = [];
         renderCommissionTimeline();
         showError(elements.timelineStatus, error);
+        if (elements.timelineSummary) elements.timelineSummary.textContent = "Timeline — Unavailable";
         return [];
       }
     }
@@ -1434,6 +1584,7 @@
       if (!selectedCommission) return null;
       elements.productionStatus.textContent = "Loading production status…";
       elements.productionStatus.classList?.remove("is-error");
+      if (elements.productionSummary) elements.productionSummary.textContent = "Production — Loading…";
       try {
         const body = await fetchJson(
           fetchImplementation,
@@ -1442,11 +1593,13 @@
         production = body.production || { initialized: false };
         elements.productionDetail.innerHTML = renderProductionMarkup(production);
         elements.productionStatus.textContent = "";
+        updateSectionSummaries();
         return production;
       } catch (error) {
         production = { initialized: false };
         elements.productionDetail.innerHTML = renderProductionMarkup(production);
         showError(elements.productionStatus, error);
+        if (elements.productionSummary) elements.productionSummary.textContent = "Production — Unavailable";
         return null;
       }
     }
@@ -1500,6 +1653,7 @@
       if (!selectedCommission) return null;
       elements.deliveryStatus.textContent = "Loading delivery…";
       elements.deliveryStatus.classList?.remove("is-error");
+      if (elements.deliverySummary) elements.deliverySummary.textContent = "Delivery — Loading…";
       try {
         const body = await fetchJson(
           fetchImplementation,
@@ -1517,6 +1671,7 @@
         delivery = { initialized: false, delivery: null };
         renderDelivery();
         showError(elements.deliveryStatus, error);
+        if (elements.deliverySummary) elements.deliverySummary.textContent = "Delivery — Unavailable";
         return null;
       }
     }
@@ -1695,6 +1850,7 @@
     async function openDetail(id) {
       elements.createPanel.hidden = true;
       elements.detail.hidden = false;
+      resetCommissionSections();
       enterDetailMode();
       elements.detailStatus.textContent = "Loading commission…";
       elements.detailStatus.classList?.remove("is-error");
@@ -1705,7 +1861,26 @@
           `${API_PATH}/${encodeURIComponent(id)}`
         );
         selectedCommission = body.commission;
+        payments = [];
+        documents = [];
+        communications = [];
+        quotations = [];
+        commissionEvents = [];
+        commissionTimeline = [];
+        production = { initialized: false };
+        obligations = { initialized: false, obligations: [] };
+        delivery = { initialized: false, delivery: null };
+        contractEligibility = null;
         elements.detailFields.innerHTML = renderDetailMarkup(selectedCommission);
+        renderCommercialSource();
+        renderPayments();
+        renderDocuments();
+        renderCommunications();
+        renderQuotations();
+        renderCommissionEvents();
+        renderCommissionTimeline();
+        renderObligations();
+        renderDelivery();
         updatePaymentAvailability();
         showReadOnlyDetail();
         elements.detailStatus.textContent = "";
@@ -1720,6 +1895,7 @@
         await loadDelivery();
         await loadDocuments();
         await loadCommunications();
+        openTargetedSection();
         return selectedCommission;
       } catch (error) {
         selectedCommission = null;
@@ -2115,7 +2291,7 @@
           openDetail(button.dataset.commissionId);
         }
       });
-      elements.newCommission.addEventListener("click", openCreate);
+      elements.newCommission?.addEventListener("click", openCreate);
       elements.editCommission.addEventListener("click", openEdit);
       elements.changeStatus.addEventListener("click", openStatus);
       elements.recordPayment.addEventListener("click", openPayment);
@@ -2167,24 +2343,24 @@
         updateEditFinancialPreview
       );
       elements.cancelEdit.addEventListener("click", cancelEdit);
-      elements.createForm.addEventListener("submit", submitCreate);
-      elements.createForm.elements.namedItem("client_id").addEventListener(
+      elements.createForm?.addEventListener("submit", submitCreate);
+      elements.createForm?.elements.namedItem("client_id")?.addEventListener(
         "change",
         updateOriginInquiryOptions
       );
-      elements.createForm.elements.namedItem("price").addEventListener(
+      elements.createForm?.elements.namedItem("price")?.addEventListener(
         "input",
         updateFinancialPreview
       );
-      elements.createForm.elements.namedItem("sales_tax_rate").addEventListener(
+      elements.createForm?.elements.namedItem("sales_tax_rate")?.addEventListener(
         "change",
         updateFinancialPreview
       );
-      elements.createForm.elements.namedItem("shipping").addEventListener(
+      elements.createForm?.elements.namedItem("shipping")?.addEventListener(
         "input",
         updateFinancialPreview
       );
-      elements.cancelCreate.addEventListener("click", closeCreate);
+      elements.cancelCreate?.addEventListener("click", closeCreate);
       elements.closeDetail.addEventListener("click", () => {
         showCommissionIndex();
       });
@@ -2253,13 +2429,22 @@
     buildDeliveryUpdatePayload,
     calculateFinancialPreview,
     createApp,
+    describeActivitySection,
+    describeCommercialSection,
+    describeCommunicationsSection,
     describeDocument,
+    describeDeliverySection,
+    describeDocumentsSection,
+    describeFinancialSection,
+    describeProductionSection,
+    describeTimelineSection,
     fetchJson,
     formatCurrency,
     inferSalesTaxRate,
     paymentMethodLabels,
     renderCommissionDocumentsMarkup,
     renderCommissionCommunicationsMarkup,
+    renderCommercialSourceMarkup,
     renderCommissionEventsMarkup,
     renderCommissionTimelineMarkup,
     renderNextActionMarkup,

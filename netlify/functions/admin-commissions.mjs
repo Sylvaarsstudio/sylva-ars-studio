@@ -511,12 +511,16 @@ async function listCommissions(db) {
        c.status,
        c.price,
        c.balance,
+       c.source_quotation_id,
+       q.quotation_number AS source_quotation_number,
+       q.version AS source_quotation_version,
        c.created_at,
        cl.id AS client_id,
        cl.full_name AS client_name,
        cl.email AS client_email
      FROM commissions AS c
      JOIN clients AS cl ON cl.id = c.client_id
+     LEFT JOIN quotations AS q ON q.id = c.source_quotation_id
      ORDER BY c.created_at DESC`
   );
 
@@ -544,9 +548,13 @@ async function getCommission(db, id) {
        c.balance,
        c.status,
        c.estimated_completion,
-       c.created_at
+       c.created_at,
+       c.source_quotation_id,
+       q.quotation_number AS source_quotation_number,
+       q.version AS source_quotation_version
      FROM commissions AS c
      JOIN clients AS cl ON cl.id = c.client_id
+     LEFT JOIN quotations AS q ON q.id = c.source_quotation_id
      WHERE c.id = $1`,
     [id]
   );
@@ -1330,51 +1338,11 @@ function createHandler({
       }
 
       if (request.method === "POST") {
-        const data = await parseJsonBody(request);
-        const normalized = normalizeCommissionCreate(data);
-
-        if (normalized.error) {
-          return jsonResponse(400, {
-            success: false,
-            message: normalized.error
-          });
-        }
-
-        try {
-          const result = await createCommission(databaseFactory(), normalized.commission);
-
-          if (result.outcome === "client_not_found") {
-            return jsonResponse(404, {
-              success: false,
-              message: "Client not found."
-            });
-          }
-
-          if (result.outcome === "inquiry_not_found") {
-            return jsonResponse(404, {
-              success: false,
-              message: "Origin inquiry not found."
-            });
-          }
-
-          if (result.outcome === "inquiry_client_mismatch") {
-            return jsonResponse(409, {
-              success: false,
-              message: "Origin inquiry does not match the selected client."
-            });
-          }
-
-          return jsonResponse(201, {
-            success: true,
-            commission: result.commission
-          });
-        } catch (error) {
-          logFailure("create", error);
-          return jsonResponse(500, {
-            success: false,
-            message: "Unable to create commission."
-          });
-        }
+        return jsonResponse(409, {
+          success: false,
+          code: "accepted_quotation_required",
+          message: "A new Commission must be created from a valid accepted Quotation."
+        });
       }
 
       return jsonResponse(405, {

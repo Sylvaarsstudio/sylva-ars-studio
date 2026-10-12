@@ -56,10 +56,12 @@ beforeEach(async () => {
   )).rows[0].id;
   quotationId = (await db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, price, sales_tax_rate,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       snapshot_version, quotation_number, version, price, sales_tax_rate,
        sales_tax, shipping_charge, required_deposit
-     ) VALUES ($1, 'SAS-QUO-2026-9901', 1, 400, 0.06, 24, 20, 200) RETURNING id`,
-    [commissionId]
+     ) VALUES ($1, $2, 'Communication Study', 'Test', 'Oil', 1,
+       'SAS-QUO-2026-9901', 1, 400, 0.06, 24, 20, 200) RETURNING id`,
+    [commissionId, clientId]
   )).rows[0].id;
   documentId = (await db.pool.query(
     `INSERT INTO documents (commission_id, document_type, document_number, file_location)

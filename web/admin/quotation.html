@@ -11,13 +11,18 @@
   <main class="admin-page admin-commissions-page">
     <header class="admin-header">
       <div><h1>Quotation <button type="button" class="admin-help-trigger" data-glossary-key="quotation" aria-label="Learn about Quotation">i</button></h1><p>Prepare and issue an immutable commercial quotation.</p></div>
-      <nav class="admin-header-actions"><a href="commissions.html" class="admin-link">Commissions</a><a href="documents.html" class="admin-link">Documents</a><a href="glossary.html" class="admin-link">Glossary</a><a href="/admin-logout" class="admin-link">Log out</a></nav>
+      <nav class="admin-header-actions"><a href="quotations.html" class="admin-link">Quotations</a><a href="clients.html" class="admin-link">Clients</a><a href="commissions.html" class="admin-link">Commissions</a><a href="documents.html" class="admin-link">Documents</a><a href="glossary.html" class="admin-link">Glossary</a><a href="/admin-logout" class="admin-link">Log out</a></nav>
     </header>
 
     <p class="admin-notice" id="quotation-page-status" aria-live="polite"></p>
     <section class="inquiry-detail-panel" id="quotation-panel" hidden>
       <div id="quotation-summary"></div>
       <form class="admin-form" id="quotation-form">
+        <label>Artwork Title <input type="text" name="artwork_title" required></label>
+        <label class="commission-form-wide">Artwork Description <textarea name="artwork_description" rows="4" required></textarea></label>
+        <label>Medium <select name="artwork_medium" required><option value="Acrylic">Acrylic</option><option value="Watercolor">Watercolor</option><option value="Oil">Oil</option><option value="Drawing">Drawing</option></select></label>
+        <label>Width (in) <input type="number" name="artwork_width" min="0.01" step="0.01"></label>
+        <label>Height (in) <input type="number" name="artwork_height" min="0.01" step="0.01"></label>
         <label>Artwork Price <input type="number" name="price" min="0" step="0.01" required></label>
         <div class="admin-help-form-field"><label>Sales Tax Rate <select name="sales_tax_rate" required><option value="0.00">Outside Pennsylvania — 0%</option><option value="0.06">Pennsylvania — 6%</option><option value="0.07">Allegheny County — 7%</option><option value="0.08">Philadelphia — 8%</option></select></label><button type="button" class="admin-help-trigger" data-glossary-key="sales_tax_rate" aria-label="Learn about Sales Tax Rate">i</button></div>
         <div class="admin-help-form-field"><label>Shipping Charge <input type="number" name="shipping_charge" min="0" step="0.01" required></label><button type="button" class="admin-help-trigger" data-glossary-key="shipping_charge" aria-label="Learn about Shipping Charge">i</button></div>
@@ -77,6 +82,10 @@
         <p class="admin-notice" id="quotation-contract-status"></p>
         <a class="admin-link" id="quotation-prepare-contract" href="create-contract.html">Prepare Contract</a>
         <button type="button" class="admin-help-trigger" data-glossary-key="contract_source_quotation" aria-label="Learn about Contract Source Quotation">i</button>
+      </section>
+      <section id="quotation-commission-action" hidden>
+        <p class="admin-notice">This accepted Quotation can create one canonical Commission.</p>
+        <button type="button" class="admin-button" id="create-commission-from-quotation">Create Commission</button>
       </section>
       <section id="quotation-preview" hidden></section>
     </section>

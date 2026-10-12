@@ -62,16 +62,18 @@ beforeEach(async () => {
   )).rows[0].id;
   const quotationId = (await db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, quotation_status,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       snapshot_version, quotation_number, version, quotation_status,
        issued_at, accepted_at, expires_at, price, sales_tax_rate, sales_tax,
        shipping_charge, estimated_completion, required_deposit,
        quotation_snapshot, snapshot_hash
      ) VALUES (
-       $1, 'SAS-QUO-2026-9901', 1, 'accepted',
+       $1, $2, 'Calendar Work', 'Private narrative', 'Oil', 1,
+       'SAS-QUO-2026-9901', 1, 'accepted',
        '2026-10-02T14:00:00Z', '2026-10-03T14:00:00Z', '2026-10-15T14:00:00Z',
-       500, 0.06, 30, 20, '2026-11-15', 250, '{}'::jsonb, $2
+       500, 0.06, 30, 20, '2026-11-15', 250, '{}'::jsonb, $3
      ) RETURNING id`,
-    [commissionId, "a".repeat(64)]
+    [commissionId, clientId, "a".repeat(64)]
   )).rows[0].id;
   await db.pool.query(
     `INSERT INTO acceptances (

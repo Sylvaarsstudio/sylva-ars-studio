@@ -65,16 +65,20 @@ async function addAcceptedQuotation(commissionId, sequence) {
   const hash = hashQuotationSnapshot(snapshot);
   const quotation = (await db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, quotation_status,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       artwork_width, artwork_height, snapshot_version,
+       quotation_number, version, quotation_status,
        issued_at, accepted_at, expires_at, price, sales_tax_rate,
        sales_tax, shipping_charge, estimated_completion,
        required_deposit_rate, required_deposit, special_terms,
        quotation_snapshot, snapshot_hash
-     ) VALUES ($1, $2, 1, 'accepted', '2026-10-01T16:00:00Z',
+     ) VALUES ($1, $2, $3, 'Persistent contract test', 'Oil', 20, 24, 1,
+       $4, 1, 'accepted', '2026-10-01T16:00:00Z',
        '2026-10-02T16:00:00Z', '2026-11-01T16:00:00Z', 400, .06,
-       24, 20, '2027-02-15', .50, 200, 'Accepted studio term.', $3::jsonb, $4)
+       24, 20, '2027-02-15', .50, 200, 'Accepted studio term.', $5::jsonb, $6)
      RETURNING id`,
-    [commissionId, quotationNumber, JSON.stringify(snapshot), hash]
+    [commissionId, clientId, snapshot.commission.title, quotationNumber,
+     JSON.stringify(snapshot), hash]
   )).rows[0];
   await db.pool.query(
     `INSERT INTO acceptances (

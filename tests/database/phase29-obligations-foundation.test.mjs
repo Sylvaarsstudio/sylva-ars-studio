@@ -341,14 +341,16 @@ test("accepted Quotation, existing Payment, and legacy status do not create obli
   const snapshot = { quotation_number: "SAS-QUO-2026-9901", version: 1 };
   await db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, quotation_status,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       snapshot_version, quotation_number, version, quotation_status,
        issued_at, accepted_at, expires_at, price, sales_tax_rate, sales_tax,
        shipping_charge, required_deposit, quotation_snapshot, snapshot_hash
      ) VALUES (
-       $1, 'SAS-QUO-2026-9901', 1, 'accepted', NOW(), NOW(), NOW() + INTERVAL '30 days',
-       500, 0.06, 30, 20, 250, $2::jsonb, $3
+       $1, $2, 'Obligation Commission 1', 'Phase 9 foundation', 'Oil', 1,
+       'SAS-QUO-2026-9901', 1, 'accepted', NOW(), NOW(), NOW() + INTERVAL '30 days',
+       500, 0.06, 30, 20, 250, $3::jsonb, $4
      )`,
-    [commissionIds[0], JSON.stringify(snapshot), "a".repeat(64)]
+    [commissionIds[0], clientIds[0], JSON.stringify(snapshot), "a".repeat(64)]
   );
   await db.pool.query("UPDATE commissions SET status = 'approved' WHERE id = $1", [commissionIds[0]]);
   assert.equal((await readCommissionObligations(db, commissionIds[0])).initialized, false);

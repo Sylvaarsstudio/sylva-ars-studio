@@ -119,17 +119,20 @@ async function insertQuotation({
   const issued = status !== "draft";
   const quotation = (await db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, quotation_status,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       snapshot_version, quotation_number, version, quotation_status,
        issued_at, sent_at, accepted_at, expires_at,
        price, sales_tax_rate, sales_tax, shipping_charge,
        required_deposit_rate, required_deposit,
        quotation_snapshot, snapshot_hash
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8,
-       400, .06, 24, 0, .50, 200, $9::jsonb, $10
+       $1, $2, 'Next Action Work', 'Resolver test', 'Oil', 1,
+       $3, $4, $5, $6, $7, $8, $9,
+       400, .06, 24, 0, .50, 200, $10::jsonb, $11
      ) RETURNING id`,
     [
       commissionId,
+      clientId,
       number,
       version,
       status,
@@ -164,11 +167,11 @@ function resolve() {
   return readCommissionNextAction(db, commissionId, { now: fixedNow });
 }
 
-test("no quotation resolves to prepare_quotation", async () => {
+test("legacy Commission without canonical source does not recreate pre-Commission actions", async () => {
   const action = await resolve();
-  assert.equal(action.code, "prepare_quotation");
-  assert.equal(action.state, "action");
-  assert.match(action.target.href, /quotation\.html\?commission_id=/);
+  assert.equal(action.code, "legacy_commission_no_source_quotation");
+  assert.equal(action.state, "none");
+  assert.equal(action.target, null);
 });
 
 test("draft resolves to continue_quotation", async () => {
@@ -240,7 +243,7 @@ test("legacy Commission status does not govern Next Action", async () => {
   const before = await resolve();
   await db.pool.query("UPDATE commissions SET status = 'completed' WHERE id = $1", [commissionId]);
   const afterResult = await resolve();
-  assert.equal(before.code, "prepare_quotation");
+  assert.equal(before.code, "legacy_commission_no_source_quotation");
   assert.equal(afterResult.code, before.code);
 });
 
@@ -250,7 +253,7 @@ test("not_started Production does not invent reserve, start, deposit, or payment
     [commissionId]
   );
   const action = await resolve();
-  assert.equal(action.code, "prepare_quotation");
+  assert.equal(action.code, "legacy_commission_no_source_quotation");
   assert.doesNotMatch(JSON.stringify(action), /reserve_production|start_production|await_deposit|await_final_payment/);
 });
 
@@ -290,7 +293,7 @@ test("protected endpoint is read-only and resolving creates no event", async () 
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.commission_id, String(commissionId));
-  assert.equal(body.next_action.code, "prepare_quotation");
+  assert.equal(body.next_action.code, "legacy_commission_no_source_quotation");
 
   for (const method of ["POST", "PATCH", "DELETE"]) {
     const blocked = await handler(new Request(`http://localhost${path}`, {

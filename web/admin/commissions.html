@@ -33,7 +33,7 @@
 
     <div class="inquiry-toolbar" id="commission-index-toolbar">
       <p class="inquiry-count"><strong id="commission-count">0</strong> commissions</p>
-      <button type="button" class="admin-button" id="new-commission">New Commission</button>
+      <a class="admin-link" href="quotations.html">Quotations</a>
     </div>
 
     <p class="admin-notice" id="commission-list-status" aria-live="polite"></p>
@@ -79,62 +79,102 @@
           <div id="commission-next-action-detail"></div>
         </section>
 
-        <section id="commission-production">
-          <div class="inquiry-detail-heading">
-            <h2>Production <button type="button" class="admin-help-trigger" data-glossary-key="production.canonical" aria-label="Learn about Canonical Production">i</button></h2>
-          </div>
-          <p class="admin-notice" id="commission-production-status" aria-live="polite"></p>
-          <div id="commission-production-detail"></div>
-        </section>
+        <div class="commission-section-list">
+          <details class="commission-section" id="commission-commercial-section">
+            <summary><span id="commission-commercial-summary">Commercial — Loading…</span></summary>
+            <div class="commission-section-content">
+              <section id="commission-commercial-source">
+                <div class="inquiry-detail-heading">
+                  <h2>Commercial Source <button type="button" class="admin-help-trigger" data-glossary-key="source_quotation" aria-label="Learn about Source Quotation">i</button></h2>
+                </div>
+                <div id="commission-commercial-source-detail"></div>
+              </section>
 
-        <section id="commission-timeline">
-          <div class="inquiry-detail-heading">
-            <h2>Timeline <button type="button" class="admin-help-trigger" data-glossary-key="commission_timeline" aria-label="Learn about Commission Timeline">i</button></h2>
-          </div>
-          <p class="admin-notice">Operational and contractual milestones. Activity / History remains the audit trail of recorded actions.</p>
-          <p class="admin-notice" id="commission-timeline-status" aria-live="polite"></p>
-          <ol class="commission-timeline-list" id="commission-timeline-list"></ol>
-        </section>
+              <section id="commission-quotations">
+                <div class="inquiry-detail-heading">
+                  <h2>Quotations <button type="button" class="admin-help-trigger" data-glossary-key="quotation" aria-label="Learn about Quotation">i</button></h2>
+                </div>
+                <p class="admin-notice" id="quotation-status" aria-live="polite"></p>
+                <div class="inquiry-table-wrap">
+                  <table class="inquiry-table">
+                    <thead><tr><th>Number</th><th>Version</th><th>Status</th><th>Price</th><th>Total</th><th>Issued</th><th>Expires</th><th>Sent</th><th>View</th></tr></thead>
+                    <tbody id="quotation-list"></tbody>
+                  </table>
+                </div>
+              </section>
 
-        <section id="commission-activity">
-          <div class="inquiry-detail-heading">
-            <h2>Activity / History <button type="button" class="admin-help-trigger" data-glossary-key="activity_history" aria-label="Learn about Activity History">i</button></h2>
-          </div>
-          <p class="admin-notice" id="commission-activity-status" aria-live="polite"></p>
-          <ol class="commission-activity-list" id="commission-activity-list"></ol>
-        </section>
+              <section id="commission-contract-eligibility">
+                <div class="inquiry-detail-heading">
+                  <h2>Contract <button type="button" class="admin-help-trigger" data-glossary-key="contract_eligibility" aria-label="Learn about Contract Eligibility">i</button></h2>
+                  <a class="admin-text-link" id="prepare-contract" href="create-contract.html" hidden>Prepare Contract</a>
+                </div>
+                <p class="admin-notice" id="contract-eligibility-status">Contract unavailable — Accepted Quotation required.</p>
+              </section>
+            </div>
+          </details>
 
-        <section id="commission-quotations">
-          <div class="inquiry-detail-heading">
-            <h2>Quotations <button type="button" class="admin-help-trigger" data-glossary-key="quotation" aria-label="Learn about Quotation">i</button></h2>
-            <a class="admin-text-link" id="prepare-quotation" href="quotation.html">Prepare Quotation</a>
-          </div>
-          <p class="admin-notice" id="quotation-status" aria-live="polite"></p>
-          <div class="inquiry-table-wrap">
-            <table class="inquiry-table">
-              <thead><tr><th>Number</th><th>Version</th><th>Status</th><th>Price</th><th>Total</th><th>Issued</th><th>Expires</th><th>Sent</th><th>View</th></tr></thead>
-              <tbody id="quotation-list"></tbody>
-            </table>
-          </div>
-        </section>
+          <details class="commission-section" id="commission-production">
+            <summary><span id="commission-production-summary">Production — Loading…</span></summary>
+            <div class="commission-section-content">
+              <div class="inquiry-detail-heading">
+                <h2>Production <button type="button" class="admin-help-trigger" data-glossary-key="production.canonical" aria-label="Learn about Canonical Production">i</button></h2>
+              </div>
+              <p class="admin-notice" id="commission-production-status" aria-live="polite"></p>
+              <div id="commission-production-detail"></div>
+            </div>
+          </details>
 
-        <section id="commission-contract-eligibility">
-          <div class="inquiry-detail-heading">
-            <h2>Contract <button type="button" class="admin-help-trigger" data-glossary-key="contract_eligibility" aria-label="Learn about Contract Eligibility">i</button></h2>
-            <a class="admin-text-link" id="prepare-contract" href="create-contract.html" hidden>Prepare Contract</a>
-          </div>
-          <p class="admin-notice" id="contract-eligibility-status">Contract unavailable — Accepted Quotation required.</p>
-        </section>
+          <details class="commission-section" id="commission-financial-section">
+            <summary><span id="commission-financial-summary">Financial — Loading…</span></summary>
+            <div class="commission-section-content">
+              <section id="commission-obligations">
+                <div class="inquiry-detail-heading">
+                  <h2>Financial Obligations <button type="button" class="admin-help-trigger" data-glossary-key="financial_obligation" aria-label="Learn about Financial Obligation">i</button></h2>
+                </div>
+                <p class="admin-notice" id="commission-obligations-status" aria-live="polite"></p>
+                <div id="commission-obligations-detail"></div>
+              </section>
 
-        <section id="commission-obligations">
-          <div class="inquiry-detail-heading">
-            <h2>Financial Obligations <button type="button" class="admin-help-trigger" data-glossary-key="financial_obligation" aria-label="Learn about Financial Obligation">i</button></h2>
-          </div>
-          <p class="admin-notice" id="commission-obligations-status" aria-live="polite"></p>
-          <div id="commission-obligations-detail"></div>
-        </section>
+              <section id="commission-payments">
+                <div class="inquiry-detail-heading">
+                  <h2>Payments <button type="button" class="admin-help-trigger" data-glossary-key="payment" aria-label="Learn about Payment">i</button></h2>
+                  <button type="button" class="admin-text-button" id="record-payment">Record Payment</button>
+                </div>
 
-        <section id="commission-delivery">
+                <p class="admin-notice" id="payment-status" aria-live="polite"></p>
+                <p class="commission-receipt-action" id="payment-receipt-action"></p>
+
+                <div class="inquiry-table-wrap">
+                  <table class="inquiry-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Date</th><th scope="col">Type</th><th scope="col">Amount</th><th scope="col">Tax Portion</th>
+                        <th scope="col">Method</th><th scope="col">Status</th><th scope="col">Reference</th><th scope="col">Document</th>
+                      </tr>
+                    </thead>
+                    <tbody id="payment-list"></tbody>
+                  </table>
+                </div>
+
+                <form class="admin-form commission-compact-form commission-payment-form" id="payment-form" hidden>
+                  <label>Payment Type<select name="payment_type" required><option value="deposit">Deposit</option><option value="balance">Balance</option></select></label>
+                  <p class="admin-notice commission-payment-guidance commission-form-wide" id="payment-guidance" aria-live="polite"></p>
+                  <label>Amount Received<input type="number" name="amount" min="0.01" step="0.01" required></label>
+                  <label>Sales Tax Portion<input type="number" name="sales_tax" min="0" step="0.01" value="0"></label>
+                  <label>Payment Method<select name="payment_method"><option value="">Select payment method</option><option value="cash">Cash</option><option value="card">Credit / Debit Card</option><option value="bank_transfer">Bank Transfer</option><option value="check">Check</option><option value="zelle">Zelle</option><option value="paypal">PayPal</option></select></label>
+                  <label>Payment Date<input type="date" name="payment_date"></label>
+                  <label>External Reference<input type="text" name="external_reference"></label>
+                  <label class="commission-form-wide">Notes<textarea name="notes" rows="4"></textarea></label>
+                  <div class="commission-form-wide commission-form-actions"><button type="submit" class="admin-button">Record Payment</button><button type="button" class="admin-text-button" id="cancel-payment">Cancel</button></div>
+                </form>
+              </section>
+            </div>
+          </details>
+
+          <details class="commission-section" id="commission-delivery-section">
+            <summary><span id="commission-delivery-summary">Delivery — Loading…</span></summary>
+            <div class="commission-section-content">
+              <section id="commission-delivery">
           <div class="inquiry-detail-heading">
             <h2>Delivery <button type="button" class="admin-help-trigger" data-glossary-key="delivery" aria-label="Learn about Delivery">i</button></h2>
             <div>
@@ -198,95 +238,17 @@
             <button type="button" class="admin-button" id="confirm-delivery-cancel">Cancel Delivery</button>
             <button type="button" class="admin-text-button" id="keep-delivery">Keep Delivery</button>
           </div>
-        </section>
-
-        <section id="commission-payments">
-          <div class="inquiry-detail-heading">
-            <h2>Payments <button type="button" class="admin-help-trigger" data-glossary-key="payment" aria-label="Learn about Payment">i</button></h2>
-            <button type="button" class="admin-text-button" id="record-payment">Record Payment</button>
-          </div>
-
-          <p class="admin-notice" id="payment-status" aria-live="polite"></p>
-          <p class="commission-receipt-action" id="payment-receipt-action"></p>
-
-          <div class="inquiry-table-wrap">
-            <table class="inquiry-table">
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Type</th>
-                  <th scope="col">Amount</th>
-                  <th scope="col">Tax Portion</th>
-                  <th scope="col">Method</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Reference</th>
-                  <th scope="col">Document</th>
-                </tr>
-              </thead>
-              <tbody id="payment-list"></tbody>
-            </table>
-          </div>
-
-          <form class="admin-form commission-compact-form commission-payment-form" id="payment-form" hidden>
-            <label>
-              Payment Type
-              <select name="payment_type" required>
-                <option value="deposit">Deposit</option>
-                <option value="balance">Balance</option>
-              </select>
-            </label>
-
-            <p class="admin-notice commission-payment-guidance commission-form-wide" id="payment-guidance" aria-live="polite"></p>
-
-            <label>
-              Amount Received
-              <input type="number" name="amount" min="0.01" step="0.01" required>
-            </label>
-
-            <label>
-              Sales Tax Portion
-              <input type="number" name="sales_tax" min="0" step="0.01" value="0">
-            </label>
-
-            <label>
-              Payment Method
-              <select name="payment_method">
-                <option value="">Select payment method</option>
-                <option value="cash">Cash</option>
-                <option value="card">Credit / Debit Card</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="check">Check</option>
-                <option value="zelle">Zelle</option>
-                <option value="paypal">PayPal</option>
-              </select>
-            </label>
-
-            <label>
-              Payment Date
-              <input type="date" name="payment_date">
-            </label>
-
-            <label>
-              External Reference
-              <input type="text" name="external_reference">
-            </label>
-
-            <label class="commission-form-wide">
-              Notes
-              <textarea name="notes" rows="4"></textarea>
-            </label>
-
-            <div class="commission-form-wide commission-form-actions">
-              <button type="submit" class="admin-button">Record Payment</button>
-              <button type="button" class="admin-text-button" id="cancel-payment">Cancel</button>
+              </section>
             </div>
-          </form>
-        </section>
+          </details>
 
-        <section id="commission-communications">
+          <details class="commission-section" id="commission-communications-section">
+            <summary><span id="commission-communications-summary">Communications — Loading…</span></summary>
+            <div class="commission-section-content">
+              <section id="commission-communications">
           <div class="inquiry-detail-heading">
             <h2>Communications <button type="button" class="admin-help-trigger" data-glossary-key="communication" aria-label="Learn about Communication">i</button></h2>
-            <div>
+            <div class="commission-communication-actions">
               <a class="admin-text-link" id="create-communication" href="communications.html">Create Communication</a>
               <a class="admin-text-link" id="new-communication-draft" href="communications.html">New Draft</a>
               <a class="admin-text-link" id="record-manual-communication" href="communications.html">Record Manual Communication</a>
@@ -300,9 +262,14 @@
               <tbody id="commission-communications-list"></tbody>
             </table>
           </div>
-        </section>
+              </section>
+            </div>
+          </details>
 
-        <section id="commission-documents">
+          <details class="commission-section" id="commission-documents-section">
+            <summary><span id="commission-documents-summary">Documents — Loading…</span></summary>
+            <div class="commission-section-content">
+              <section id="commission-documents">
           <div class="inquiry-detail-heading">
             <h2>Documents <button type="button" class="admin-help-trigger" data-glossary-key="document" aria-label="Learn about Document">i</button></h2>
           </div>
@@ -325,7 +292,33 @@
               <tbody id="commission-document-list"></tbody>
             </table>
           </div>
-        </section>
+              </section>
+            </div>
+          </details>
+
+          <details class="commission-section" id="commission-timeline">
+            <summary><span id="commission-timeline-summary">Timeline — Loading…</span></summary>
+            <div class="commission-section-content">
+              <div class="inquiry-detail-heading">
+                <h2>Timeline <button type="button" class="admin-help-trigger" data-glossary-key="commission_timeline" aria-label="Learn about Commission Timeline">i</button></h2>
+              </div>
+              <p class="admin-notice">Operational and contractual milestones. Activity / History remains the audit trail of recorded actions.</p>
+              <p class="admin-notice" id="commission-timeline-status" aria-live="polite"></p>
+              <ol class="commission-timeline-list" id="commission-timeline-list"></ol>
+            </div>
+          </details>
+
+          <details class="commission-section" id="commission-activity">
+            <summary><span id="commission-activity-summary">Activity — Loading…</span></summary>
+            <div class="commission-section-content">
+              <div class="inquiry-detail-heading">
+                <h2>Activity / History <button type="button" class="admin-help-trigger" data-glossary-key="activity_history" aria-label="Learn about Activity History">i</button></h2>
+              </div>
+              <p class="admin-notice" id="commission-activity-status" aria-live="polite"></p>
+              <ol class="commission-activity-list" id="commission-activity-list"></ol>
+            </div>
+          </details>
+        </div>
 
         <form class="admin-form commission-status-form" id="commission-status-form" hidden>
           <label>
@@ -417,96 +410,6 @@
         <p class="admin-notice" id="commission-detail-status" aria-live="polite"></p>
       </section>
 
-      <section class="inquiry-detail-panel" id="commission-create" aria-live="polite" hidden>
-        <div class="inquiry-detail-heading">
-          <h2>New Commission</h2>
-          <button type="button" class="admin-text-button" id="cancel-commission">Cancel</button>
-        </div>
-
-        <form class="admin-form" id="commission-form">
-          <label>
-            Client
-            <select name="client_id" required>
-              <option value="">Select one</option>
-            </select>
-          </label>
-
-          <div class="admin-help-form-field">
-            <label>
-              Origin Inquiry Optional
-              <select name="origin_inquiry_id">
-                <option value="">None</option>
-              </select>
-            </label>
-            <button type="button" class="admin-help-trigger" data-glossary-key="provenance.origin" aria-label="Learn about Origin Inquiry">i</button>
-          </div>
-
-          <label>
-            Title
-            <input type="text" name="title" required>
-          </label>
-
-          <label>
-            Description
-            <textarea name="description" rows="5" required></textarea>
-          </label>
-
-          <label>
-            Medium
-            <select name="medium" required>
-              <option value="">Select one</option>
-              <option value="Acrylic">Acrylic</option>
-              <option value="Watercolor">Watercolor</option>
-              <option value="Oil">Oil</option>
-              <option value="Drawing">Drawing</option>
-            </select>
-          </label>
-
-          <label>
-            Width (in)
-            <input type="number" name="width" min="0.01" step="0.01">
-          </label>
-
-          <label>
-            Height (in)
-            <input type="number" name="height" min="0.01" step="0.01">
-          </label>
-
-          <label>
-            Price
-            <input type="number" name="price" min="0" step="0.01" required>
-          </label>
-
-          <label>
-            Sales Tax
-            <select name="sales_tax_rate" required>
-              <option value="0.00">Outside Pennsylvania — PA sales tax not applicable — 0%</option>
-              <option value="0.06" selected>Pennsylvania — 6%</option>
-              <option value="0.07">Allegheny County — 7%</option>
-              <option value="0.08">Philadelphia — 8%</option>
-            </select>
-          </label>
-
-          <p>Based on delivery destination in Pennsylvania.</p>
-          <p>Estimated Sales Tax: <strong id="sales-tax-preview">$0.00</strong></p>
-          <p>Required Deposit (50%): <strong id="required-deposit-preview">$0.00</strong></p>
-          <p>Estimated Remaining After Deposit: <strong id="remaining-after-deposit-preview">$0.00</strong></p>
-
-          <label>
-            Shipping
-            <input type="number" name="shipping" min="0" step="0.01" value="0">
-          </label>
-
-          <label>
-            Estimated Completion
-            <input type="date" name="estimated_completion">
-          </label>
-
-          <button type="submit" class="admin-button">Create Commission</button>
-        </form>
-
-        <p class="admin-notice" id="commission-create-status" aria-live="polite"></p>
-      </section>
     </div>
 
   </main>

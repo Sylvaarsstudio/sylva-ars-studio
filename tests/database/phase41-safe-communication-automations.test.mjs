@@ -7,7 +7,10 @@ import { NetlifyDB } from "@netlify/database-dev";
 
 import { createHandler as createAcceptanceHandler } from "../../netlify/functions/admin-acceptances.mjs";
 import { createHandler as createPaymentHandler } from "../../netlify/functions/admin-payments.mjs";
-import { createHandler as createQuotationHandler } from "../../netlify/functions/admin-quotations.mjs";
+import {
+  createDraft as createLegacyDraft,
+  createHandler as createQuotationHandler
+} from "../../netlify/functions/admin-quotations.mjs";
 import { createHandler as createInquiryHandler } from "../../netlify/functions/create-request.mjs";
 import { COOKIE_NAME, createSessionToken } from "../../netlify/shared/admin-session.mjs";
 import {
@@ -95,7 +98,7 @@ async function createCommission(number = "SAS-COM-2026-9101", price = "100.00") 
 }
 
 async function createIssuedQuotation(provider = unconfiguredProvider) {
-  const { commissionId } = await createCommission();
+  const { clientId } = await createCommission();
   const options = {
     databaseFactory: () => db,
     environmentReader,
@@ -105,11 +108,37 @@ async function createIssuedQuotation(provider = unconfiguredProvider) {
   const quotationHandler = createQuotationHandler(options);
   const draftResponse = await adminRequest(
     quotationHandler,
-    `/admin/api/commissions/${commissionId}/quotations`,
+    `/admin/api/clients/${clientId}/quotations`,
     "POST",
-    { request_id: randomUUID() }
+    {
+      artwork_title: "Automation Portrait",
+      artwork_description: "Scope",
+      artwork_medium: "Oil",
+      price: "100.00",
+      sales_tax_rate: "0.06",
+      shipping_charge: "10.00",
+      request_id: randomUUID()
+    }
   );
   const draft = (await draftResponse.json()).quotation;
+  const issuedResponse = await adminRequest(
+    quotationHandler,
+    `/admin/api/quotations/${draft.id}/issue`,
+    "POST"
+  );
+  return { quotation: (await issuedResponse.json()).quotation };
+}
+
+async function createLegacyIssuedQuotation(provider = unconfiguredProvider) {
+  const { commissionId } = await createCommission();
+  const options = {
+    databaseFactory: () => db,
+    environmentReader,
+    now: () => new Date(now),
+    emailProvider: provider
+  };
+  const draft = (await createLegacyDraft(db, commissionId, randomUUID(), () => new Date(now))).quotation;
+  const quotationHandler = createQuotationHandler(options);
   const issuedResponse = await adminRequest(
     quotationHandler,
     `/admin/api/quotations/${draft.id}/issue`,
@@ -313,9 +342,12 @@ test("Quotation acceptance creates one snapshot-based automatic Communication an
   assert.equal(communication.template_key, "quotation_acceptance_confirmation");
   assert.equal(communication.recipient, quotation.quotation_snapshot.client.email);
   assert.match(communication.body_snapshot, new RegExp(quotation.quotation_snapshot.quotation_number));
-  assert.match(communication.body_snapshot, new RegExp(quotation.quotation_snapshot.commission.title));
+  assert.match(communication.body_snapshot, new RegExp(quotation.quotation_snapshot.artwork.title));
   assert.equal(communication.communication_status, "failed");
   assert.equal(providerCalls, 1);
+  assert.equal((await db.pool.query(
+    "SELECT count(*)::integer AS count FROM commission_events WHERE event_type = 'communication_automation_created'"
+  )).rows[0].count, 0);
 });
 
 test("Acceptance status, evidence, events, and outbox roll back together on outbox failure", async () => {
@@ -482,7 +514,7 @@ test("Final Invoice automation stays Ready when the provider is not configured",
 });
 
 test("Commission automation events contain only non-sensitive identifiers and policy metadata", async () => {
-  const { quotation } = await createIssuedQuotation();
+  const { quotation } = await createLegacyIssuedQuotation();
   const handler = createAcceptanceHandler({
     databaseFactory: () => db,
     environmentReader,

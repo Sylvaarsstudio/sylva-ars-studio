@@ -107,7 +107,7 @@ function prepareQuotationAcceptanceAutomation(quotation) {
     client_name: snapshot?.client?.full_name,
     quotation_number: snapshot?.quotation_number,
     quotation_version: snapshot?.version,
-    commission_title: snapshot?.commission?.title
+    commission_title: snapshot?.artwork?.title || snapshot?.commission?.title
   });
   if (
     !policy?.enabled
@@ -159,10 +159,9 @@ async function recordQuotationAcceptance(db, quotationId, input, now = () => new
     }
 
     const quotationResult = await connection.query(
-      `SELECT q.*, c.client_id, cl.full_name AS client_name, cl.email AS client_email
+      `SELECT q.*, cl.full_name AS client_name, cl.email AS client_email
        FROM quotations q
-       JOIN commissions c ON c.id = q.commission_id
-       JOIN clients cl ON cl.id = c.client_id
+       JOIN clients cl ON cl.id = q.client_id
        WHERE q.id = $1
        FOR UPDATE OF q`,
       [quotationId]
@@ -214,10 +213,9 @@ async function recordQuotationAcceptance(db, quotationId, input, now = () => new
            pg_advisory_xact_lock(hashtext('sylva-acceptance-request'), hashtext($2::text))
        ),
        eligible_quotation AS MATERIALIZED (
-         SELECT q.id, q.commission_id, c.client_id,
+         SELECT q.id, q.commission_id, q.client_id,
                 q.quotation_number, q.version, q.snapshot_hash
          FROM quotations q
-         JOIN commissions c ON c.id = q.commission_id
          CROSS JOIN operation_locks
          WHERE q.id = $1::bigint
            AND q.quotation_status IN ('issued', 'sent')
@@ -265,6 +263,7 @@ async function recordQuotationAcceptance(db, quotationId, input, now = () => new
            ),
            $2::uuid
          FROM inserted_acceptance acceptance
+         WHERE acceptance.commission_id IS NOT NULL
          ON CONFLICT (request_id, event_type, source_type, source_id)
            WHERE request_id IS NOT NULL
              AND source_type IS NOT NULL
@@ -310,6 +309,7 @@ async function recordQuotationAcceptance(db, quotationId, input, now = () => new
            )
          FROM inserted_acceptance acceptance
          CROSS JOIN inserted_communication communication
+         WHERE acceptance.commission_id IS NOT NULL
          RETURNING id
        )
        SELECT row_to_json(acceptance) AS acceptance,

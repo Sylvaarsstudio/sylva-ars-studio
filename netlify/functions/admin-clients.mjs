@@ -90,6 +90,32 @@ async function getClient(db, id) {
   return result.rows[0] || null;
 }
 
+async function createClient(db, client) {
+  const result = await db.pool.query(
+    `INSERT INTO clients (
+       full_name, email, phone, address_line_1, address_line_2,
+       city, state, postal_code, country
+     )
+     VALUES ($1, lower($2), $3, $4, $5, $6, $7, $8, $9)
+     RETURNING
+       id, full_name, email, phone, address_line_1, address_line_2,
+       city, state, postal_code, country, created_at`,
+    [
+      client.full_name,
+      client.email,
+      client.phone,
+      client.address_line_1,
+      client.address_line_2,
+      client.city,
+      client.state,
+      client.postal_code,
+      client.country
+    ]
+  );
+
+  return result.rows[0];
+}
+
 function normalizeClientUpdate(data) {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return { error: "Request body must be a JSON object." };
@@ -212,10 +238,50 @@ function createHandler({
     }
 
     if (clientId === null) {
+      if (request.method === "POST") {
+        let data;
+
+        try {
+          data = await request.json();
+        } catch {
+          return jsonResponse(400, {
+            success: false,
+            message: "Invalid JSON body."
+          });
+        }
+
+        const normalized = normalizeClientUpdate(data);
+
+        if (normalized.error) {
+          return jsonResponse(400, {
+            success: false,
+            message: normalized.error
+          });
+        }
+
+        try {
+          const client = await createClient(databaseFactory(), normalized.client);
+          return jsonResponse(201, { success: true, client });
+        } catch (error) {
+          if (error?.code === "23505") {
+            return jsonResponse(409, {
+              success: false,
+              message: "Email already belongs to another client."
+            });
+          }
+
+          logFailure("create", error);
+          return jsonResponse(500, {
+            success: false,
+            message: "Unable to create client."
+          });
+        }
+      }
+
       if (request.method !== "GET") {
         return jsonResponse(405, {
           success: false,
-          message: "Method not allowed. Use GET."
+          message: "Method not allowed. Use GET or POST."
         });
       }
 
@@ -331,6 +397,7 @@ export const config = {
 };
 
 export {
+  createClient,
   createHandler,
   getClient,
   listClients,

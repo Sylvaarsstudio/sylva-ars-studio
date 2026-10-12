@@ -22,12 +22,31 @@
       <nav class="admin-header-actions" aria-label="Admin navigation">
         <a href="dashboard.html" class="admin-link">Dashboard</a>
         <a href="inquiries.html" class="admin-link">Inquiries</a>
+        <a href="quotations.html" class="admin-link">Quotations</a>
+        <button type="button" class="admin-button" id="new-client">New Client</button>
         <a href="/admin-logout" class="admin-link">Log out</a>
       </nav>
     </header>
 
     <p class="inquiry-count"><strong id="client-count">0</strong> clients</p>
     <p class="admin-notice" id="client-list-status" aria-live="polite"></p>
+
+    <section class="inquiry-detail-panel" id="client-create" hidden>
+      <div class="inquiry-detail-heading"><h2>New Client</h2><button type="button" class="admin-text-button" id="cancel-client-create">Cancel</button></div>
+      <form class="admin-form" id="client-create-form">
+        <label>Full Name <input type="text" name="full_name" required></label>
+        <label>Email <input type="email" name="email" required></label>
+        <label>Phone <input type="tel" name="phone"></label>
+        <label>Address Line 1 <input type="text" name="address_line_1"></label>
+        <label>Address Line 2 <input type="text" name="address_line_2"></label>
+        <label>City <input type="text" name="city"></label>
+        <label>State <input type="text" name="state"></label>
+        <label>Postal Code <input type="text" name="postal_code"></label>
+        <label>Country <input type="text" name="country"></label>
+        <div class="admin-actions"><button type="submit" class="admin-button">Create Client</button></div>
+      </form>
+      <p class="admin-notice" id="client-create-status" aria-live="polite"></p>
+    </section>
 
     <div class="inquiry-workspace">
       <section class="inquiry-list-panel" aria-label="Client list">
@@ -57,7 +76,13 @@
 
         <div class="admin-actions" id="client-detail-actions" hidden>
           <button type="button" class="admin-button" id="edit-client">Edit Client</button>
+          <a class="admin-link" id="new-client-quotation" href="quotation.html">New Quotation</a>
         </div>
+
+        <section>
+          <h3>Quotations</h3>
+          <div class="inquiry-table-wrap"><table class="inquiry-table"><thead><tr><th>Number</th><th>Version</th><th>Status</th><th>Total</th><th>Issued</th><th>Expires</th><th></th></tr></thead><tbody id="client-quotations"></tbody></table></div>
+        </section>
 
         <form class="admin-form" id="client-edit-form" hidden>
           <label>

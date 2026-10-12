@@ -4,7 +4,7 @@ import { isQuotationExpired } from "./quotation-state.mjs";
 async function resolveAcceptedQuotation(db, commissionId, now = new Date(), { lock = false } = {}) {
   const queryable = db.pool || db;
   const commissionResult = await queryable.query(
-    "SELECT id, client_id, commission_number FROM commissions WHERE id = $1",
+    "SELECT id, client_id, commission_number, source_quotation_id FROM commissions WHERE id = $1",
     [commissionId]
   );
   const commission = commissionResult.rows[0];
@@ -25,10 +25,12 @@ async function resolveAcceptedQuotation(db, commissionId, now = new Date(), { lo
        ON a.quotation_id = q.id
       AND a.acceptance_type = 'quotation'
       AND a.accepted = TRUE
-     WHERE q.commission_id = $1
+     WHERE ${commission.source_quotation_id
+       ? "q.id = $2 AND q.client_id = (SELECT client_id FROM commissions WHERE id = $1)"
+       : "q.commission_id = $1"}
        AND (q.quotation_status = 'accepted' OR a.id IS NOT NULL)
      ORDER BY q.id${lock ? " FOR UPDATE OF q" : ""}`,
-    [commissionId]
+    commission.source_quotation_id ? [commissionId, commission.source_quotation_id] : [commissionId]
   );
   if (!result.rows.length) return { outcome: "no_accepted_quotation", commission };
   if (result.rows.length !== 1) return { outcome: "ambiguous_accepted_quotation", commission };
@@ -51,7 +53,8 @@ async function resolveAcceptedQuotation(db, commissionId, now = new Date(), { lo
     return { outcome: "acceptance_hash_mismatch", commission };
   }
   if (
-    String(quotation.acceptance_commission_id) !== String(quotation.commission_id)
+    (quotation.acceptance_commission_id !== null
+      && String(quotation.acceptance_commission_id) !== String(commission.id))
     || String(quotation.acceptance_client_id) !== String(commission.client_id)
     || quotation.acceptance_subject_number !== quotation.quotation_number
     || Number(quotation.acceptance_subject_version) !== Number(quotation.version)
@@ -62,7 +65,9 @@ async function resolveAcceptedQuotation(db, commissionId, now = new Date(), { lo
   const snapshotCommissionId = quotation.quotation_snapshot?.commission?.commission_id;
   if (
     String(snapshotClientId) !== String(commission.client_id)
-    || String(snapshotCommissionId) !== String(quotation.commission_id)
+    || (commission.source_quotation_id
+      ? Number(quotation.quotation_snapshot?.snapshot_version) !== 2
+      : String(snapshotCommissionId) !== String(quotation.commission_id))
   ) {
     return { outcome: "snapshot_relationship_mismatch", commission };
   }

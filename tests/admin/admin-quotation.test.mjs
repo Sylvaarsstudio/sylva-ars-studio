@@ -33,6 +33,7 @@ function element() {
 
 function documentFixture() {
   const fields = Object.fromEntries([
+    "artwork_title", "artwork_description", "artwork_medium", "artwork_width", "artwork_height",
     "price", "sales_tax_rate", "shipping_charge", "estimated_completion", "special_terms",
     "shipping_recipient_name", "shipping_address_line1", "shipping_address_line2",
     "shipping_city", "shipping_state_region", "shipping_postal_code", "shipping_country",
@@ -56,7 +57,8 @@ function documentFixture() {
     "#quotation-acceptance-record": element(), "#quotation-preview": element(),
     "#quotation-contract-action": element(), "#quotation-contract-status": element(),
     "#quotation-prepare-contract": element(), "#get-shipping-estimate": element(),
-    "#shipping-estimate-status": element(), "#shipping-estimate-results": element()
+    "#shipping-estimate-status": element(), "#shipping-estimate-results": element(),
+    "#quotation-commission-action": element(), "#create-commission-from-quotation": element()
   };
   return { elements, fields, acceptanceFields, querySelector(selector) { return elements[selector]; } };
 }
@@ -67,9 +69,11 @@ function response(body, status = 200) {
 
 const draft = {
   id: "9", quotation_number: "SAS-QUO-2026-0001", version: 1,
-  commission_id: "10",
-  quotation_status: "draft", commission_number: "SAS-COM-2026-0001",
-  commission_title: "Portrait", client_name: "Client", price: "400.00",
+  commission_id: null, source_commission_id: null, client_id: "10",
+  quotation_status: "draft", artwork_title: "Portrait",
+  artwork_description: "Portrait scope", artwork_medium: "Oil",
+  artwork_width: "20.00", artwork_height: "24.00",
+  client_name: "Client", price: "400.00",
   sales_tax_rate: "0.0600", sales_tax: "24.00", shipping_charge: "20.00",
   required_deposit: "200.00", estimated_completion: null, special_terms: null
   , shipping_estimate_snapshot: null
@@ -117,12 +121,18 @@ test("required deposit ignores tax and shipping", () => {
 
 test("draft payload contains only editable commercial fields", () => {
   const fixture = documentFixture();
+  Object.assign(fixture.fields.artwork_title, { value: "Portrait" });
+  Object.assign(fixture.fields.artwork_description, { value: "Portrait scope" });
+  Object.assign(fixture.fields.artwork_medium, { value: "Oil" });
+  Object.assign(fixture.fields.artwork_width, { value: "20" });
+  Object.assign(fixture.fields.artwork_height, { value: "24" });
   Object.assign(fixture.fields.price, { value: "400" });
   Object.assign(fixture.fields.sales_tax_rate, { value: "0.06" });
   Object.assign(fixture.fields.shipping_charge, { value: "20" });
   Object.assign(fixture.fields.estimated_completion, { value: "2027-02-15" });
   Object.assign(fixture.fields.special_terms, { value: " Studio term " });
   assert.deepEqual(Object.keys(buildPayload(fixture.elements["#quotation-form"])), [
+    "artwork_title", "artwork_description", "artwork_medium", "artwork_width", "artwork_height",
     "price", "sales_tax_rate", "shipping_charge", "estimated_completion",
     "special_terms", "shipping_estimate_snapshot"
   ]);
@@ -296,19 +306,34 @@ test("draft loads as editable with only Issue action", async () => {
   assert.equal(fixture.fields.price.value, "400.00");
 });
 
-test("Prepare Quotation uses an idempotency key and replaces the URL with its persistent id", async () => {
+test("New Quotation loads its Client, persists on Save, and replaces the URL with its id", async () => {
   const fixture = documentFixture();
   const calls = [];
   const historyCalls = [];
   const app = createApp(
     fixture,
-    async (url, options) => { calls.push({ url, options }); return response({ success: true, created: true, quotation: draft }, 201); },
-    { search: "?commission_id=10" },
+    async (url, options = {}) => {
+      calls.push({ url, options });
+      if (url === "/admin/api/clients/10") {
+        return response({ success: true, client: { id: "10", full_name: "Client" } });
+      }
+      return response({ success: true, created: true, quotation: draft }, 201);
+    },
+    { search: "?client_id=10" },
     () => "11111111-1111-4111-8111-111111111111",
     { replaceState(...args) { historyCalls.push(args); } }
   );
   await app.load();
-  assert.deepEqual(JSON.parse(calls[0].options.body), { request_id: "11111111-1111-4111-8111-111111111111" });
+  Object.assign(fixture.fields.artwork_title, { value: "Portrait" });
+  Object.assign(fixture.fields.artwork_description, { value: "Portrait scope" });
+  Object.assign(fixture.fields.artwork_medium, { value: "Oil" });
+  Object.assign(fixture.fields.price, { value: "400.00" });
+  Object.assign(fixture.fields.sales_tax_rate, { value: "0.06" });
+  Object.assign(fixture.fields.shipping_charge, { value: "20.00" });
+  await app.save({ preventDefault() {} });
+  const post = calls.find((call) => call.url === "/admin/api/clients/10/quotations");
+  assert.equal(post.options.method, "POST");
+  assert.equal(JSON.parse(post.options.body).request_id, "11111111-1111-4111-8111-111111111111");
   assert.equal(historyCalls[0][2], "quotation.html?id=9");
 });
 
@@ -359,7 +384,7 @@ test("acceptance payload contains explicit confirmation and controlled method", 
   });
 });
 
-test("record acceptance prefills client identity and posts the approved request", async () => {
+test("record acceptance enables Commission conversion without preparing Contract early", async () => {
   const fixture = documentFixture();
   const calls = [];
   const acceptance = {
@@ -369,7 +394,6 @@ test("record acceptance prefills client identity and posts the approved request"
   };
   const app = createApp(fixture, async (url, options) => {
     calls.push({ url, options });
-    if (url.startsWith(CONTRACT_ELIGIBILITY_API_PATH)) return response({ success: true, eligible: true, message: "Eligible.", quotation: { id: "9" } });
     if (url.endsWith("/acceptance")) return response({ success: true, acceptance: null });
     if (url.endsWith("/accept")) return response({ success: true, acceptance, quotation_status: "accepted" }, 201);
     return response({ success: true, quotation: issued });
@@ -388,13 +412,54 @@ test("record acceptance prefills client identity and posts the approved request"
   assert.equal(fixture.elements["#withdraw-quotation"].hidden, true);
   assert.equal(fixture.elements["#quotation-form"].hidden, true);
   assert.match(fixture.elements["#quotation-acceptance-record"].innerHTML, /Accepted/);
-  assert.equal(fixture.elements["#quotation-contract-action"].hidden, false);
-  assert.equal(fixture.elements["#quotation-prepare-contract"].href, "create-contract.html?commission_id=10");
+  assert.equal(fixture.elements["#quotation-contract-action"].hidden, true);
+  assert.equal(fixture.elements["#quotation-commission-action"].hidden, false);
+});
+
+test("accepted pre-Commission Quotation creates its Commission through the canonical action", async () => {
+  const fixture = documentFixture();
+  const calls = [];
+  const locationObject = { search: "?id=9", href: "" };
+  const accepted = { ...issued, quotation_status: "accepted", source_commission_id: null };
+  const acceptance = {
+    id: "4",
+    accepted_at: "2026-10-12T12:00:00Z",
+    acceptance_method: "admin_recorded",
+    client_name_entered: "Client",
+    client_email: "client@example.invalid",
+    subject_number: accepted.quotation_number,
+    subject_version: 1,
+    snapshot_hash: accepted.snapshot_hash
+  };
+  const app = createApp(fixture, async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.endsWith("/acceptance")) return response({ success: true, acceptance });
+    if (url.endsWith("/create-commission")) {
+      return response({
+        success: true,
+        created: true,
+        commission: { id: "10", commission_number: "SAS-COM-2026-0010" }
+      }, 201);
+    }
+    return response({ success: true, quotation: accepted });
+  }, locationObject);
+
+  await app.load();
+  const commission = await app.createCommission();
+
+  assert.equal(commission.id, "10");
+  assert.equal(calls.find((call) => call.url.endsWith("/create-commission")).options.method, "POST");
+  assert.equal(locationObject.href, "commissions.html?commission_id=10");
 });
 
 test("an accepted quotation exposes Contract preparation only after backend eligibility", async () => {
   const fixture = documentFixture();
-  const accepted = { ...issued, quotation_status: "accepted" };
+  const accepted = {
+    ...issued,
+    quotation_status: "accepted",
+    source_commission_id: "10",
+    source_commission_number: "SAS-COM-2026-0010"
+  };
   const acceptance = {
     id: "4", accepted_at: "2026-10-12T12:00:00Z", acceptance_method: "admin_recorded",
     client_name_entered: "Client", client_email: "client@example.invalid",
