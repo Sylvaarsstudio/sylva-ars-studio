@@ -277,7 +277,7 @@ test("payments foundation adds created_at and nullable audit text fields", async
   assert.equal(legacy.rows[0].notes, null);
 });
 
-test("payments foundation preserves the original payment columns", async () => {
+test("payments foundation preserves original payment types while allowing the strict pre-Commission context", async () => {
   const columns = await db.pool.query(
     `SELECT column_name, data_type, is_nullable
      FROM information_schema.columns
@@ -306,7 +306,7 @@ test("payments foundation preserves the original payment columns", async () => {
   assert.deepEqual(byName.commission_id, {
     column_name: "commission_id",
     data_type: "bigint",
-    is_nullable: "NO"
+    is_nullable: "YES"
   });
   assert.deepEqual(byName.payment_type, {
     column_name: "payment_type",

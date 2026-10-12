@@ -84,6 +84,9 @@
     const receipt = snapshot.receipt || {};
     const payment = snapshot.payment || {};
     const commission = snapshot.commission || {};
+    const quotation = snapshot.quotation || {};
+    const artwork = snapshot.artwork || {};
+    const deposit = snapshot.deposit || {};
     const client = snapshot.client || {};
     const studio = snapshot.studio || {};
     const method = hasContent(payment.method)
@@ -109,13 +112,22 @@
         ${renderAddress(client)}
       </section>
 
-      <section class="receipt-section">
-        <h2>Commission</h2>
-        <dl>
-          ${renderRow("Commission Number", commission.number)}
-          ${renderRow("Title", commission.title)}
-        </dl>
-      </section>
+      ${hasContent(commission.number) || hasContent(commission.title) ? `
+        <section class="receipt-section">
+          <h2>Commission</h2>
+          <dl>
+            ${renderRow("Commission Number", commission.number)}
+            ${renderRow("Title", commission.title)}
+          </dl>
+        </section>` : `
+        <section class="receipt-section">
+          <h2>Quotation</h2>
+          <dl>
+            ${renderRow("Quotation Reference", quotation.number)}
+            ${renderRow("Version", quotation.version)}
+            ${renderRow("Artwork", artwork.title)}
+          </dl>
+        </section>`}
 
       <section class="receipt-section">
         <h2>Payment</h2>
@@ -130,13 +142,22 @@
         </dl>
       </section>
 
-      <section class="receipt-section receipt-financial">
-        <h2>Financial</h2>
-        <dl>
-          ${renderRow("Commission Total", commission.total, { money: true })}
-          ${renderRow("Balance After Payment", payment.balance_after_payment, { money: true })}
-        </dl>
-      </section>
+      ${hasContent(deposit.required_deposit) ? `
+        <section class="receipt-section receipt-financial">
+          <h2>Deposit</h2>
+          <dl>
+            ${renderRow("Required Deposit", deposit.required_deposit, { money: true })}
+            ${renderRow("Amount Applied", deposit.amount_applied, { money: true })}
+            ${renderRow("Remaining After Payment", deposit.remaining_after_payment, { money: true })}
+          </dl>
+        </section>` : `
+        <section class="receipt-section receipt-financial">
+          <h2>Financial</h2>
+          <dl>
+            ${renderRow("Commission Total", commission.total, { money: true })}
+            ${renderRow("Balance After Payment", payment.balance_after_payment, { money: true })}
+          </dl>
+        </section>`}
 
       <footer class="receipt-footer">
         <p>Thank you for your payment.</p>

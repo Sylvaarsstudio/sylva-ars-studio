@@ -350,7 +350,12 @@ function createHandler({
           const normalized = normalizeFilters(url);
           if (normalized.error) return jsonResponse(400, { success: false, message: normalized.error });
           const communications = await listCommunications(databaseFactory(), normalized.filters, clock());
-          return jsonResponse(200, { success: true, total: communications.length, communications });
+          return jsonResponse(200, {
+            success: true,
+            total: communications.length,
+            communications,
+            email_provider_configured: sendingProvider.configured === true
+          });
         }
         if (request.method === "POST") {
           const normalized = normalizeCommunicationInput(await parseJsonBody(request));
@@ -389,7 +394,11 @@ function createHandler({
       if (request.method === "GET") {
         const communication = await getCommunication(databaseFactory(), route.id, clock());
         return communication
-          ? jsonResponse(200, { success: true, communication })
+          ? jsonResponse(200, {
+            success: true,
+            communication,
+            email_provider_configured: sendingProvider.configured === true
+          })
           : jsonResponse(404, { success: false, message: "Communication not found." });
       }
       if (request.method === "PATCH") {

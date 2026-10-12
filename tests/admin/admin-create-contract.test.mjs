@@ -52,6 +52,14 @@ const snapshot = {
   }
 };
 
+const preCommissionSnapshot = {
+  ...snapshot,
+  schema_version: 3,
+  commission: undefined,
+  commercial: snapshot.commercial_terms,
+  commercial_terms: undefined
+};
+
 function element() {
   const listeners = new Map();
   return {
@@ -67,6 +75,8 @@ function element() {
 
 function documentHarness() {
   const inputs = {
+    quotation_id: element(),
+    quotation_reference: element(),
     commission_id: element(),
     subtype: element(),
     contract_date: element(),
@@ -80,7 +90,9 @@ function documentHarness() {
     "#contract-preparation-status": element(),
     "#contract-preparation-summary": element(),
     "#open-contract-preview": element(),
-    "#contract-eligibility-status": element()
+    "#contract-eligibility-status": element(),
+    "#contract-source-quotation-field": element(),
+    "#legacy-contract-commission-field": element()
   };
   return {
     inputs,
@@ -98,7 +110,7 @@ function response(body, status = 200) {
 
 test("Prepare Contract page is explicit that issuance is disabled", () => {
   const html = readFileSync("web/admin/create-contract.html", "utf8");
-  assert.match(html, /Contract terms are under review\. This document cannot yet be issued\./);
+  assert.match(html, /Contract terms are under review and issuance is not enabled\./);
   assert.match(html, /data-glossary-key="contract_issuance"/);
   assert.match(html, />Prepare Preview</);
   assert.doesNotMatch(html, />Issue Contract</);
@@ -159,6 +171,32 @@ test("commission loading checks canonical eligibility and preselects an eligible
   assert.deepEqual(calls, ["/admin/api/commissions", `${ELIGIBILITY_API_PATH}?commission_id=7`]);
   assert.equal(documentObject.inputs.commission_id.value, "7");
   assert.match(documentObject.inputs.commission_id.innerHTML, /SAS-COM-2026-0007/);
+});
+
+test("accepted Quotation deep link loads canonical pre-Commission eligibility", async () => {
+  const documentObject = documentHarness();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    return response({
+      eligible: true,
+      message: "Contract draft preparation is available.",
+      quotation: { id: "9", quotation_number: "SAS-QUO-2026-0001", version: 1 }
+    });
+  }, { setItem() {} }, { search: "?quotation_id=9" });
+  await app.loadCommissions();
+  assert.deepEqual(calls, [`${ELIGIBILITY_API_PATH}?quotation_id=9`]);
+  assert.equal(documentObject.inputs.quotation_id.value, "9");
+  assert.equal(documentObject.inputs.quotation_reference.value, "SAS-QUO-2026-0001 · v1");
+  assert.equal(documentObject.elements["#legacy-contract-commission-field"].hidden, true);
+});
+
+test("pre-Commission summary does not render a fabricated Commission number", () => {
+  const markup = renderPreparationSummary(preCommissionSnapshot);
+  assert.match(markup, /Contract Commission/);
+  assert.match(markup, /\$400\.00/);
+  assert.match(markup, /\$200\.00/);
+  assert.doesNotMatch(markup, /SAS-COM-/);
 });
 
 test("prepare flow calls only the preparation endpoint and stores a draft snapshot", async () => {

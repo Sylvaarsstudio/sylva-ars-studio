@@ -16,7 +16,7 @@ const {
 } = require("../../web/js/admin-glossary.js");
 
 const requiredKeys = [
-  "commission.draft", "commission.active", "commission.on_hold", "commission.cancelled", "commission.closed",
+  "commission.draft", "commission.active", "commission_activation", "commission.on_hold", "commission.cancelled", "commission.closed",
   "quotation", "quotation.draft", "quotation.issued", "quotation.sent", "quotation.accepted", "quotation.declined", "quotation.expired", "quotation.superseded", "quotation.withdrawn",
   "contract.draft", "contract.issued", "contract.accepted", "contract.superseded", "contract.withdrawn", "contract.terminated",
   "production.status", "production.canonical", "production.not_started", "production.reserved", "production.in_progress", "production.awaiting_client_review", "production.revision_in_progress", "production.final_presented", "production.final_accepted", "production.paused", "production.completed", "production.cancelled",
@@ -25,9 +25,10 @@ const requiredKeys = [
   "delivery.pending", "delivery.ready", "delivery.scheduled", "delivery.shipped", "delivery.delivered", "delivery.picked_up", "delivery.in_storage", "delivery.cancelled",
   "delivery", "fulfillment", "delivery_method", "delivery_status", "pickup", "shipping", "actual_shipping_cost", "protection_cost", "tracking_number", "actual_fulfillment_cost", "release_eligibility",
   "provenance.origin", "provenance.supporting",
-  "required_deposit", "deposit_received", "outstanding_balance", "payment", "receipt", "final_invoice", "document", "commission_number", "quotation_version", "contract_version", "snapshot", "special_terms", "shipping_charge", "shipping_estimate", "shipping_rate", "shipping_origin", "shipping_destination", "parcel_profile", "carrier", "service_level", "estimated_transit_time", "rate_provider", "sales_tax_rate", "expires_at", "request_id"
+  "required_deposit", "deposit_obligation", "awaiting_deposit", "deposit_received", "deposit_payment", "deposit_receipt", "outstanding_balance", "payment", "receipt", "final_invoice", "document", "commission_number", "quotation_version", "contract_version", "snapshot", "special_terms", "shipping_charge", "shipping_estimate", "shipping_rate", "shipping_origin", "shipping_destination", "parcel_profile", "carrier", "service_level", "estimated_transit_time", "rate_provider", "sales_tax_rate", "expires_at", "request_id"
   , "acceptance", "electronic_acceptance", "admin_recorded_acceptance", "acceptance_method", "accepted_at", "snapshot_hash", "immutable_acceptance",
-  "accepted_quotation", "contract_source_quotation", "contract_eligibility", "quotation_acceptance", "terms_version", "contract_draft", "contract_issuance"
+  "accepted_quotation", "contract_source_quotation", "contract_eligibility", "quotation_acceptance", "terms_version", "contract_draft", "contract_issuance",
+  "pre_commission_contract", "contract_preparation", "prepare_contract", "contract_acceptance", "terms_under_review"
   , "commission_event", "audit_trail", "event_type", "event_source", "append_only", "activity_history"
   , "financial_obligation", "charge", "payment_allocation", "allocated_amount", "outstanding_amount", "satisfied_obligation", "waived_obligation", "voided_obligation"
   , "storage_period", "free_storage", "storage_fee", "billable_week", "storage_notice", "final_written_notice", "abandonment_eligibility", "abandonment_review"

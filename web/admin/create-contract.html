@@ -29,17 +29,24 @@
       <span>Contract Version <button type="button" class="admin-help-trigger" data-glossary-key="contract_version" aria-label="Learn about Contract Version">i</button></span>
       <span>Issued <button type="button" class="admin-help-trigger" data-glossary-key="contract.issued" aria-label="Learn about Issued Contract">i</button></span>
       <span>Eligibility <button type="button" class="admin-help-trigger" data-glossary-key="contract_eligibility" aria-label="Learn about Contract Eligibility">i</button></span>
+      <span>Pre-Commission <button type="button" class="admin-help-trigger" data-glossary-key="pre_commission_contract" aria-label="Learn about Pre-Commission Contracts">i</button></span>
+      <span>Preparation <button type="button" class="admin-help-trigger" data-glossary-key="contract_preparation" aria-label="Learn about Contract Preparation">i</button></span>
     </p>
 
     <p class="admin-notice is-error" role="status">
-      Contract terms are under review. This document cannot yet be issued.
+      Contract terms are under review and issuance is not enabled.
       <button type="button" class="admin-help-trigger" data-glossary-key="contract_issuance" aria-label="Learn about Contract Issuance">i</button>
     </p>
 
     <form class="admin-form" id="prepare-contract-form">
-      <label>
-        Commission
-        <select name="commission_id" required>
+      <input type="hidden" name="quotation_id">
+      <label id="contract-source-quotation-field">
+        Accepted Quotation
+        <input type="text" name="quotation_reference" readonly>
+      </label>
+      <label id="legacy-contract-commission-field" hidden>
+        Legacy Commission
+        <select name="commission_id">
           <option value="">Select an eligible commission</option>
         </select>
       </label>

@@ -58,7 +58,7 @@
     const commission = snapshot.commission || {};
     const quotation = snapshot.quotation || {};
     const artwork = snapshot.artwork || commission;
-    const financial = snapshot.commercial_terms || snapshot.financial || {};
+    const financial = snapshot.commercial || snapshot.commercial_terms || snapshot.financial || {};
     const fields = snapshot.document_fields || {};
     const width = artwork.dimensions?.width ?? artwork.width;
     const height = artwork.dimensions?.height ?? artwork.height;
@@ -95,8 +95,8 @@
         <div><h2>Client</h2><p><strong>${escapeHtml(client.full_name || client.name || "")}</strong></p><p>${escapeHtml(client.email || "")}</p>${hasContent(client.phone) ? `<p>${escapeHtml(client.phone)}</p>` : ""}${renderAddress(client)}</div>
       </section>
 
-      <section class="section"><h2>Commission</h2><table><tbody>
-        <tr><th>Commission Number</th><td>${escapeHtml(commission.commission_number || commission.number || "")}</td></tr>
+      <section class="section"><h2>Artwork</h2><table><tbody>
+        ${hasContent(commission.commission_number || commission.number) ? `<tr><th>Commission Number</th><td>${escapeHtml(commission.commission_number || commission.number)}</td></tr>` : ""}
         <tr><th>Title</th><td>${escapeHtml(artwork.title || "")}</td></tr>
         <tr><th>Description</th><td>${escapeHtml(artwork.description || "")}</td></tr>
         <tr><th>Medium</th><td>${escapeHtml(artwork.medium || "")}</td></tr>

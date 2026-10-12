@@ -275,8 +275,10 @@ test("Admin API creates, edits, reads, and filters a draft", async () => {
   assert.equal(editResponse.status, 200);
   const detail = await (await request("GET", `/${created.communication.id}`)).json();
   assert.equal(detail.communication.body_snapshot, "Edited body.");
+  assert.equal(detail.email_provider_configured, false);
   const list = await (await request("GET", `?commission_id=${commissionId}&status=draft&type=general&channel=email`)).json();
   assert.equal(list.total, 1);
+  assert.equal(list.email_provider_configured, false);
   assert.equal(Object.hasOwn(list.communications[0], "body_snapshot"), false);
 });
 

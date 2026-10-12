@@ -55,7 +55,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await db.pool.query("DELETE FROM communications");
   await db.pool.query("TRUNCATE commission_events RESTART IDENTITY");
-  await db.pool.query("TRUNCATE acceptances RESTART IDENTITY");
+  await db.pool.query("TRUNCATE payment_allocations, commission_obligations, acceptances RESTART IDENTITY");
   await db.pool.query("DELETE FROM documents");
   await db.pool.query("DELETE FROM quotations");
   await db.pool.query("DELETE FROM commissions");
@@ -307,7 +307,9 @@ test("a second effective acceptance with a new intent is rejected", async () => 
   assert.equal((await accept(quotation.id)).status, 201);
   const response = await accept(quotation.id);
   assert.equal(response.status, 409);
-  assert.match((await response.json()).message, /already has/i);
+  const body = await response.json();
+  assert.equal(body.code, "quotation_already_accepted");
+  assert.match(body.message, /already has/i);
 });
 
 test("expired quotation is rejected using the acceptance clock", async () => {

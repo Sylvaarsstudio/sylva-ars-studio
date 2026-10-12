@@ -2,9 +2,11 @@ import { getDatabase } from "@netlify/database";
 
 import businessInformation from "../../web/js/business-info.js";
 import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { hashContractSnapshot } from "../shared/contract-acceptance.mjs";
 import {
   eligibilityMessage,
-  resolveAcceptedQuotation
+  resolveAcceptedQuotation,
+  resolveAcceptedQuotationById
 } from "../shared/contract-eligibility.mjs";
 import {
   COMMISSION_AGREEMENT_TERMS,
@@ -26,6 +28,7 @@ const issuanceLockedMessage =
 const createFields = new Set([
   "request_id",
   "commission_id",
+  "quotation_id",
   "subtype",
   "contract_date",
   "optional_message",
@@ -111,6 +114,83 @@ function normalizeDocumentFields(data = {}) {
   };
 }
 
+function buildPreCommissionContractSnapshot({
+  source,
+  contractDate,
+  terms,
+  documentFields = {},
+  number = null,
+  version = null,
+  issuedAt = null,
+  supersedesDocumentId = null,
+  status = "draft"
+}) {
+  const quotationSnapshot = source.quotation.quotation_snapshot;
+  const commercial = quotationSnapshot.commercial;
+  const termsSnapshot = cloneContractTerms(terms);
+  const totalCents = toCents(commercial.total);
+  const requiredDepositCents = toCents(commercial.required_deposit);
+
+  return {
+    schema_version: 3,
+    contract: {
+      document_number: number,
+      version,
+      subtype: contractSubtype,
+      contract_date: contractDate,
+      issued_at: issuedAt,
+      terms_version: terms.version,
+      supersedes_document_id: supersedesDocumentId,
+      status
+    },
+    studio: {
+      name: businessInformation.name,
+      address_line_1: businessInformation.addressLine1,
+      address_line_2: businessInformation.addressLine2,
+      email: businessInformation.email,
+      phone: businessInformation.phone,
+      website: businessInformation.website
+    },
+    client: {
+      client_id: String(source.quotation.client_id),
+      full_name: quotationSnapshot.client.full_name,
+      email: quotationSnapshot.client.email,
+      phone: quotationSnapshot.client.phone || null
+    },
+    quotation: {
+      quotation_id: String(source.quotation.id),
+      quotation_number: source.quotation.quotation_number,
+      quotation_version: Number(source.quotation.version),
+      quotation_snapshot_hash: source.quotation.snapshot_hash,
+      quotation_accepted_at: source.acceptance.accepted_at,
+      quotation_acceptance_id: String(source.acceptance.id)
+    },
+    artwork: structuredClone(quotationSnapshot.artwork),
+    commercial: {
+      price: commercial.price,
+      sales_tax_rate: commercial.sales_tax_rate,
+      sales_tax: commercial.sales_tax,
+      shipping_charge: commercial.shipping_charge,
+      required_deposit_rate: commercial.required_deposit_rate,
+      required_deposit: commercial.required_deposit,
+      total: commercial.total,
+      estimated_remaining_after_required_deposit: formatCents(totalCents - requiredDepositCents),
+      estimated_completion: commercial.estimated_completion,
+      special_terms: commercial.special_terms || null
+    },
+    terms: {
+      ...termsSnapshot,
+      terms_version: terms.version,
+      snapshot_hash: hashContractSnapshot(termsSnapshot)
+    },
+    document_fields: normalizeDocumentFields(documentFields),
+    signatures: {
+      mode: "manual",
+      labels: ["Artist Signature", "Date", "Client Signature", "Date"]
+    }
+  };
+}
+
 function buildContractSnapshot({
   source,
   commission,
@@ -127,6 +207,12 @@ function buildContractSnapshot({
     return buildLegacyContractSnapshot({
       commission, contractDate, terms, documentFields, number,
       version, issuedAt, supersedesDocumentId, status
+    });
+  }
+  if (!source.commission && Number(source.quotation.quotation_snapshot?.snapshot_version) === 2) {
+    return buildPreCommissionContractSnapshot({
+      source, contractDate, terms, documentFields, number, version,
+      issuedAt, supersedesDocumentId, status
     });
   }
   const quotationSnapshot = source.quotation.quotation_snapshot;
@@ -303,18 +389,25 @@ async function getCommissionContext(db, commissionId) {
 
 function normalizePrepare(searchParams, now = new Date()) {
   const commissionId = searchParams.get("commission_id") || "";
+  const quotationId = searchParams.get("quotation_id") || "";
   const requestedDate = searchParams.get("contract_date");
   const contractDate = requestedDate || getCalendarDateInTimeZone(now);
 
-  if (!commissionIdPattern.test(commissionId)) {
+  if (Boolean(commissionId) === Boolean(quotationId)) {
+    return { error: "Provide exactly one Contract source: quotation_id or commission_id." };
+  }
+  if (commissionId && !commissionIdPattern.test(commissionId)) {
     return { error: "Invalid commission id." };
+  }
+  if (quotationId && !commissionIdPattern.test(quotationId)) {
+    return { error: "Invalid quotation id." };
   }
 
   if (!isValidDate(contractDate)) {
     return { error: "Invalid contract date." };
   }
 
-  return { commissionId, contractDate };
+  return { commissionId: commissionId || null, quotationId: quotationId || null, contractDate };
 }
 
 function normalizeCreate(data = {}) {
@@ -328,8 +421,16 @@ function normalizeCreate(data = {}) {
     return { error: "Request id must be a valid UUID." };
   }
 
-  if (!commissionIdPattern.test(String(data.commission_id || ""))) {
+  const commissionId = String(data.commission_id || "");
+  const quotationId = String(data.quotation_id || "");
+  if (Boolean(commissionId) === Boolean(quotationId)) {
+    return { error: "Provide exactly one Contract source: quotation_id or commission_id." };
+  }
+  if (commissionId && !commissionIdPattern.test(commissionId)) {
     return { error: "Invalid commission id." };
+  }
+  if (quotationId && !commissionIdPattern.test(quotationId)) {
+    return { error: "Invalid quotation id." };
   }
 
   if (data.subtype !== contractSubtype) {
@@ -343,7 +444,8 @@ function normalizeCreate(data = {}) {
   return {
     value: {
       request_id: data.request_id.trim().toLowerCase(),
-      commission_id: String(data.commission_id),
+      commission_id: commissionId || null,
+      quotation_id: quotationId || null,
       subtype: contractSubtype,
       contract_date: data.contract_date,
       ...normalizeDocumentFields(data)
@@ -372,11 +474,18 @@ function getNextContractVersion(currentVersion) {
   return Number.isInteger(normalized) && normalized > 0 ? normalized + 1 : 1;
 }
 
+function resolveContractSource(db, source, now = new Date(), options = {}) {
+  return source.quotationId
+    ? resolveAcceptedQuotationById(db, source.quotationId, now, options)
+    : resolveAcceptedQuotation(db, source.commissionId, now, options);
+}
+
 function sameContractIntent(document, data) {
   const snapshot = document.document_snapshot;
   const documentFields = snapshot?.document_fields || {};
 
-  return String(document.commission_id) === String(data.commission_id)
+  return String(document.commission_id || "") === String(data.commission_id || "")
+    && String(document.quotation_id || "") === String(data.quotation_id || snapshot?.quotation?.quotation_id || "")
     && snapshot?.contract?.subtype === data.subtype
     && snapshot?.contract?.contract_date === data.contract_date
     && documentFields.optional_message === data.optional_message
@@ -390,10 +499,11 @@ async function createContract(db, data, terms, now = () => new Date()) {
     await connection.query("BEGIN");
     await connection.query(
       "SELECT pg_advisory_xact_lock(hashtext('sylva-contract-family'), hashtext($1::text))",
-      [`${data.commission_id}:${data.subtype}`]
+      [`${data.quotation_id ? `quotation:${data.quotation_id}` : `commission:${data.commission_id}`}:${data.subtype}`]
     );
     const existingRequest = (await connection.query(
-      `SELECT id, commission_id, document_number, version, file_location, document_snapshot
+      `SELECT id, commission_id, quotation_id, client_id,
+              document_number, version, file_location, document_snapshot
        FROM documents
        WHERE request_id = $1`,
       [data.request_id]
@@ -406,7 +516,10 @@ async function createContract(db, data, terms, now = () => new Date()) {
         : { outcome: "request_id_conflict" };
     }
 
-    const source = await resolveAcceptedQuotation(connection, data.commission_id, now(), { lock: true });
+    const source = await resolveContractSource(connection, {
+      commissionId: data.commission_id,
+      quotationId: data.quotation_id
+    }, now(), { lock: true });
 
     if (source.outcome === "not_found") {
       await connection.query("ROLLBACK");
@@ -426,13 +539,12 @@ async function createContract(db, data, terms, now = () => new Date()) {
     const existingFamily = (await connection.query(
       `SELECT id, document_number, version, file_location
        FROM documents
-       WHERE commission_id = $1
-         AND document_type = 'contract'
-         AND quotation_id = $3
+       WHERE document_type = 'contract'
+         AND quotation_id = $1
          AND document_snapshot -> 'contract' ->> 'subtype' = $2
        ORDER BY version DESC, id DESC
        LIMIT 1`,
-      [data.commission_id, data.subtype, source.quotation.id]
+      [source.quotation.id, data.subtype]
     )).rows[0];
 
     if (existingFamily) {
@@ -455,19 +567,22 @@ async function createContract(db, data, terms, now = () => new Date()) {
     });
     const inserted = (await connection.query(
       `INSERT INTO documents (
-         commission_id, document_type, document_number, version,
+         commission_id, client_id, document_type, document_number, version,
          file_location, document_snapshot, request_id, quotation_id
        )
-       VALUES ($1, 'contract', $2, 1, '/admin/contract.html', $3::jsonb, $4, $5)
-       RETURNING id, commission_id, document_number, version, file_location, document_snapshot, quotation_id`,
-      [data.commission_id, documentNumber, JSON.stringify(snapshot), data.request_id, source.quotation.id]
+       VALUES ($1, $2, 'contract', $3, 1, '/admin/contract.html', $4::jsonb, $5, $6)
+       RETURNING id, commission_id, client_id, document_number, version,
+                 file_location, document_snapshot, quotation_id`,
+      [source.commission?.id || null, source.quotation.client_id, documentNumber,
+       JSON.stringify(snapshot), data.request_id, source.quotation.id]
     )).rows[0];
     const fileLocation = `/admin/contract.html?document=${inserted.id}`;
     const document = (await connection.query(
       `UPDATE documents
        SET file_location = $1
        WHERE id = $2
-       RETURNING id, commission_id, document_number, version, file_location, document_snapshot, quotation_id`,
+       RETURNING id, commission_id, client_id, document_number, version,
+                 file_location, document_snapshot, quotation_id`,
       [fileLocation, inserted.id]
     )).rows[0];
 
@@ -523,14 +638,10 @@ function createHandler({
       }
 
       try {
-        const source = await resolveAcceptedQuotation(
-          databaseFactory(),
-          normalized.commissionId,
-          now()
-        );
+        const source = await resolveContractSource(databaseFactory(), normalized, now());
 
         if (source.outcome === "not_found") {
-          return jsonResponse(404, { success: false, message: "Commission not found." });
+          return jsonResponse(404, { success: false, message: "Contract source not found." });
         }
 
         if (source.outcome !== "eligible") {
@@ -554,7 +665,10 @@ function createHandler({
           snapshot
         });
       } catch (error) {
-        logFailure("prepare", error, { commission_id: normalized.commissionId });
+        logFailure("prepare", error, {
+          commission_id: normalized.commissionId,
+          quotation_id: normalized.quotationId
+        });
         return jsonResponse(500, { success: false, message: "Unable to prepare contract." });
       }
     }
@@ -564,15 +678,15 @@ function createHandler({
         return jsonResponse(405, { success: false, message: "Method not allowed. Use GET." });
       }
 
-      const commissionId = url.searchParams.get("commission_id") || "";
-      if (!commissionIdPattern.test(commissionId)) {
-        return jsonResponse(400, { success: false, message: "Invalid commission id." });
+      const normalized = normalizePrepare(url.searchParams, now());
+      if (normalized.error) {
+        return jsonResponse(400, { success: false, message: normalized.error });
       }
 
       try {
-        const result = await resolveAcceptedQuotation(databaseFactory(), commissionId, now());
+        const result = await resolveContractSource(databaseFactory(), normalized, now());
         if (result.outcome === "not_found") {
-          return jsonResponse(404, { success: false, message: "Commission not found." });
+          return jsonResponse(404, { success: false, message: "Contract source not found." });
         }
         const eligible = result.outcome === "eligible";
         return jsonResponse(200, {
@@ -590,7 +704,10 @@ function createHandler({
           } : null
         });
       } catch (error) {
-        logFailure("eligibility", error, { commission_id: commissionId });
+        logFailure("eligibility", error, {
+          commission_id: normalized.commissionId,
+          quotation_id: normalized.quotationId
+        });
         return jsonResponse(500, { success: false, message: "Unable to verify contract eligibility." });
       }
     }
@@ -622,7 +739,7 @@ function createHandler({
         const result = await createContract(databaseFactory(), normalized.value, termsDefinition, now);
 
         if (result.outcome === "not_found") {
-          return jsonResponse(404, { success: false, message: "Commission not found." });
+          return jsonResponse(404, { success: false, message: "Contract source not found." });
         }
 
         if (result.outcome === "ineligible") {
@@ -640,7 +757,7 @@ function createHandler({
         if (result.outcome === "duplicate_family") {
           return jsonResponse(409, {
             success: false,
-            message: "A contract already exists for this commission.",
+            message: "A contract already exists for this accepted Quotation.",
             document: result.document
           });
         }
@@ -674,6 +791,7 @@ export {
   ISSUE_PATH,
   buildContractSnapshot,
   buildLegacyContractSnapshot,
+  buildPreCommissionContractSnapshot,
   calculateContractFinancials,
   contractNumberLockNamespace,
   contractSubtype,
@@ -688,7 +806,9 @@ export {
   issuanceLockedMessage,
   normalizeCreate,
   normalizePrepare,
-  resolveAcceptedQuotation
+  resolveAcceptedQuotation,
+  resolveAcceptedQuotationById,
+  resolveContractSource
 };
 
 export default createHandler();

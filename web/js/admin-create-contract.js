@@ -59,13 +59,14 @@
     const quotation = snapshot.quotation || {};
     const artwork = snapshot.artwork || commission;
     const client = snapshot.client || {};
-    const financial = snapshot.commercial_terms || snapshot.financial || {};
+    const financial = snapshot.commercial || snapshot.commercial_terms || snapshot.financial || {};
     const sections = Object.values(snapshot.terms?.sections || {});
 
     return `
       <div class="admin-detail-card">
         <p><strong>DRAFT — NOT ISSUED</strong></p>
-        <h2>${escapeHtml(commission.commission_number || commission.number || "")} — ${escapeHtml(artwork.title || "")}</h2>
+        <h2>${escapeHtml(artwork.title || "")}</h2>
+        ${commission.commission_number || commission.number ? `<p><strong>Commission:</strong> ${escapeHtml(commission.commission_number || commission.number)}</p>` : ""}
         <p><strong>Based on Accepted Quotation:</strong> ${escapeHtml(quotation.quotation_number || "")} · v${escapeHtml(quotation.quotation_version || "")}</p>
         <p><strong>Accepted At:</strong> ${escapeHtml(quotation.quotation_accepted_at ? new Date(quotation.quotation_accepted_at).toLocaleString() : "")}</p>
         <p><strong>Client:</strong> ${escapeHtml(client.full_name || client.name || "")}</p>
@@ -103,12 +104,36 @@
       status: documentObject.querySelector("#contract-preparation-status"),
       summary: documentObject.querySelector("#contract-preparation-summary"),
       preview: documentObject.querySelector("#open-contract-preview"),
-      eligibilityStatus: documentObject.querySelector("#contract-eligibility-status")
+      eligibilityStatus: documentObject.querySelector("#contract-eligibility-status"),
+      quotationField: documentObject.querySelector("#contract-source-quotation-field"),
+      legacyField: documentObject.querySelector("#legacy-contract-commission-field")
     };
     const inputs = elements.form.elements;
     const eligibilityById = new Map();
 
     async function loadCommissions() {
+      const params = new URLSearchParams(locationObject?.search || "");
+      const requestedQuotationId = params.get("quotation_id");
+      if (requestedQuotationId) {
+        try {
+          const eligibility = await fetchJson(
+            fetchImplementation,
+            `${ELIGIBILITY_API_PATH}?quotation_id=${encodeURIComponent(requestedQuotationId)}`
+          );
+          inputs.namedItem("quotation_id").value = requestedQuotationId;
+          inputs.namedItem("quotation_reference").value = `${eligibility.quotation.quotation_number} · v${eligibility.quotation.version}`;
+          inputs.namedItem("commission_id").value = "";
+          elements.eligibilityStatus.textContent = eligibility.message;
+          elements.quotationField.hidden = false;
+          elements.legacyField.hidden = true;
+          return [eligibility.quotation];
+        } catch (error) {
+          elements.status.textContent = error.message;
+          elements.status.classList?.add("is-error");
+          return [];
+        }
+      }
+
       try {
         const body = await fetchJson(fetchImplementation, COMMISSIONS_API_PATH);
         const commissions = body.commissions || [];
@@ -124,6 +149,8 @@
           }
         }));
         inputs.namedItem("commission_id").innerHTML = renderCommissionOptions(commissions, eligibilityById);
+        elements.quotationField.hidden = true;
+        elements.legacyField.hidden = false;
         const requestedCommissionId = new URLSearchParams(locationObject?.search || "").get("commission_id");
         if (requestedCommissionId && eligibilityById.get(requestedCommissionId)?.eligible) {
           inputs.namedItem("commission_id").value = requestedCommissionId;
@@ -143,8 +170,12 @@
       elements.status.classList?.remove("is-error");
       elements.preview.hidden = true;
       const commissionId = inputs.namedItem("commission_id").value;
+      const quotationId = inputs.namedItem("quotation_id").value;
       const contractDate = inputs.namedItem("contract_date").value;
-      const url = `${PREPARE_API_PATH}?commission_id=${encodeURIComponent(commissionId)}&contract_date=${encodeURIComponent(contractDate)}`;
+      const sourceQuery = quotationId
+        ? `quotation_id=${encodeURIComponent(quotationId)}`
+        : `commission_id=${encodeURIComponent(commissionId)}`;
+      const url = `${PREPARE_API_PATH}?${sourceQuery}&contract_date=${encodeURIComponent(contractDate)}`;
 
       try {
         const body = await fetchJson(fetchImplementation, url);

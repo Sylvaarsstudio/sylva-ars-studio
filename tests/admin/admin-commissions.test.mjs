@@ -24,6 +24,7 @@ const {
   describeProductionSection,
   describeTimelineSection,
   formatCurrency,
+  getCommissionDisplayStatus,
   inferSalesTaxRate,
   paymentMethodLabels,
   renderCommissionDocumentsMarkup,
@@ -319,8 +320,38 @@ test("admin commissions renders the list and counter", async () => {
   assert.equal(documentObject.elements["#commission-count"].textContent, "1");
   assert.match(documentObject.elements["#commission-list"].innerHTML, /SAS-COM-2026-0001/);
   assert.match(documentObject.elements["#commission-list"].innerHTML, /Test Client/);
+  assert.match(documentObject.elements["#commission-list"].innerHTML, /href="commissions\.html\?commission_id=10"/);
   assert.equal(documentObject.elements["#commission-list-panel"].hidden, false);
   assert.equal(documentObject.elements["#commission-detail"].hidden, true);
+});
+
+test("global Commission list opens the canonical detail id", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    if (url === "/admin/api/commissions") {
+      return jsonResponse({ success: true, commissions: [sampleCommission] });
+    }
+    return commissionDetailFetch()(url);
+  });
+  app.bindEvents();
+  await app.loadList();
+
+  await documentObject.elements["#commission-list"].listeners.get("click")({
+    preventDefault() {},
+    target: {
+      closest() {
+        return {
+          dataset: { commissionId: "10" },
+          getAttribute() { return "10"; }
+        };
+      }
+    }
+  });
+
+  assert.ok(calls.includes("/admin/api/commissions/10"));
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
 });
 
 test("admin commission detail opens", async () => {
@@ -347,6 +378,23 @@ test("admin commission detail opens", async () => {
   assert.equal(documentObject.elements["#commission-financial-summary"].textContent, "Financial — $0.00 paid · $116.00 outstanding");
   assert.equal(documentObject.elements["#commission-documents-summary"].textContent, "Documents — None");
   assert.equal(documentObject.elements["#commission-communications-summary"].textContent, "Communications — None");
+});
+
+test("Commission detail prefers canonical lifecycle and falls back for historical records", () => {
+  const canonical = {
+    ...sampleCommission,
+    lifecycle_status: "active",
+    activated_at: "2026-10-12T15:00:00Z"
+  };
+  const canonicalMarkup = renderDetailMarkup(canonical);
+  const historicalMarkup = renderDetailMarkup(sampleCommission);
+
+  assert.equal(getCommissionDisplayStatus(canonical), "active");
+  assert.match(canonicalMarkup, /Lifecycle: Active/);
+  assert.doesNotMatch(canonicalMarkup, /Status: Draft/);
+  assert.equal(getCommissionDisplayStatus(sampleCommission), "draft");
+  assert.match(historicalMarkup, /Status: Draft/);
+  assert.match(renderListMarkup([canonical]), />Active</);
 });
 
 test("Back to Commissions restores the list without another request", async () => {
@@ -1629,6 +1677,26 @@ test("commission detail identifies its canonical source Quotation without fabric
   assert.match(canonical, /quotation\.html\?id=19/);
   assert.match(canonical, /SAS-QUO-2026-0019 · v2/);
   assert.match(legacy, /Legacy Commission — no canonical source quotation/);
+});
+
+test("canonical Commission source context shows Contract, Deposit received, and Activation date", () => {
+  const markup = renderCommercialSourceMarkup({
+    ...sampleCommission,
+    source_quotation_id: "19",
+    source_quotation_number: "SAS-QUO-2026-0019",
+    source_quotation_version: 2,
+    contract_document_id: "22",
+    contract_document_number: "SAS-CON-2026-0022",
+    lifecycle_status: "active",
+    activated_at: "2026-10-12T15:00:00Z",
+    deposit_amount: "50.00"
+  });
+
+  assert.match(markup, /Source Accepted Quotation/);
+  assert.match(markup, /contract\.html\?document=22/);
+  assert.match(markup, /Deposit received[\s\S]*\$50\.00/);
+  assert.match(markup, /Activation date/);
+  assert.match(markup, /data-glossary-key="commission_activation"/);
 });
 
 test("admin commission edit payload contains only approved fields", () => {

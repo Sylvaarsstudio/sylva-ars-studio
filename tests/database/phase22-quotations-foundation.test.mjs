@@ -159,7 +159,7 @@ test("quotation family versions and request ids are unique", async () => {
 
 test("quotation routes are protected valid strings", () => {
   assert.ok(Array.isArray(config.path));
-  assert.equal(config.path.length, 9);
+  assert.equal(config.path.length, 8);
   assert.ok(config.path.every((path) => typeof path === "string" && path.startsWith("/admin/")));
 });
 
@@ -289,6 +289,12 @@ test("mark sent and withdraw enforce the approved transitions", async () => {
   await request(`/admin/api/quotations/${draft.id}/issue`, "POST");
   const sent = await request(`/admin/api/quotations/${draft.id}/mark-sent`, "POST");
   assert.equal((await sent.json()).quotation.quotation_status, "sent");
+  const repeated = await request(`/admin/api/quotations/${draft.id}/mark-sent`, "POST");
+  const repeatedBody = await repeated.json();
+  assert.equal(repeated.status, 200);
+  assert.equal(repeatedBody.created, false);
+  assert.equal(repeatedBody.message, "Quotation is already marked as sent.");
+  assert.equal(repeatedBody.quotation.quotation_status, "sent");
   const withdrawn = await request(`/admin/api/quotations/${draft.id}/withdraw`, "POST");
   assert.equal((await withdrawn.json()).quotation.quotation_status, "withdrawn");
   assert.equal((await request(`/admin/api/quotations/${draft.id}/withdraw`, "POST")).status, 409);

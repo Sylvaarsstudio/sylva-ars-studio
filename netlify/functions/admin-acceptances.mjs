@@ -425,7 +425,7 @@ function createHandler({
         const result = await recordQuotationAcceptance(db, route.id, normalized.value, now);
         if (result.outcome === "not_found") return jsonResponse(404, { success: false, message: "Quotation not found." });
         if (result.outcome === "request_conflict") return jsonResponse(409, { success: false, message: "Request id is already used for another acceptance." });
-        if (result.outcome === "already_accepted") return jsonResponse(409, { success: false, message: "Quotation already has an effective acceptance.", acceptance: result.acceptance });
+        if (result.outcome === "already_accepted") return jsonResponse(409, { success: false, code: "quotation_already_accepted", message: "Quotation already has an effective acceptance.", acceptance: result.acceptance });
         if (result.outcome === "expired") return jsonResponse(409, { success: false, message: "Expired quotations cannot be accepted." });
         if (result.outcome === "hash_mismatch") return jsonResponse(409, { success: false, message: "Quotation snapshot integrity validation failed." });
         if (result.outcome === "client_mismatch") return jsonResponse(409, { success: false, message: "Entered client identity does not match this quotation." });

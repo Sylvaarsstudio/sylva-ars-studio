@@ -578,6 +578,7 @@ function prepareDocumentAutomation(documentType, snapshot) {
   const rendered = renderCommunicationTemplate(template, {
     client_name: snapshot.client?.name,
     commission_number: snapshot.commission?.number,
+    commercial_reference: snapshot.commission?.number,
     document_number: documentNumberToken
   });
 

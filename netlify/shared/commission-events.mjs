@@ -13,6 +13,7 @@ const commissionEventTypes = Object.freeze([
   "receipt_issued",
   "final_invoice_issued",
   "commission_status_changed",
+  "commission_activated",
   "production_initialized",
   "production_reserved",
   "production_started",
@@ -54,7 +55,7 @@ const commissionEventTypes = Object.freeze([
 const commissionEventActorTypes = Object.freeze(["admin", "client", "system"]);
 const commissionEventSourceTypes = Object.freeze([
   "inquiry", "quotation", "acceptance", "contract",
-  "payment", "document", "commission", "delivery", "communication"
+  "payment", "document", "commission", "delivery", "communication", "obligation"
 ]);
 
 async function appendCommissionEvent(queryable, {

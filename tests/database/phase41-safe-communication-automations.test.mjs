@@ -45,7 +45,7 @@ before(async () => {
 afterEach(async () => {
   await db.pool.query("DELETE FROM communications");
   await db.pool.query("TRUNCATE commission_events RESTART IDENTITY");
-  await db.pool.query("TRUNCATE acceptances RESTART IDENTITY");
+  await db.pool.query("TRUNCATE payment_allocations, commission_obligations, acceptances RESTART IDENTITY");
   await db.pool.query("DELETE FROM documents");
   await db.pool.query("DELETE FROM payments");
   await db.pool.query("DELETE FROM quotations");
