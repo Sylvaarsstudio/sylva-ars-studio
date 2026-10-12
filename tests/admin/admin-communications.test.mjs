@@ -11,6 +11,7 @@ const {
   createApp,
   describeAutomation,
   formatStatus,
+  getCommunicationActionState,
   renderDetailMarkup,
   renderListMarkup,
   renderTemplateOptions,
@@ -139,6 +140,43 @@ test("automatic Communications show approved labels and provider-pending status 
     const markup = renderDetailMarkup(item);
     assert.match(markup, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(markup, /Retry|Send Again/);
+  }
+});
+
+test("communication actions are state- and provider-aware", () => {
+  const ready = {
+    ...sample, communication_status: "ready", ready_at: sample.created_at,
+    automation_mode: "auto_send"
+  };
+  assert.deepEqual(getCommunicationActionState(ready, false), {
+    editDraft: false, markReady: false, send: false, reconcile: false,
+    markSent: false, markFailed: false,
+    message: "Automatic send pending provider configuration"
+  });
+  assert.deepEqual(getCommunicationActionState(ready, true), {
+    editDraft: false, markReady: false, send: true, reconcile: false,
+    markSent: false, markFailed: false, message: ""
+  });
+  const recent = { ...sample, communication_status: "queued", queued_stale: false };
+  assert.equal(getCommunicationActionState(recent, true).message, "Sending / Processing");
+  assert.equal(getCommunicationActionState(recent, true).reconcile, false);
+  const stale = { ...recent, queued_stale: true, reconciliation_required: true };
+  assert.equal(getCommunicationActionState(stale, true).reconcile, true);
+  assert.equal(getCommunicationActionState(stale, true).markSent, false);
+  const inconclusive = { ...stale, reconciliation_status: "inconclusive" };
+  assert.equal(getCommunicationActionState(inconclusive, true).reconcile, false);
+  assert.equal(getCommunicationActionState(inconclusive, true).markSent, true);
+  assert.equal(getCommunicationActionState(inconclusive, true).markFailed, true);
+  for (const terminal of [
+    { ...sample, communication_status: "sent" },
+    { ...sample, communication_status: "failed" },
+    { ...sample, channel: "manual", communication_status: "sent" }
+  ]) {
+    const actions = getCommunicationActionState(terminal, true);
+    assert.equal(actions.send, false);
+    assert.equal(actions.reconcile, false);
+    assert.equal(actions.markSent, false);
+    assert.equal(actions.markFailed, false);
   }
 });
 
@@ -326,8 +364,8 @@ test("Mark Ready is explicit, freezes the editor, and renders Reviewed / Ready r
   const app = createApp(fixture, async (url, options = {}) => {
     calls.push({ url, options });
     if (url.endsWith("/ready")) return response({ communication: ready, changed: true });
-    if (url === `${API_PATH}/8`) return response({ communication: sample });
-    return response({ communications: [ready] });
+    if (url === `${API_PATH}/8`) return response({ communication: sample, email_provider_configured: true });
+    return response({ communications: [ready], email_provider_configured: true });
   });
   await app.openDetail("8");
   assert.equal(fixture.elements["#mark-communication-ready"].hidden, false);
@@ -347,7 +385,7 @@ test("Send Email is visible only for a ready email and requires recipient and su
   let calls = 0;
   const app = createApp(fixture, async () => {
     calls += 1;
-    return response({ communication: ready });
+    return response({ communication: ready, email_provider_configured: true });
   });
   await app.openDetail("8");
   assert.equal(fixture.elements["#send-communication"].hidden, false);
@@ -384,8 +422,8 @@ test("confirmed send shows queued processing then the persisted sent state", asy
       await gate;
       return response({ communication: sent, changed: true, provider: "fake" });
     }
-    if (url === `${API_PATH}/8`) return response({ communication: ready });
-    return response({ communications: [sent] });
+    if (url === `${API_PATH}/8`) return response({ communication: ready, email_provider_configured: true });
+    return response({ communications: [sent], email_provider_configured: true });
   });
   await app.openDetail("8");
   app.openSendConfirmation();
@@ -413,8 +451,8 @@ test("failed send refreshes terminal failure details and exposes no Retry action
       current = failed;
       return response({ code: "provider_unavailable", message: "The email provider did not accept this communication." }, 503);
     }
-    if (url === `${API_PATH}/8`) return response({ communication: current });
-    return response({ communications: [current] });
+    if (url === `${API_PATH}/8`) return response({ communication: current, email_provider_configured: true });
+    return response({ communications: [current], email_provider_configured: true });
   });
   await app.openDetail("8");
   const result = await app.sendSelected();

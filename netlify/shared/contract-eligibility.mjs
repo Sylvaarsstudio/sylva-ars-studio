@@ -101,6 +101,91 @@ async function resolveAcceptedQuotation(db, commissionId, now = new Date(), { lo
   };
 }
 
+async function resolveAcceptedQuotationById(db, quotationId, _now = new Date(), { lock = false } = {}) {
+  const queryable = db.pool || db;
+  const quotation = (await queryable.query(
+    `SELECT
+       q.*,
+       a.id AS acceptance_id,
+       a.commission_id AS acceptance_commission_id,
+       a.client_id AS acceptance_client_id,
+       a.accepted_at AS acceptance_accepted_at,
+       a.subject_number AS acceptance_subject_number,
+       a.subject_version AS acceptance_subject_version,
+       a.snapshot_hash AS acceptance_snapshot_hash
+     FROM quotations q
+     LEFT JOIN acceptances a
+       ON a.quotation_id = q.id
+      AND a.acceptance_type = 'quotation'
+      AND a.accepted = TRUE
+     WHERE q.id = $1${lock ? " FOR UPDATE OF q" : ""}`,
+    [quotationId]
+  )).rows[0];
+
+  if (!quotation) return { outcome: "not_found" };
+  if (quotation.quotation_status !== "accepted") {
+    return { outcome: "invalid_quotation_status", status: quotation.quotation_status, quotation };
+  }
+  if (!quotation.acceptance_id) return { outcome: "missing_acceptance", quotation };
+  if (
+    !quotation.expires_at
+    || !quotation.acceptance_accepted_at
+    || new Date(quotation.acceptance_accepted_at) > new Date(quotation.expires_at)
+  ) {
+    return { outcome: "expired", quotation };
+  }
+  if (!quotation.quotation_snapshot || !quotation.snapshot_hash) {
+    return { outcome: "missing_snapshot", quotation };
+  }
+  if (hashQuotationSnapshot(quotation.quotation_snapshot) !== quotation.snapshot_hash) {
+    return { outcome: "quotation_hash_mismatch", quotation };
+  }
+  if (quotation.acceptance_snapshot_hash !== quotation.snapshot_hash) {
+    return { outcome: "acceptance_hash_mismatch", quotation };
+  }
+  if (
+    String(quotation.acceptance_client_id) !== String(quotation.client_id)
+    || quotation.acceptance_subject_number !== quotation.quotation_number
+    || Number(quotation.acceptance_subject_version) !== Number(quotation.version)
+    || (
+      quotation.acceptance_commission_id !== null
+      && String(quotation.acceptance_commission_id) !== String(quotation.commission_id)
+    )
+  ) {
+    return { outcome: "acceptance_relationship_mismatch", quotation };
+  }
+  if (
+    Number(quotation.quotation_snapshot?.snapshot_version) !== 2
+    || String(quotation.quotation_snapshot?.client?.client_id) !== String(quotation.client_id)
+  ) {
+    return { outcome: "snapshot_relationship_mismatch", quotation };
+  }
+
+  const existingContract = (await queryable.query(
+    `SELECT id, document_number, version, file_location
+     FROM documents
+     WHERE document_type = 'contract'
+       AND quotation_id = $1
+     ORDER BY version DESC, id DESC
+     LIMIT 1`,
+    [quotation.id]
+  )).rows[0] || null;
+  if (existingContract) {
+    return { outcome: "contract_conflict", quotation, existingContract };
+  }
+
+  return {
+    outcome: "eligible",
+    commission: null,
+    quotation,
+    acceptance: {
+      id: quotation.acceptance_id,
+      accepted_at: quotation.acceptance_accepted_at,
+      snapshot_hash: quotation.acceptance_snapshot_hash
+    }
+  };
+}
+
 function eligibilityMessage(outcome) {
   return {
     no_accepted_quotation: "Contract unavailable — Accepted Quotation required.",
@@ -117,4 +202,4 @@ function eligibilityMessage(outcome) {
   }[outcome] || "Contract unavailable — eligibility could not be verified.";
 }
 
-export { eligibilityMessage, resolveAcceptedQuotation };
+export { eligibilityMessage, resolveAcceptedQuotation, resolveAcceptedQuotationById };

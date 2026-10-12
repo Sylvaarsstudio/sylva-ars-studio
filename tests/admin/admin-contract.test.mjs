@@ -78,6 +78,14 @@ const snapshot = {
   }
 };
 
+const preCommissionSnapshot = {
+  ...snapshot,
+  schema_version: 3,
+  commission: undefined,
+  commercial: snapshot.commercial_terms,
+  commercial_terms: undefined
+};
+
 function element() {
   const listeners = new Map();
   return {
@@ -113,6 +121,13 @@ test("draft renderer identifies the accepted source quotation", () => {
   assert.match(markup, /data-glossary-key="contract_source_quotation"/);
   assert.match(markup, /SAS-QUO-2026-0001[\s\S]*v1/);
   assert.match(markup, new RegExp("a{64}"));
+});
+
+test("pre-Commission draft renders artwork without an empty Commission number", () => {
+  const markup = renderContractMarkup(preCommissionSnapshot);
+  assert.match(markup, /<h2>Artwork<\/h2>/);
+  assert.match(markup, /Contract Commission/);
+  assert.doesNotMatch(markup, /Commission Number/);
 });
 
 test("draft renderer provides contextual help for terms under review", () => {

@@ -57,7 +57,7 @@ afterEach(async () => {
   await db.pool.query("TRUNCATE commission_events RESTART IDENTITY");
   await db.pool.query("DELETE FROM communications");
   await db.pool.query("DELETE FROM commission_production");
-  await db.pool.query("TRUNCATE acceptances RESTART IDENTITY");
+  await db.pool.query("TRUNCATE payment_allocations, commission_obligations, acceptances RESTART IDENTITY");
   await db.pool.query("DELETE FROM documents");
   await db.pool.query("DELETE FROM payments");
   await db.pool.query("DELETE FROM quotations");
@@ -188,7 +188,7 @@ test("admin-recorded Acceptance emits quotation_accepted from the Acceptance sou
   assert.equal(Object.hasOwn(event.payload, "client_email"), false);
 });
 
-test("failed Acceptance and invalid quotation transition create no event", async () => {
+test("failed Acceptance and idempotent Mark Sent retry create no extra event", async () => {
   const quotation = await createIssuedQuotation();
   const before = (await eventsFor()).length;
   const failed = await recordQuotationAcceptance(db, quotation.id, {
@@ -199,7 +199,9 @@ test("failed Acceptance and invalid quotation transition create no event", async
   assert.equal((await eventsFor()).length, before);
   assert.equal((await transitionQuotation(db, quotation.id, "mark-sent", () => new Date())).outcome, "success");
   const afterSent = (await eventsFor()).length;
-  assert.equal((await transitionQuotation(db, quotation.id, "mark-sent", () => new Date())).outcome, "invalid_status");
+  const repeated = await transitionQuotation(db, quotation.id, "mark-sent", () => new Date());
+  assert.equal(repeated.outcome, "success");
+  assert.equal(repeated.created, false);
   assert.equal((await eventsFor()).length, afterSent);
 });
 

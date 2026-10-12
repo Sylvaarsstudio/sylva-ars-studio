@@ -106,6 +106,22 @@
     );
   }
 
+  function getQuotationActionVisibility(quotation, acceptance = null) {
+    const status = quotation?.is_expired
+      && ["issued", "sent"].includes(quotation.quotation_status)
+      ? "expired"
+      : quotation?.quotation_status;
+    return {
+      saveDraft: status === "draft",
+      issue: status === "draft" && Boolean(quotation?.id),
+      markSent: status === "issued",
+      recordAcceptance: status === "sent" && !acceptance,
+      newVersion: ["issued", "sent"].includes(status) && !acceptance,
+      withdraw: ["issued", "sent"].includes(status) && !acceptance,
+      prepareContract: status === "accepted"
+    };
+  }
+
   function buildAcceptancePayload(form, requestId) {
     return {
       request_id: requestId,
@@ -184,6 +200,7 @@
       newVersion: documentObject.querySelector("#new-quotation-version"),
       withdraw: documentObject.querySelector("#withdraw-quotation"),
       recordAcceptance: documentObject.querySelector("#record-quotation-acceptance"),
+      acceptanceSubmit: documentObject.querySelector("#confirm-quotation-acceptance"),
       acceptancePanel: documentObject.querySelector("#quotation-acceptance-panel"),
       acceptanceSummary: documentObject.querySelector("#quotation-acceptance-summary"),
       acceptanceForm: documentObject.querySelector("#quotation-acceptance-form"),
@@ -195,9 +212,7 @@
       getShippingEstimate: documentObject.querySelector("#get-shipping-estimate"),
       shippingEstimateStatus: documentObject.querySelector("#shipping-estimate-status"),
       shippingEstimateResults: documentObject.querySelector("#shipping-estimate-results"),
-      preview: documentObject.querySelector("#quotation-preview"),
-      commissionAction: documentObject.querySelector("#quotation-commission-action"),
-      createCommission: documentObject.querySelector("#create-commission-from-quotation")
+      preview: documentObject.querySelector("#quotation-preview")
     };
     let quotation = null;
     let acceptance = null;
@@ -207,6 +222,21 @@
     let acceptanceRequestId = null;
     let pendingClientId = null;
     let pendingInquiryId = null;
+    let actionPending = false;
+
+    function setActionPending(pending) {
+      actionPending = pending;
+      for (const element of [
+        elements.issue,
+        elements.markSent,
+        elements.newVersion,
+        elements.withdraw,
+        elements.recordAcceptance,
+        elements.acceptanceSubmit
+      ]) {
+        if (element) element.disabled = pending;
+      }
+    }
 
     function updatePreview() {
       const preview = calculatePreview({
@@ -222,22 +252,20 @@
 
     function render() {
       const isDraft = quotation.quotation_status === "draft";
+      const actions = getQuotationActionVisibility(quotation, acceptance);
       elements.panel.hidden = false;
       elements.summary.innerHTML = renderSummary(quotation);
-      elements.form.hidden = !isDraft;
-      elements.issue.hidden = !isDraft || !quotation.id;
-      elements.markSent.hidden = quotation.quotation_status !== "issued";
-      const acceptanceEligible = canRecordAcceptance(quotation) && !acceptance;
+      elements.form.hidden = !actions.saveDraft;
+      elements.issue.hidden = !actions.issue;
+      elements.markSent.hidden = !actions.markSent;
+      const acceptanceEligible = actions.recordAcceptance && canRecordAcceptance(quotation);
       elements.recordAcceptance.hidden = !acceptanceEligible;
-      elements.newVersion.hidden = !["issued", "sent"].includes(quotation.quotation_status) || Boolean(acceptance);
-      elements.withdraw.hidden = !["issued", "sent"].includes(quotation.quotation_status) || Boolean(acceptance);
+      elements.newVersion.hidden = !actions.newVersion;
+      elements.withdraw.hidden = !actions.withdraw;
       if (!acceptanceEligible) elements.acceptancePanel.hidden = true;
       elements.acceptanceRecord.hidden = !acceptance;
       elements.acceptanceRecord.innerHTML = renderAcceptanceRecord(acceptance);
       if (quotation.quotation_status !== "accepted") elements.contractAction.hidden = true;
-      if (elements.commissionAction) {
-        elements.commissionAction.hidden = quotation.quotation_status !== "accepted" || Boolean(quotation.source_commission_id);
-      }
       elements.preview.hidden = isDraft;
       elements.preview.innerHTML = renderSnapshot(quotation.quotation_snapshot);
       if (isDraft) {
@@ -258,6 +286,7 @@
         }
         updatePreview();
       }
+      setActionPending(actionPending);
     }
 
     async function getShippingEstimate() {
@@ -314,16 +343,15 @@
     }
 
     async function loadContractEligibility() {
-      const commissionId = quotation?.source_commission_id || quotation?.commission_id;
-      if (!quotation || quotation.quotation_status !== "accepted" || !commissionId) return null;
+      if (!quotation || quotation.quotation_status !== "accepted") return null;
       const body = await fetchJson(
         fetchImplementation,
-        `${CONTRACT_ELIGIBILITY_API_PATH}?commission_id=${encodeURIComponent(commissionId)}`
+        `${CONTRACT_ELIGIBILITY_API_PATH}?quotation_id=${encodeURIComponent(quotation.id)}`
       );
       elements.contractStatus.textContent = body.message;
       elements.contractAction.hidden = !body.eligible;
       if (body.eligible) {
-        elements.prepareContract.href = `create-contract.html?commission_id=${encodeURIComponent(commissionId)}`;
+        elements.prepareContract.href = `create-contract.html?quotation_id=${encodeURIComponent(quotation.id)}`;
       }
       return body;
     }
@@ -351,7 +379,7 @@
         elements.status.textContent = "";
         render();
         if (quotation.quotation_status !== "draft") await loadAcceptance();
-        if (quotation.quotation_status === "accepted" && (quotation.source_commission_id || quotation.commission_id)) await loadContractEligibility();
+        if (quotation.quotation_status === "accepted") await loadContractEligibility();
         return quotation;
       } catch (error) {
         elements.status.textContent = error.message;
@@ -374,7 +402,9 @@
 
     async function submitAcceptance(event) {
       event?.preventDefault();
+      if (actionPending) return null;
       if (!acceptanceRequestId) acceptanceRequestId = uuidFactory();
+      setActionPending(true);
       try {
         const body = await fetchJson(fetchImplementation, `${API_PATH}/${quotation.id}/accept`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -385,10 +415,13 @@
         elements.acceptancePanel.hidden = true;
         elements.status.textContent = "Quotation acceptance recorded.";
         render();
+        await loadContractEligibility();
         return acceptance;
       } catch (error) {
         elements.status.textContent = error.message;
         return null;
+      } finally {
+        setActionPending(false);
       }
     }
 
@@ -411,27 +444,27 @@
       } catch (error) { elements.status.textContent = error.message; return null; }
     }
 
-    async function createCommission() {
+    async function action(name) {
+      if (actionPending) return null;
+      setActionPending(true);
       try {
-        const body = await fetchJson(fetchImplementation, `${API_PATH}/${quotation.id}/create-commission`, { method: "POST" });
-        quotation = { ...quotation, source_commission_id: body.commission.id, source_commission_number: body.commission.commission_number };
-        elements.status.textContent = body.created ? "Commission created from accepted Quotation." : "Commission already exists.";
+        const body = await fetchJson(fetchImplementation, `${API_PATH}/${quotation.id}/${name}`, { method: "POST" });
+        quotation = body.quotation;
         render();
-        locationObject.href = `commissions.html?commission_id=${encodeURIComponent(body.commission.id)}`;
-        return body.commission;
+        elements.status.textContent = body.message
+          || (name === "mark-sent" && body.created === false
+            ? "Quotation is already marked as sent."
+            : name === "issue" && body.created === false
+              ? "Quotation is already issued."
+              : "Quotation updated.");
+        if (name === "new-version") locationObject.href = `quotation.html?id=${encodeURIComponent(quotation.id)}`;
+        return quotation;
       } catch (error) {
         elements.status.textContent = error.message;
         return null;
+      } finally {
+        setActionPending(false);
       }
-    }
-
-    async function action(name) {
-      try {
-        const body = await fetchJson(fetchImplementation, `${API_PATH}/${quotation.id}/${name}`, { method: "POST" });
-        quotation = body.quotation; render(); elements.status.textContent = "Quotation updated.";
-        if (name === "new-version") locationObject.href = `quotation.html?id=${encodeURIComponent(quotation.id)}`;
-        return quotation;
-      } catch (error) { elements.status.textContent = error.message; return null; }
     }
 
     function bindEvents() {
@@ -450,13 +483,12 @@
       elements.recordAcceptance.addEventListener("click", openAcceptance);
       elements.cancelAcceptance.addEventListener("click", () => { elements.acceptancePanel.hidden = true; });
       elements.acceptanceForm.addEventListener("submit", submitAcceptance);
-      elements.createCommission?.addEventListener("click", createCommission);
     }
 
-    return { action, bindEvents, createCommission, getShippingEstimate, load, loadAcceptance, loadContractEligibility, openAcceptance, render, save, submitAcceptance, updatePreview, useShippingRate };
+    return { action, bindEvents, getShippingEstimate, load, loadAcceptance, loadContractEligibility, openAcceptance, render, save, submitAcceptance, updatePreview, useShippingRate };
   }
 
-  const api = { API_PATH, CONTRACT_ELIGIBILITY_API_PATH, SHIPPING_ESTIMATE_API_PATH, buildAcceptancePayload, buildPayload, buildShippingEstimateRequest, buildShippingEstimateSnapshot, calculatePreview, canRecordAcceptance, createApp, renderAcceptanceRecord, renderShippingRates, renderSnapshot, renderSummary };
+  const api = { API_PATH, CONTRACT_ELIGIBILITY_API_PATH, SHIPPING_ESTIMATE_API_PATH, buildAcceptancePayload, buildPayload, buildShippingEstimateRequest, buildShippingEstimateSnapshot, calculatePreview, canRecordAcceptance, createApp, getQuotationActionVisibility, renderAcceptanceRecord, renderShippingRates, renderSnapshot, renderSummary };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   globalObject.AdminQuotation = api;
   if (globalObject.document) { const app = createApp(globalObject.document, globalObject.fetch.bind(globalObject)); app.bindEvents(); app.load(); }

@@ -14,6 +14,7 @@ const {
   calculatePreview,
   canRecordAcceptance,
   createApp,
+  getQuotationActionVisibility,
   renderAcceptanceRecord,
   renderShippingRates,
   renderSnapshot,
@@ -54,6 +55,7 @@ function documentFixture() {
     "#withdraw-quotation": element(), "#record-quotation-acceptance": element(),
     "#quotation-acceptance-panel": element(), "#quotation-acceptance-summary": element(),
     "#quotation-acceptance-form": acceptanceForm, "#cancel-quotation-acceptance": element(),
+    "#confirm-quotation-acceptance": element(),
     "#quotation-acceptance-record": element(), "#quotation-preview": element(),
     "#quotation-contract-action": element(), "#quotation-contract-status": element(),
     "#quotation-prepare-contract": element(), "#get-shipping-estimate": element(),
@@ -306,6 +308,31 @@ test("draft loads as editable with only Issue action", async () => {
   assert.equal(fixture.fields.price.value, "400.00");
 });
 
+test("quotation actions are state-aware across the canonical vocabulary", () => {
+  assert.deepEqual(getQuotationActionVisibility(draft), {
+    saveDraft: true, issue: true, markSent: false, newVersion: false,
+    withdraw: false, recordAcceptance: false, prepareContract: false
+  });
+  assert.deepEqual(getQuotationActionVisibility(issued), {
+    saveDraft: false, issue: false, markSent: true, newVersion: true,
+    withdraw: true, recordAcceptance: false, prepareContract: false
+  });
+  assert.deepEqual(getQuotationActionVisibility({ ...issued, quotation_status: "sent" }), {
+    saveDraft: false, issue: false, markSent: false, newVersion: true,
+    withdraw: true, recordAcceptance: true, prepareContract: false
+  });
+  assert.deepEqual(getQuotationActionVisibility({ ...issued, quotation_status: "accepted" }, { id: "4" }), {
+    saveDraft: false, issue: false, markSent: false, newVersion: false,
+    withdraw: false, recordAcceptance: false, prepareContract: true
+  });
+  for (const quotation_status of ["withdrawn", "superseded", "expired", "declined"]) {
+    assert.deepEqual(getQuotationActionVisibility({ ...issued, quotation_status }), {
+      saveDraft: false, issue: false, markSent: false, newVersion: false,
+      withdraw: false, recordAcceptance: false, prepareContract: false
+    });
+  }
+});
+
 test("New Quotation loads its Client, persists on Save, and replaces the URL with its id", async () => {
   const fixture = documentFixture();
   const calls = [];
@@ -360,6 +387,27 @@ test("quotation actions call the approved Admin endpoints", async () => {
   assert.equal(calls[1].options.method, "POST");
 });
 
+test("quotation action is disabled immediately while its request is pending", async () => {
+  const fixture = documentFixture();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const app = createApp(fixture, async (url) => {
+    if (url.endsWith("/issue")) {
+      await gate;
+      return response({ success: true, quotation: issued });
+    }
+    return response({ success: true, quotation: draft });
+  }, { search: "?id=9", href: "" });
+  await app.load();
+  const pending = app.action("issue");
+  assert.equal(fixture.elements["#issue-quotation"].disabled, true);
+  assert.equal(fixture.elements["#confirm-quotation-acceptance"].disabled, true);
+  release();
+  await pending;
+  assert.equal(fixture.elements["#issue-quotation"].disabled, false);
+  assert.equal(fixture.elements["#confirm-quotation-acceptance"].disabled, false);
+});
+
 test("acceptance is offered only for current issued or sent quotations", () => {
   assert.equal(canRecordAcceptance(issued, new Date("2026-10-12T00:00:00Z")), true);
   assert.equal(canRecordAcceptance({ ...issued, quotation_status: "sent" }, new Date("2026-10-12T00:00:00Z")), true);
@@ -384,7 +432,7 @@ test("acceptance payload contains explicit confirmation and controlled method", 
   });
 });
 
-test("record acceptance enables Commission conversion without preparing Contract early", async () => {
+test("record acceptance exposes canonical Contract preparation without creating a Commission", async () => {
   const fixture = documentFixture();
   const calls = [];
   const acceptance = {
@@ -396,6 +444,9 @@ test("record acceptance enables Commission conversion without preparing Contract
     calls.push({ url, options });
     if (url.endsWith("/acceptance")) return response({ success: true, acceptance: null });
     if (url.endsWith("/accept")) return response({ success: true, acceptance, quotation_status: "accepted" }, 201);
+    if (url.startsWith(CONTRACT_ELIGIBILITY_API_PATH)) {
+      return response({ success: true, eligible: true, message: "Eligible.", quotation: { id: "9" } });
+    }
     return response({ success: true, quotation: issued });
   }, { search: "?id=9" }, () => "11111111-1111-4111-8111-111111111111");
   await app.load();
@@ -412,44 +463,13 @@ test("record acceptance enables Commission conversion without preparing Contract
   assert.equal(fixture.elements["#withdraw-quotation"].hidden, true);
   assert.equal(fixture.elements["#quotation-form"].hidden, true);
   assert.match(fixture.elements["#quotation-acceptance-record"].innerHTML, /Accepted/);
-  assert.equal(fixture.elements["#quotation-contract-action"].hidden, true);
-  assert.equal(fixture.elements["#quotation-commission-action"].hidden, false);
+  assert.equal(fixture.elements["#quotation-contract-action"].hidden, false);
 });
 
-test("accepted pre-Commission Quotation creates its Commission through the canonical action", async () => {
-  const fixture = documentFixture();
-  const calls = [];
-  const locationObject = { search: "?id=9", href: "" };
-  const accepted = { ...issued, quotation_status: "accepted", source_commission_id: null };
-  const acceptance = {
-    id: "4",
-    accepted_at: "2026-10-12T12:00:00Z",
-    acceptance_method: "admin_recorded",
-    client_name_entered: "Client",
-    client_email: "client@example.invalid",
-    subject_number: accepted.quotation_number,
-    subject_version: 1,
-    snapshot_hash: accepted.snapshot_hash
-  };
-  const app = createApp(fixture, async (url, options = {}) => {
-    calls.push({ url, options });
-    if (url.endsWith("/acceptance")) return response({ success: true, acceptance });
-    if (url.endsWith("/create-commission")) {
-      return response({
-        success: true,
-        created: true,
-        commission: { id: "10", commission_number: "SAS-COM-2026-0010" }
-      }, 201);
-    }
-    return response({ success: true, quotation: accepted });
-  }, locationObject);
-
-  await app.load();
-  const commission = await app.createCommission();
-
-  assert.equal(commission.id, "10");
-  assert.equal(calls.find((call) => call.url.endsWith("/create-commission")).options.method, "POST");
-  assert.equal(locationObject.href, "commissions.html?commission_id=10");
+test("accepted pre-Commission Quotation exposes no manual Create Commission control", () => {
+  const html = readFileSync("web/admin/quotation.html", "utf8");
+  assert.doesNotMatch(html, /create-commission-from-quotation/);
+  assert.doesNotMatch(html, />Create Commission</);
 });
 
 test("an accepted quotation exposes Contract preparation only after backend eligibility", async () => {
@@ -457,8 +477,7 @@ test("an accepted quotation exposes Contract preparation only after backend elig
   const accepted = {
     ...issued,
     quotation_status: "accepted",
-    source_commission_id: "10",
-    source_commission_number: "SAS-COM-2026-0010"
+    source_commission_id: null
   };
   const acceptance = {
     id: "4", accepted_at: "2026-10-12T12:00:00Z", acceptance_method: "admin_recorded",
@@ -474,7 +493,7 @@ test("an accepted quotation exposes Contract preparation only after backend elig
   await app.load();
 
   assert.equal(fixture.elements["#quotation-contract-action"].hidden, false);
-  assert.equal(fixture.elements["#quotation-prepare-contract"].href, "create-contract.html?commission_id=10");
+  assert.equal(fixture.elements["#quotation-prepare-contract"].href, "create-contract.html?quotation_id=9");
   assert.equal(fixture.elements["#quotation-contract-status"].textContent, "Eligible.");
 });
 

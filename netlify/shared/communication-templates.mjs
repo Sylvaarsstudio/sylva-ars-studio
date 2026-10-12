@@ -51,10 +51,10 @@ const communicationTemplates = Object.freeze([
     body_template: "Dear {{client_name}},\n\nThe required deposit for {{commission_title}} is {{required_deposit}}. Please refer to accepted quotation {{quotation_number}} for the complete commercial details.\n\nWarmly,\nSylva Ars Studio"
   }),
   template({
-    key: "receipt", name: "Payment Receipt", communication_type: "receipt",
+    key: "receipt", version: 2, name: "Payment Receipt", communication_type: "receipt",
     required_context: ["document_id"],
     subject_template: "Payment receipt {{document_number}}",
-    body_template: "Dear {{client_name}},\n\nPayment receipt {{document_number}} for {{commission_number}} is available for your records.\n\nThank you,\nSylva Ars Studio"
+    body_template: "Dear {{client_name}},\n\nPayment receipt {{document_number}} for {{commercial_reference}} is available for your records.\n\nThank you,\nSylva Ars Studio"
   }),
   template({
     key: "final_invoice", name: "Final Invoice", communication_type: "final_invoice",
@@ -252,10 +252,13 @@ async function resolveDocument(db, request, documentType) {
   const row = (await db.pool.query(
     `SELECT d.id, d.document_type, d.document_number, d.document_snapshot,
             d.receipt_snapshot, d.quotation_id, d.commission_id,
-            c.client_id, c.commission_number, c.title, cl.full_name, cl.email
+            COALESCE(d.client_id, c.client_id) AS client_id,
+            c.commission_number, c.title, q.quotation_number,
+            cl.full_name, cl.email
      FROM documents d
-     JOIN commissions c ON c.id = d.commission_id
-     JOIN clients cl ON cl.id = c.client_id
+     LEFT JOIN commissions c ON c.id = d.commission_id
+     LEFT JOIN quotations q ON q.id = d.quotation_id
+     JOIN clients cl ON cl.id = COALESCE(d.client_id, c.client_id)
      WHERE d.id = $1`,
     [request.document_id]
   )).rows[0];
@@ -264,10 +267,15 @@ async function resolveDocument(db, request, documentType) {
   if (!snapshot) return { missing: ["document_snapshot"] };
   const snapshotTitle = snapshot.artwork?.title || snapshot.commission?.title;
   return {
-    recipient: row.email,
+    recipient: snapshot.client?.email || row.email,
     context: {
-      client_name: row.full_name,
+      client_name: snapshot.client?.name || snapshot.client?.full_name || row.full_name,
       commission_number: snapshot.commission?.commission_number || row.commission_number,
+      commercial_reference: snapshot.commission?.number
+        || snapshot.commission?.commission_number
+        || snapshot.quotation?.number
+        || row.commission_number
+        || row.quotation_number,
       commission_title: snapshotTitle,
       document_number: row.document_number
     },

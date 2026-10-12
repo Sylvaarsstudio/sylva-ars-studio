@@ -16,7 +16,8 @@
   }
 
   function formatStatus(value, item = {}) {
-    if (value === "ready" && item.automation_mode === "auto_send") {
+    if (value === "ready" && item.automation_mode === "auto_send"
+      && item.email_provider_configured !== true) {
       return "Ready — Automatic send pending provider configuration";
     }
     if (value === "ready") return "Reviewed / Ready";
@@ -35,6 +36,33 @@
       final_invoice_delivery: "Final Invoice Delivery"
     };
     return `Automated · ${labels[item.automation_key] || formatLabel(item.automation_key)}`;
+  }
+
+  function getCommunicationActionState(item, providerConfigured = false) {
+    const status = item?.communication_status;
+    const isDraft = status === "draft";
+    const readyEmail = status === "ready" && item?.channel === "email";
+    const queuedStale = status === "queued" && item?.queued_stale;
+    const inconclusive = queuedStale && item?.reconciliation_status === "inconclusive";
+    return {
+      editDraft: isDraft,
+      markReady: isDraft,
+      send: readyEmail && providerConfigured,
+      reconcile: queuedStale
+        && item?.reconciliation_required
+        && item?.reconciliation_status !== "inconclusive",
+      markSent: inconclusive,
+      markFailed: inconclusive,
+      message: readyEmail && !providerConfigured
+        ? item?.automation_mode === "auto_send"
+          ? "Automatic send pending provider configuration"
+          : "Email provider not configured"
+        : status === "queued" && !queuedStale
+          ? "Sending / Processing"
+          : inconclusive
+            ? "Manual review required"
+            : ""
+    };
   }
 
   function formatDate(value) {
@@ -183,20 +211,18 @@
     let requestId = null;
     let templateRequestId = null;
     let templatePreviewComplete = false;
+    let emailProviderConfigured = false;
 
     function updateActionVisibility() {
-      const isDraft = selected?.communication_status === "draft";
-      elements.editForm.hidden = !isDraft;
-      elements.markReady.hidden = !isDraft;
-      elements.send.hidden = !(selected?.communication_status === "ready" && selected.channel === "email");
-      elements.reconcile.hidden = !(selected?.communication_status === "queued"
-        && selected.reconciliation_required
-        && selected.reconciliation_status !== "inconclusive");
-      const manualResolutionAllowed = selected?.communication_status === "queued"
-        && selected.queued_stale
-        && selected.reconciliation_status === "inconclusive";
-      elements.markReconciledSent.hidden = !manualResolutionAllowed;
-      elements.markReconciledFailed.hidden = !manualResolutionAllowed;
+      const actions = getCommunicationActionState(selected, emailProviderConfigured);
+      elements.editForm.hidden = !actions.editDraft;
+      elements.markReady.hidden = !actions.markReady;
+      elements.send.hidden = !actions.send;
+      elements.reconcile.hidden = !actions.reconcile;
+      elements.markReconciledSent.hidden = !actions.markSent;
+      elements.markReconciledFailed.hidden = !actions.markFailed;
+      elements.status.textContent = actions.message;
+      return actions;
     }
 
     function showIndex() {
@@ -222,7 +248,11 @@
       if (elements.typeFilter.value) params.set("type", elements.typeFilter.value);
       if (elements.channelFilter.value) params.set("channel", elements.channelFilter.value);
       const body = await fetchJson(fetchImplementation, `${API_PATH}${params.size ? `?${params}` : ""}`);
-      items = body.communications || [];
+      emailProviderConfigured = body.email_provider_configured === true;
+      items = (body.communications || []).map((item) => ({
+        ...item,
+        email_provider_configured: emailProviderConfigured
+      }));
       elements.list.innerHTML = renderListMarkup(items);
       elements.count.textContent = String(items.length);
       return items;
@@ -230,7 +260,11 @@
 
     async function openDetail(id) {
       const body = await fetchJson(fetchImplementation, `${API_PATH}/${encodeURIComponent(id)}`);
-      selected = body.communication;
+      emailProviderConfigured = body.email_provider_configured === true;
+      selected = {
+        ...body.communication,
+        email_provider_configured: emailProviderConfigured
+      };
       elements.detailFields.innerHTML = renderDetailMarkup(selected);
       elements.listPanel.hidden = true;
       elements.create.hidden = true;
@@ -340,7 +374,7 @@
           subject: value("subject") || null, body_snapshot: value("body_snapshot")
         })
       });
-      selected = body.communication;
+      selected = { ...body.communication, email_provider_configured: emailProviderConfigured };
       elements.detailFields.innerHTML = renderDetailMarkup(selected);
       return selected;
     }
@@ -348,17 +382,15 @@
     async function markReady() {
       if (!selected) return null;
       const body = await fetchJson(fetchImplementation, `${API_PATH}/${encodeURIComponent(selected.id)}/ready`, { method: "POST" });
-      selected = body.communication;
+      selected = { ...body.communication, email_provider_configured: emailProviderConfigured };
       elements.detailFields.innerHTML = renderDetailMarkup(selected);
-      elements.editForm.hidden = true;
-      elements.markReady.hidden = true;
-      elements.send.hidden = !(selected.communication_status === "ready" && selected.channel === "email");
+      updateActionVisibility();
       await loadList();
       return selected;
     }
 
     function openSendConfirmation() {
-      if (!selected || selected.communication_status !== "ready" || selected.channel !== "email") return false;
+      if (!getCommunicationActionState(selected, emailProviderConfigured).send) return false;
       elements.sendRecipient.textContent = selected.recipient;
       elements.sendSubject.textContent = selected.subject || "";
       elements.sendConfirmation.hidden = false;
@@ -370,7 +402,7 @@
     }
 
     async function sendSelected() {
-      if (!selected || selected.communication_status !== "ready" || selected.channel !== "email") return null;
+      if (!getCommunicationActionState(selected, emailProviderConfigured).send) return null;
       const id = selected.id;
       elements.sendConfirmation.hidden = true;
       elements.send.hidden = true;
@@ -378,8 +410,9 @@
       elements.detailFields.innerHTML = renderDetailMarkup({ ...selected, communication_status: "queued" });
       try {
         const body = await fetchJson(fetchImplementation, `${API_PATH}/${encodeURIComponent(id)}/send`, { method: "POST" });
-        selected = body.communication;
+        selected = { ...body.communication, email_provider_configured: emailProviderConfigured };
         elements.detailFields.innerHTML = renderDetailMarkup(selected);
+        updateActionVisibility();
         elements.status.textContent = selected.communication_status === "sent" ? "Email sent." : "";
         await loadList();
         return selected;
@@ -472,7 +505,7 @@
 
   const api = {
     API_PATH, buildPayload, buildTemplatePayload, communicationTypes, createApp,
-    describeAutomation, describeRelationship, fetchJson, formatLabel, formatStatus, renderDetailMarkup,
+    describeAutomation, describeRelationship, fetchJson, formatLabel, formatStatus, getCommunicationActionState, renderDetailMarkup,
     renderListMarkup, renderTemplateOptions, renderTemplatePreview, renderTypeOptions
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

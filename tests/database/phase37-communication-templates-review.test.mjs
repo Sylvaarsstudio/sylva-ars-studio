@@ -151,7 +151,7 @@ test("the central registry exposes the approved versioned templates", () => {
     "shipping_notice", "storage_notice", "final_storage_notice", "thank_you"
   ]);
   for (const item of communicationTemplates) {
-    assert.equal(item.version, 1);
+    assert.equal(item.version, item.key === "receipt" ? 2 : 1);
     assert.equal(item.channel, "email");
     assert.equal(item.review_policy, "review_required");
     assert.ok(item.required_context.length > 0);

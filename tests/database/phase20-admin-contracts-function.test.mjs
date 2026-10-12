@@ -145,7 +145,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await db?.pool.query("TRUNCATE acceptances RESTART IDENTITY");
+  await db?.pool.query("TRUNCATE payment_allocations, commission_obligations, acceptances RESTART IDENTITY");
   await db?.pool.query("DELETE FROM documents");
   await db?.pool.query("DELETE FROM quotations");
   await db?.pool.query("DELETE FROM payments");

@@ -73,6 +73,20 @@ function request(handler, method, path, body) {
   }));
 }
 
+test("Admin read model exposes provider capability without exposing configuration", async () => {
+  const provider = {
+    configured: true,
+    async sendEmail() { throw new Error("send should not be called by a read request"); }
+  };
+  const handler = makeHandler(provider);
+  const communication = await createReadyCommunication();
+  const detail = await (await request(handler, "GET", `/${communication.id}`)).json();
+  assert.equal(detail.email_provider_configured, true);
+  assert.equal(Object.hasOwn(detail, "credentials"), false);
+  const list = await (await request(handler, "GET", "")).json();
+  assert.equal(list.email_provider_configured, true);
+});
+
 async function createCommunication({ channel = "email", status = "draft", recipient = "reviewed@example.invalid" } = {}) {
   return (await db.pool.query(
     `INSERT INTO communications (

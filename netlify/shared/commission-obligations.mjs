@@ -279,8 +279,10 @@ async function allocatePaymentToObligation(db, allocation, { now = () => new Dat
 
 export {
   allocatePaymentToObligation,
+  centsToMoney,
   createCommissionObligation,
   deriveObligationFinancials,
+  moneyToCents,
   normalizeObligationRow,
   obligationStatuses,
   obligationTypes,

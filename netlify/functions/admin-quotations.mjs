@@ -2,7 +2,6 @@ import { getDatabase } from "@netlify/database";
 
 import { hasValidAdminSession } from "../shared/admin-session.mjs";
 import { appendCommissionEvent } from "../shared/commission-events.mjs";
-import { initializeCommissionProduction } from "../shared/commission-production.mjs";
 import { hashQuotationSnapshot } from "../shared/quotation-snapshot.mjs";
 import { isQuotationExpired } from "../shared/quotation-state.mjs";
 import { normalizeShippingEstimateSnapshot } from "../shared/shipping-rates.mjs";
@@ -288,7 +287,7 @@ function parseRoute(pathname) {
   match = path.match(/^\/admin\/api\/clients\/([^/]+)\/quotations$/);
   if (match) return { kind: "client_collection", id: decodeURIComponent(match[1]) };
   if (path === QUOTATIONS_PATH) return { kind: "global_collection", id: null };
-  match = path.match(/^\/admin\/api\/quotations\/([^/]+)(?:\/(issue|mark-sent|withdraw|new-version|create-commission))?$/);
+  match = path.match(/^\/admin\/api\/quotations\/([^/]+)(?:\/(issue|mark-sent|withdraw|new-version))?$/);
   if (match) return { kind: match[2] || "quotation", id: decodeURIComponent(match[1]) };
   return null;
 }
@@ -629,7 +628,7 @@ async function issueQuotation(db, id, now = () => new Date()) {
       await connection.query("COMMIT");
       return quotation.quotation_status === "issued"
         ? { outcome: "success", created: false, quotation }
-        : { outcome: "invalid_status" };
+        : { outcome: "invalid_status", current_status: quotation.quotation_status };
     }
     const issuedAt = now();
     const expiresAt = addCalendarDays(issuedAt, 30);
@@ -711,8 +710,13 @@ async function transitionQuotation(db, id, action, now = () => new Date()) {
     await connection.query("BEGIN");
     const quotation = await getQuotation(connection, id, true);
     if (!quotation) { await connection.query("ROLLBACK"); return { outcome: "not_found" }; }
+    if (action === "mark-sent" && quotation.quotation_status === "sent") {
+      await connection.query("COMMIT");
+      return { outcome: "success", created: false, quotation };
+    }
     if (!rule.from.includes(quotation.quotation_status)) {
-      await connection.query("ROLLBACK"); return { outcome: "invalid_status" };
+      await connection.query("ROLLBACK");
+      return { outcome: "invalid_status", current_status: quotation.quotation_status };
     }
     const timestampClause = rule.timestamp ? `, ${rule.timestamp} = $2` : "";
     const values = rule.timestamp ? [rule.to, now(), id] : [rule.to, id];
@@ -734,7 +738,7 @@ async function transitionQuotation(db, id, action, now = () => new Date()) {
       }
     });
     await connection.query("COMMIT");
-    return { outcome: "success", quotation: updated };
+    return { outcome: "success", created: true, quotation: updated };
   } catch (error) {
     await connection.query("ROLLBACK"); throw error;
   } finally { connection.release(); }
@@ -809,141 +813,6 @@ async function createNewVersion(db, id) {
   } catch (error) {
     await connection.query("ROLLBACK"); throw error;
   } finally { connection.release(); }
-}
-
-async function createCommissionFromQuotation(db, id, now = () => new Date()) {
-  const connection = await db.pool.connect();
-  try {
-    await connection.query("BEGIN");
-    await connection.query(
-      "SELECT pg_advisory_xact_lock(hashtext('sylva-create-commission-from-quotation'), hashtext($1::text))",
-      [id]
-    );
-    const quotation = await getQuotation(connection, id, true);
-    if (!quotation) {
-      await connection.query("ROLLBACK");
-      return { outcome: "not_found" };
-    }
-    const existingCommission = (await connection.query(
-      "SELECT id, commission_number FROM commissions WHERE source_quotation_id = $1",
-      [id]
-    )).rows[0];
-    if (existingCommission) {
-      await connection.query("COMMIT");
-      return { outcome: "success", created: false, commission: existingCommission };
-    }
-    if (quotation.quotation_status !== "accepted") {
-      await connection.query("ROLLBACK");
-      return { outcome: "not_accepted" };
-    }
-    if (!quotation.expires_at || isQuotationExpired(quotation, now())) {
-      await connection.query("ROLLBACK");
-      return { outcome: "expired" };
-    }
-    if (!quotation.quotation_snapshot || !quotation.snapshot_hash
-      || hashQuotationSnapshot(quotation.quotation_snapshot) !== quotation.snapshot_hash) {
-      await connection.query("ROLLBACK");
-      return { outcome: "invalid_snapshot" };
-    }
-    const acceptance = (await connection.query(
-      `SELECT id, client_id, snapshot_hash, subject_number, subject_version
-       FROM acceptances
-       WHERE acceptance_type = 'quotation' AND quotation_id = $1 AND accepted = TRUE
-       LIMIT 1`,
-      [id]
-    )).rows[0];
-    if (!acceptance
-      || String(acceptance.client_id) !== String(quotation.client_id)
-      || acceptance.snapshot_hash !== quotation.snapshot_hash
-      || acceptance.subject_number !== quotation.quotation_number
-      || Number(acceptance.subject_version) !== Number(quotation.version)) {
-      await connection.query("ROLLBACK");
-      return { outcome: "invalid_acceptance" };
-    }
-    const snapshot = quotation.quotation_snapshot;
-    if (Number(snapshot.snapshot_version) !== 2
-      || String(snapshot.client?.client_id) !== String(quotation.client_id)) {
-      await connection.query("ROLLBACK");
-      return { outcome: "invalid_snapshot" };
-    }
-
-    const createdAt = now();
-    const year = Number(new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York", year: "numeric"
-    }).format(createdAt));
-    const sequence = await connection.query(
-      "SELECT nextval('commission_number_sequence') AS next_number"
-    );
-    const commissionNumber = `SAS-COM-${year}-${String(sequence.rows[0].next_number).padStart(4, "0")}`;
-    const inserted = await connection.query(
-      `INSERT INTO commissions (
-         commission_number, client_id, title, description, medium, width, height,
-         price, deposit_amount, sales_tax, shipping, status, estimated_completion,
-         source_quotation_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, $10, 'draft', $11, $12)
-       ON CONFLICT (source_quotation_id) WHERE source_quotation_id IS NOT NULL DO NOTHING
-       RETURNING id, commission_number, client_id, source_quotation_id, status`,
-      [commissionNumber, quotation.client_id, snapshot.artwork.title,
-       snapshot.artwork.description, snapshot.artwork.medium,
-       snapshot.artwork.dimensions?.width, snapshot.artwork.dimensions?.height,
-       snapshot.commercial.price, snapshot.commercial.sales_tax,
-       snapshot.commercial.shipping_charge, snapshot.commercial.estimated_completion,
-       quotation.id]
-    );
-    const commission = inserted.rows[0];
-    if (!commission) {
-      const existing = (await connection.query(
-        "SELECT id, commission_number, client_id, source_quotation_id, status FROM commissions WHERE source_quotation_id = $1",
-        [quotation.id]
-      )).rows[0];
-      await connection.query("COMMIT");
-      return { outcome: "success", created: false, commission: existing };
-    }
-    await initializeCommissionProduction(connection, commission.id, createdAt);
-    if (quotation.inquiry_id) {
-      await connection.query(
-        `INSERT INTO commission_inquiries (commission_id, inquiry_id, relationship_type)
-         VALUES ($1, $2, 'origin')`,
-        [commission.id, quotation.inquiry_id]
-      );
-      await appendCommissionEvent(connection, {
-        commissionId: commission.id,
-        eventType: "inquiry_linked",
-        occurredAt: createdAt,
-        actorType: "admin",
-        sourceType: "inquiry",
-        sourceId: quotation.inquiry_id,
-        payload: { relationship_type: "origin" }
-      });
-    }
-    await appendCommissionEvent(connection, {
-      commissionId: commission.id,
-      eventType: "commission_created_from_quotation",
-      occurredAt: createdAt,
-      actorType: "admin",
-      sourceType: "quotation",
-      sourceId: quotation.id,
-      payload: {
-        quotation_number: quotation.quotation_number,
-        version: Number(quotation.version),
-        acceptance_id: String(acceptance.id)
-      }
-    });
-    await connection.query("COMMIT");
-    return { outcome: "success", created: true, commission };
-  } catch (error) {
-    await connection.query("ROLLBACK");
-    if (error?.code === "23505") {
-      const existing = (await db.pool.query(
-        "SELECT id, commission_number FROM commissions WHERE source_quotation_id = $1",
-        [id]
-      )).rows[0];
-      if (existing) return { outcome: "success", created: false, commission: existing };
-    }
-    throw error;
-  } finally {
-    connection.release();
-  }
 }
 
 function logFailure(action, error, details = {}) {
@@ -1031,20 +900,36 @@ function createHandler({
         return jsonResponse(405, { success: false, message: "Method not allowed. Use GET or PATCH." });
       }
       if (request.method !== "POST") return jsonResponse(405, { success: false, message: "Method not allowed. Use POST." });
-      if (route.kind === "create-commission") {
-        const result = await createCommissionFromQuotation(db, route.id, now);
-        if (result.outcome === "not_found") return jsonResponse(404, { success: false, message: "Quotation not found." });
-        if (result.outcome !== "success") return jsonResponse(409, { success: false, message: "A valid accepted Quotation is required to create a Commission.", code: result.outcome });
-        return jsonResponse(result.created ? 201 : 200, { success: true, ...result });
-      }
       const result = route.kind === "issue"
         ? await issueQuotation(db, route.id, now)
         : route.kind === "new-version"
           ? await createNewVersion(db, route.id)
           : await transitionQuotation(db, route.id, route.kind, now);
       if (result.outcome === "not_found") return jsonResponse(404, { success: false, message: "Quotation not found." });
-      if (result.outcome !== "success") return jsonResponse(409, { success: false, message: "Quotation action is not allowed in its current status." });
-      return jsonResponse(result.created ? 201 : 200, { success: true, created: result.created, quotation: result.quotation });
+      if (result.outcome !== "success") {
+        const code = result.current_status === "accepted"
+          ? "quotation_already_accepted"
+          : route.kind === "issue" && ["issued", "sent"].includes(result.current_status)
+            ? "quotation_already_issued"
+            : "quotation_action_not_allowed";
+        const message = code === "quotation_already_accepted"
+          ? "Quotation is already accepted."
+          : code === "quotation_already_issued"
+            ? "Quotation is already issued."
+            : "Quotation action is not allowed in its current status.";
+        return jsonResponse(409, { success: false, code, message });
+      }
+      const message = route.kind === "mark-sent" && result.created === false
+        ? "Quotation is already marked as sent."
+        : route.kind === "issue" && result.created === false
+          ? "Quotation is already issued."
+          : undefined;
+      return jsonResponse(result.created ? 201 : 200, {
+        success: true,
+        created: result.created,
+        quotation: result.quotation,
+        ...(message ? { message } : {})
+      });
     } catch (error) {
       logFailure(route.kind, error, { quotation_id: route.kind === "commission_collection" ? undefined : route.id });
       return jsonResponse(500, { success: false, message: "Unable to complete quotation request." });
@@ -1061,8 +946,7 @@ export const config = {
     "/admin/api/quotations/:id/issue",
     "/admin/api/quotations/:id/mark-sent",
     "/admin/api/quotations/:id/withdraw",
-    "/admin/api/quotations/:id/new-version",
-    "/admin/api/quotations/:id/create-commission"
+    "/admin/api/quotations/:id/new-version"
   ]
 };
 
@@ -1072,7 +956,6 @@ export {
   calculateCommercials,
   createDraft,
   createPreCommissionDraft,
-  createCommissionFromQuotation,
   createHandler,
   createNewVersion,
   getQuotation,

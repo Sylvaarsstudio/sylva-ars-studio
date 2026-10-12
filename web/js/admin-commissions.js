@@ -157,6 +157,10 @@
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
+  function getCommissionDisplayStatus(commission) {
+    return commission?.lifecycle_status || commission?.status || "";
+  }
+
   function formatDetailValue(field, value) {
     if (moneyFields.has(field)) {
       return formatCurrency(value);
@@ -188,10 +192,10 @@
 
     return commissions.map((commission) => `
       <tr>
-        <td><button type="button" class="admin-text-button" data-commission-id="${escapeHtml(commission.id)}">${escapeHtml(commission.commission_number)}</button></td>
+        <td><a class="admin-text-link" href="commissions.html?commission_id=${encodeURIComponent(commission.id)}" data-commission-id="${escapeHtml(commission.id)}">${escapeHtml(commission.commission_number)}</a></td>
         <td>${escapeHtml(commission.client_name)}</td>
         <td>${escapeHtml(commission.title)}</td>
-        <td>${escapeHtml(formatLabel(commission.status))}</td>
+        <td>${escapeHtml(formatLabel(getCommissionDisplayStatus(commission)))}</td>
         <td>${escapeHtml(formatCurrency(commission.price))}</td>
         <td>${escapeHtml(formatCurrency(commission.balance))}</td>
         <td>${escapeHtml(formatDate(commission.created_at))}</td>
@@ -216,6 +220,13 @@
         <dd>${escapeHtml(formatDetailValue(field, detail[field]))}</dd>
       </div>
     ` : "";
+    const hasCanonicalLifecycle = hasContent(detail.lifecycle_status);
+    const lifecycleLabel = hasCanonicalLifecycle
+      ? `Lifecycle: ${formatLabel(detail.lifecycle_status)}`
+      : `Status: ${formatLabel(detail.status)}`;
+    const lifecycleHelpKey = hasCanonicalLifecycle
+      ? detail.lifecycle_status === "active" ? "commission.active" : "commission_overview"
+      : "commission.legacy_status";
     return `
       <article class="commission-detail-summary" aria-labelledby="commission-overview-title">
         <div class="commission-overview-heading">
@@ -228,8 +239,8 @@
             <p class="commission-client">${escapeHtml(detail.client_name)} · ${escapeHtml(detail.client_email)}</p>
           </div>
           <div>
-            <span class="commission-status-badge">${escapeHtml(formatLabel(detail.status))}</span>
-            ${renderHelpTrigger("commission.legacy_status", "Legacy Commission Status")}
+            <span class="commission-status-badge">${escapeHtml(lifecycleLabel)}</span>
+            ${renderHelpTrigger(lifecycleHelpKey, hasCanonicalLifecycle ? "Canonical Commission Lifecycle" : "Legacy Commission Status")}
           </div>
         </header>
 
@@ -279,9 +290,17 @@
     const sourceLabel = commission?.source_quotation_number
       ? `${commission.source_quotation_number}${hasContent(commission.source_quotation_version) ? ` · v${commission.source_quotation_version}` : ""}`
       : "View Source Quotation";
+    const contract = commission?.contract_document_id
+      ? `<p><strong>Contract</strong><br><a class="admin-text-link" href="contract.html?document=${encodeURIComponent(commission.contract_document_id)}">${escapeHtml(commission.contract_document_number || "View Contract")}</a></p>`
+      : "";
+    const activation = commission?.lifecycle_status
+      ? `<p><strong>Deposit received</strong><br>${escapeHtml(formatCurrency(commission.deposit_amount || 0))}</p>
+         <p><strong>Activation date</strong> ${renderHelpTrigger("commission_activation", "Commission Activation")}<br>${escapeHtml(formatDate(commission.activated_at))}</p>`
+      : "";
     const source = commission?.source_quotation_id
       ? `<p><strong>Source Accepted Quotation</strong><br><a class="admin-text-link" href="quotation.html?id=${encodeURIComponent(commission.source_quotation_id)}">${escapeHtml(sourceLabel)}</a></p>
-         <p><strong>Acceptance</strong><br>Recorded with the accepted Source Quotation.</p>`
+         <p><strong>Acceptance</strong><br>Recorded with the accepted Source Quotation.</p>
+         ${contract}${activation}`
       : '<p class="inquiry-empty">Legacy Commission — no canonical source quotation or Acceptance has been fabricated.</p>';
 
     return `${source}
@@ -1848,7 +1867,7 @@
     }
 
     async function openDetail(id) {
-      elements.createPanel.hidden = true;
+      if (elements.createPanel) elements.createPanel.hidden = true;
       elements.detail.hidden = false;
       resetCommissionSections();
       enterDetailMode();
@@ -2284,11 +2303,19 @@
     }
 
     function bindEvents() {
-      elements.list.addEventListener("click", (event) => {
+      elements.list.addEventListener("click", async (event) => {
         const button = event.target.closest?.("[data-commission-id]");
 
         if (button) {
-          openDetail(button.dataset.commissionId);
+          event.preventDefault?.();
+          const commissionId = button.dataset.commissionId
+            || button.getAttribute?.("data-commission-id");
+          globalObject.history?.pushState?.(
+            null,
+            "",
+            `commissions.html?commission_id=${encodeURIComponent(commissionId)}`
+          );
+          return openDetail(commissionId);
         }
       });
       elements.newCommission?.addEventListener("click", openCreate);
@@ -2362,6 +2389,7 @@
       );
       elements.cancelCreate?.addEventListener("click", closeCreate);
       elements.closeDetail.addEventListener("click", () => {
+        globalObject.history?.pushState?.(null, "", "commissions.html");
         showCommissionIndex();
       });
     }
@@ -2440,6 +2468,7 @@
     describeTimelineSection,
     fetchJson,
     formatCurrency,
+    getCommissionDisplayStatus,
     inferSalesTaxRate,
     paymentMethodLabels,
     renderCommissionDocumentsMarkup,
@@ -2479,7 +2508,5 @@
         .get("commission_id");
       if (/^[1-9][0-9]*$/.test(commissionId || "")) app.openDetail(commissionId);
     });
-    app.loadClients();
-    app.loadInquiries();
   }
 })(typeof window !== "undefined" ? window : globalThis);

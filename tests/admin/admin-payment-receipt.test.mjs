@@ -128,6 +128,39 @@ test("receipt renders number client commission and financial data", () => {
   assert.match(markup, /Balance After Payment[\s\S]*\$0\.00/);
 });
 
+test("pre-Commission deposit receipt uses its Quotation reference without a blank or invented Commission", () => {
+  const precommissionSnapshot = {
+    ...snapshot,
+    commission: undefined,
+    quotation: {
+      quotation_id: "70",
+      number: "SAS-QUO-2026-0070",
+      version: 1
+    },
+    artwork: { title: "Pre-Commission Portrait" },
+    payment: {
+      ...snapshot.payment,
+      type: "deposit",
+      amount: "200.00",
+      sales_tax: "0.00",
+      balance_after_payment: null
+    },
+    deposit: {
+      required_deposit: "200.00",
+      amount_applied: "200.00",
+      remaining_after_payment: "0.00"
+    }
+  };
+  const markup = renderReceiptMarkup(precommissionSnapshot);
+
+  assert.match(markup, /Quotation Reference[\s\S]*SAS-QUO-2026-0070/);
+  assert.match(markup, /Pre-Commission Portrait/);
+  assert.match(markup, /Required Deposit[\s\S]*\$200\.00/);
+  assert.match(markup, /Remaining After Payment[\s\S]*\$0\.00/);
+  assert.doesNotMatch(markup, /Commission Number/);
+  assert.doesNotMatch(markup, /<h2>Commission<\/h2>/);
+});
+
 test("receipt renders the persisted commercial date instead of the UTC issue date", () => {
   const markup = renderReceiptMarkup(snapshot);
 

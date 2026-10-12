@@ -4,6 +4,7 @@ import { after, afterEach, before, beforeEach, test } from "node:test";
 
 import { getDatabase } from "@netlify/database";
 import { NetlifyDB } from "@netlify/database-dev";
+import { Pool } from "pg";
 
 import {
   createCommission,
@@ -37,6 +38,7 @@ const fixedTimes = {
 
 let database;
 let db;
+let connectionString;
 let clientId;
 let commissionId;
 let handler;
@@ -44,7 +46,7 @@ let sessionCookie;
 
 before(async () => {
   database = new NetlifyDB({ logger: () => {} });
-  const connectionString = await database.start();
+  connectionString = await database.start();
   await database.applyMigrations("./netlify/database/migrations");
   db = getDatabase({ connectionString });
   const password = "phase-27-password";
@@ -267,21 +269,30 @@ test("pause and resume preserve and restore the exact previous production state"
 
 test("concurrent transitions cannot both leave not_started", async () => {
   await initialize();
-  const results = await Promise.all([
-    transition("reserved", fixedTimes.reserved),
-    transition("reserved", fixedTimes.reserved)
-  ]);
-  assert.deepEqual(results.map((result) => result.outcome).sort(), [
-    "invalid_transition",
-    "success"
-  ]);
-  assert.equal((await readCommissionProduction(db, commissionId)).production_status, "reserved");
-  assert.equal((await db.pool.query(
-    `SELECT count(*)::integer AS count
-     FROM commission_events
-     WHERE commission_id = $1 AND event_type = 'production_reserved'`,
-    [commissionId]
-  )).rows[0].count, 1);
+  const dbA = { pool: new Pool({ connectionString }) };
+  const dbB = { pool: new Pool({ connectionString }) };
+  const verifier = { pool: new Pool({ connectionString }) };
+  try {
+    const results = await Promise.all([
+      transitionCommissionProduction(dbA, commissionId, "reserved", { now: clock(fixedTimes.reserved) }),
+      transitionCommissionProduction(dbB, commissionId, "reserved", { now: clock(fixedTimes.reserved) })
+    ]);
+    assert.deepEqual(results.map((result) => result.outcome).sort(), [
+      "invalid_transition",
+      "success"
+    ]);
+    assert.equal((await readCommissionProduction(verifier, commissionId)).production_status, "reserved");
+    assert.equal((await verifier.pool.query(
+      `SELECT count(*)::integer AS count
+       FROM commission_events
+       WHERE commission_id = $1 AND event_type = 'production_reserved'`,
+      [commissionId]
+    )).rows[0].count, 1);
+  } finally {
+    await dbA.pool.end();
+    await dbB.pool.end();
+    await verifier.pool.end();
+  }
 });
 
 test("production state and event roll back together when event insertion fails", async () => {

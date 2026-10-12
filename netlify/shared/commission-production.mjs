@@ -136,6 +136,59 @@ async function transitionCommissionProduction(db, commissionId, nextStatus, {
   const connection = await db.pool.connect();
 
   try {
+    if (nextStatus === "reserved") {
+      const occurredAt = now();
+      const reserved = (await connection.query(
+        `WITH updated AS (
+           UPDATE commission_production
+           SET production_status = 'reserved',
+               paused_from_status = NULL,
+               reserved_at = $2,
+               updated_at = $2
+           WHERE commission_id = $1
+             AND production_status = 'not_started'
+           RETURNING *
+         ),
+         event AS (
+           INSERT INTO commission_events (
+             commission_id, event_type, occurred_at, actor_type,
+             source_type, source_id, payload
+           )
+           SELECT
+             commission_id,
+             'production_reserved',
+             $2,
+             $3,
+             'commission',
+             commission_id::TEXT,
+             jsonb_build_object(
+               'previous_status', 'not_started',
+               'new_status', 'reserved'
+             )
+           FROM updated
+           RETURNING id
+         )
+         SELECT row_to_json(updated) AS production
+         FROM updated
+         JOIN event ON TRUE`,
+        [commissionId, occurredAt, actorType]
+      )).rows[0];
+      if (reserved) {
+        return {
+          outcome: "success",
+          production: normalizeProductionRow(reserved.production)
+        };
+      }
+      const current = (await connection.query(
+        "SELECT production_status FROM commission_production WHERE commission_id = $1",
+        [commissionId]
+      )).rows[0];
+      if (!current) return { outcome: "not_initialized" };
+      if (current.production_status !== "paused") {
+        return { outcome: "invalid_transition", current_status: current.production_status };
+      }
+    }
+
     await connection.query("BEGIN");
     await connection.query(
       "SELECT pg_advisory_xact_lock(hashtext('commission-production'), hashtext($1::text))",

@@ -509,6 +509,8 @@ async function listCommissions(db) {
        c.commission_number,
        c.title,
        c.status,
+       lifecycle.lifecycle_status,
+       lifecycle.activated_at,
        c.price,
        c.balance,
        c.source_quotation_id,
@@ -521,6 +523,7 @@ async function listCommissions(db) {
      FROM commissions AS c
      JOIN clients AS cl ON cl.id = c.client_id
      LEFT JOIN quotations AS q ON q.id = c.source_quotation_id
+     LEFT JOIN commission_lifecycle AS lifecycle ON lifecycle.commission_id = c.id
      ORDER BY c.created_at DESC`
   );
 
@@ -547,14 +550,29 @@ async function getCommission(db, id) {
        c.shipping,
        c.balance,
        c.status,
+       lifecycle.lifecycle_status,
+       lifecycle.activated_at,
+       lifecycle.activation_source,
        c.estimated_completion,
        c.created_at,
        c.source_quotation_id,
        q.quotation_number AS source_quotation_number,
-       q.version AS source_quotation_version
+       q.version AS source_quotation_version,
+       contract.id AS contract_document_id,
+       contract.document_number AS contract_document_number,
+       contract.created_at AS contract_created_at
      FROM commissions AS c
      JOIN clients AS cl ON cl.id = c.client_id
      LEFT JOIN quotations AS q ON q.id = c.source_quotation_id
+     LEFT JOIN commission_lifecycle AS lifecycle ON lifecycle.commission_id = c.id
+     LEFT JOIN LATERAL (
+       SELECT document.id, document.document_number, document.created_at
+       FROM documents AS document
+       WHERE document.commission_id = c.id
+         AND document.document_type = 'contract'
+       ORDER BY document.created_at DESC, document.id DESC
+       LIMIT 1
+     ) AS contract ON TRUE
      WHERE c.id = $1`,
     [id]
   );

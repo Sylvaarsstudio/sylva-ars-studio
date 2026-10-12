@@ -9,11 +9,8 @@ import { createHandler as createAcceptanceHandler } from "../../netlify/function
 import { createHandler as createClientHandler } from "../../netlify/functions/admin-clients.mjs";
 import { createHandler as createCommissionHandler } from "../../netlify/functions/admin-commissions.mjs";
 import {
-  createCommissionFromQuotation,
   createHandler as createQuotationHandler
 } from "../../netlify/functions/admin-quotations.mjs";
-import { resolveAcceptedQuotation } from "../../netlify/shared/contract-eligibility.mjs";
-import { readCommissionNextAction } from "../../netlify/shared/commission-next-action.mjs";
 import { COOKIE_NAME, createSessionToken } from "../../netlify/shared/admin-session.mjs";
 
 const password = "local-admin-password";
@@ -22,11 +19,9 @@ const issuedNow = new Date("2026-10-12T14:00:00.000Z");
 const acceptedNow = new Date("2026-10-12T15:00:00.000Z");
 let database;
 let db;
-let db2;
 let cookie;
 let clients;
 let quotations;
-let quotations2;
 let acceptances;
 let commissions;
 
@@ -35,7 +30,6 @@ before(async () => {
   const connectionString = await database.start();
   await database.applyMigrations("./netlify/database/migrations");
   db = getDatabase({ connectionString });
-  db2 = getDatabase({ connectionString });
   cookie = `${COOKIE_NAME}=${await createSessionToken(password, secret)}`;
   const auth = {
     databaseFactory: () => db,
@@ -43,11 +37,6 @@ before(async () => {
   };
   clients = createClientHandler(auth);
   quotations = createQuotationHandler({ ...auth, now: () => new Date(issuedNow) });
-  quotations2 = createQuotationHandler({
-    databaseFactory: () => db2,
-    environmentReader: auth.environmentReader,
-    now: () => new Date(issuedNow)
-  });
   acceptances = createAcceptanceHandler({
     ...auth,
     now: () => new Date(acceptedNow),
@@ -62,7 +51,7 @@ before(async () => {
 beforeEach(async () => {
   await db.pool.query("DELETE FROM communications");
   await db.pool.query("TRUNCATE commission_events RESTART IDENTITY");
-  await db.pool.query("TRUNCATE acceptances RESTART IDENTITY");
+  await db.pool.query("TRUNCATE payment_allocations, commission_obligations, acceptances RESTART IDENTITY");
   await db.pool.query("DELETE FROM documents");
   await db.pool.query("DELETE FROM commission_production");
   await db.pool.query("DELETE FROM commission_inquiries");
@@ -75,7 +64,6 @@ beforeEach(async () => {
 
 after(async () => {
   await db?.pool.end();
-  await db2?.pool.end();
   await database?.stop();
 });
 
@@ -201,10 +189,10 @@ test("pre-Commission Quotation V2 issues a Client-linked document and accepts wi
   assert.equal((await accepted.json()).acceptance.commission_id, null);
 });
 
-test("unaccepted Quotation cannot create a Commission and direct Admin creation is blocked", async () => {
+test("manual Quotation conversion route and direct Admin Commission creation are blocked", async () => {
   const { body } = await createClient();
   const draft = (await (await invoke(quotations, `/admin/api/clients/${body.client.id}/quotations`, "POST", quotationBody())).json()).quotation;
-  assert.equal((await invoke(quotations, `/admin/api/quotations/${draft.id}/create-commission`, "POST")).status, 409);
+  assert.equal((await invoke(quotations, `/admin/api/quotations/${draft.id}/create-commission`, "POST")).status, 404);
   assert.equal((await invoke(commissions, "/admin/api/commissions", "POST", {})).status, 409);
   assert.equal(Number((await db.pool.query("SELECT count(*) FROM commissions")).rows[0].count), 0);
 });
@@ -235,7 +223,7 @@ test("legacy records remain valid without fabricated source or Inquiry relations
   )).rows[0].count), 0);
 });
 
-test("accepted Quotation creates exactly one canonical Commission with Production and no fake Inquiry", async () => {
+test("accepted Quotation remains pre-Commission until the canonical deposit activation", async () => {
   const { body } = await createClient();
   const draft = (await (await invoke(quotations, `/admin/api/clients/${body.client.id}/quotations`, "POST", quotationBody())).json()).quotation;
   await invoke(quotations, `/admin/api/quotations/${draft.id}/issue`, "POST");
@@ -244,80 +232,13 @@ test("accepted Quotation creates exactly one canonical Commission with Productio
     client_name_entered: "Precommission Client", client_email: "precommission@example.invalid",
     accepted_by_client_confirmation: true
   });
-  const conversion = await invoke(quotations, `/admin/api/quotations/${draft.id}/create-commission`, "POST");
-  assert.equal(conversion.status, 201);
-  const commission = (await conversion.json()).commission;
-  assert.equal(String(commission.source_quotation_id), String(draft.id));
-  assert.equal((await db.pool.query("SELECT production_status FROM commission_production WHERE commission_id = $1", [commission.id])).rows[0].production_status, "not_started");
-  assert.equal(Number((await db.pool.query("SELECT count(*) FROM commission_inquiries WHERE commission_id = $1", [commission.id])).rows[0].count), 0);
+  assert.equal((await invoke(quotations, `/admin/api/quotations/${draft.id}/create-commission`, "POST")).status, 404);
+  assert.equal(Number((await db.pool.query("SELECT count(*) FROM commissions WHERE source_quotation_id = $1", [draft.id])).rows[0].count), 0);
+  assert.equal(Number((await db.pool.query("SELECT count(*) FROM commission_production")).rows[0].count), 0);
   assert.equal(Number((await db.pool.query("SELECT count(*) FROM inquiries")).rows[0].count), 0);
-  assert.equal(Number((await db.pool.query("SELECT count(*) FROM commission_events WHERE commission_id = $1 AND event_type = 'commission_created_from_quotation'", [commission.id])).rows[0].count), 1);
-  const linkedQuotations = await invoke(
-    quotations,
-    `/admin/api/commissions/${commission.id}/quotations`
-  );
-  assert.deepEqual(
-    (await linkedQuotations.json()).quotations.map((item) => String(item.id)),
-    [String(draft.id)]
-  );
-  const eligibility = await resolveAcceptedQuotation(db, commission.id, acceptedNow);
-  assert.equal(eligibility.outcome, "eligible");
-  const nextAction = await readCommissionNextAction(db, commission.id, { now: acceptedNow });
-  assert.equal(nextAction.code, "prepare_contract");
-  assert.equal(nextAction.blocking_reason, "contract_terms_under_review");
 });
 
-test("conversion helper preserves the same atomic production path", async () => {
-  const { body } = await createClient();
-  const draft = (await (await invoke(quotations, `/admin/api/clients/${body.client.id}/quotations`, "POST", quotationBody())).json()).quotation;
-  await invoke(quotations, `/admin/api/quotations/${draft.id}/issue`, "POST");
-  await invoke(acceptances, `/admin/api/quotations/${draft.id}/accept`, "POST", {
-    request_id: randomUUID(), acceptance_method: "admin_recorded",
-    client_name_entered: "Precommission Client", client_email: "precommission@example.invalid",
-    accepted_by_client_confirmation: true
-  });
-  const result = await createCommissionFromQuotation(db, draft.id, () => new Date(acceptedNow));
-  assert.equal(result.outcome, "success");
-});
-
-test("concurrent accepted-Quotation conversion creates one Commission", async () => {
-  const { body } = await createClient();
-  const draft = (await (await invoke(quotations, `/admin/api/clients/${body.client.id}/quotations`, "POST", quotationBody())).json()).quotation;
-  await invoke(quotations, `/admin/api/quotations/${draft.id}/issue`, "POST");
-  await invoke(acceptances, `/admin/api/quotations/${draft.id}/accept`, "POST", {
-    request_id: randomUUID(), acceptance_method: "admin_recorded",
-    client_name_entered: "Precommission Client", client_email: "precommission@example.invalid",
-    accepted_by_client_confirmation: true
-  });
-  const [left, right] = await Promise.all([
-    invoke(quotations, `/admin/api/quotations/${draft.id}/create-commission`, "POST"),
-    invoke(quotations2, `/admin/api/quotations/${draft.id}/create-commission`, "POST")
-  ]);
-  assert.deepEqual([left.status, right.status].sort(), [200, 201]);
-  assert.equal(Number((await db.pool.query("SELECT count(*) FROM commissions WHERE source_quotation_id = $1", [draft.id])).rows[0].count), 1);
-});
-
-test("concurrent conversion helpers preserve one source-Quotation Commission", async () => {
-  const { body } = await createClient();
-  const draft = (await (await invoke(quotations, `/admin/api/clients/${body.client.id}/quotations`, "POST", quotationBody())).json()).quotation;
-  await invoke(quotations, `/admin/api/quotations/${draft.id}/issue`, "POST");
-  await invoke(acceptances, `/admin/api/quotations/${draft.id}/accept`, "POST", {
-    request_id: randomUUID(), acceptance_method: "admin_recorded",
-    client_name_entered: "Precommission Client", client_email: "precommission@example.invalid",
-    accepted_by_client_confirmation: true
-  });
-  const settled = await Promise.allSettled([
-    createCommissionFromQuotation(db, draft.id, () => new Date(acceptedNow)),
-    createCommissionFromQuotation(db2, draft.id, () => new Date(acceptedNow))
-  ]);
-  const failure = settled.find((result) => result.status === "rejected" && result.reason?.code !== "25P02")
-    || settled.find((result) => result.status === "rejected");
-  if (failure) throw failure.reason;
-  const results = settled.map((result) => result.value);
-  assert.deepEqual(results.map((result) => result.created).sort(), [false, true]);
-});
-
-test("real Inquiry provenance follows the Quotation into Commission creation", async () => {
+test("real Inquiry remains attached to the pre-Commission Quotation without fabricated Commission provenance", async () => {
   const { body } = await createClient();
   const inquiryId = randomUUID();
   await db.pool.query(
@@ -332,8 +253,7 @@ test("real Inquiry provenance follows the Quotation into Commission creation", a
     client_name_entered: "Precommission Client", client_email: "precommission@example.invalid",
     accepted_by_client_confirmation: true
   });
-  const commission = (await (await invoke(quotations, `/admin/api/quotations/${draft.id}/create-commission`, "POST")).json()).commission;
-  const provenance = (await db.pool.query("SELECT inquiry_id, relationship_type FROM commission_inquiries WHERE commission_id = $1", [commission.id])).rows[0];
-  assert.equal(provenance.inquiry_id, inquiryId);
-  assert.equal(provenance.relationship_type, "origin");
+  assert.equal((await invoke(quotations, `/admin/api/quotations/${draft.id}/create-commission`, "POST")).status, 404);
+  assert.equal((await db.pool.query("SELECT inquiry_id FROM quotations WHERE id = $1", [draft.id])).rows[0].inquiry_id, inquiryId);
+  assert.equal(Number((await db.pool.query("SELECT count(*) FROM commission_inquiries")).rows[0].count), 0);
 });

@@ -8,8 +8,6 @@ import {
   config,
   createHandler
 } from "../../netlify/functions/admin-commissions.mjs";
-import { createHandler as createAcceptanceHandler } from "../../netlify/functions/admin-acceptances.mjs";
-import { createHandler as createQuotationHandler } from "../../netlify/functions/admin-quotations.mjs";
 import {
   COOKIE_NAME,
   createSessionToken
@@ -22,8 +20,6 @@ const sessionSecret = "local-session-secret";
 let database;
 let db;
 let handler;
-let acceptanceHandler;
-let quotationHandler;
 let sessionCookie;
 let clients;
 let commissions;
@@ -44,27 +40,9 @@ before(async () => {
       }[name];
     }
   });
-  const adminOptions = {
-    databaseFactory: () => db,
-    environmentReader(name) {
-      return {
-        ADMIN_PASSWORD: adminPassword,
-        ADMIN_SESSION_SECRET: sessionSecret
-      }[name];
-    }
-  };
-  quotationHandler = createQuotationHandler(adminOptions);
-  acceptanceHandler = createAcceptanceHandler({
-    ...adminOptions,
-    emailProvider: {
-      configured: false,
-      async sendEmail() { throw new Error("Provider must not be called in this suite."); }
-    }
-  });
   const token = await createSessionToken(adminPassword, sessionSecret);
   sessionCookie = `${COOKIE_NAME}=${token}`;
 });
-
 beforeEach(async () => {
   const clientResult = await db.pool.query(`
     INSERT INTO clients (full_name, email)
@@ -106,8 +84,9 @@ beforeEach(async () => {
 afterEach(async () => {
   await db?.pool.query("DELETE FROM communications");
   await db?.pool.query("TRUNCATE commission_events RESTART IDENTITY");
-  await db?.pool.query("TRUNCATE acceptances RESTART IDENTITY");
+  await db?.pool.query("TRUNCATE payment_allocations, commission_obligations, acceptances RESTART IDENTITY");
   await db?.pool.query("DELETE FROM commission_production");
+  await db?.pool.query("DELETE FROM commission_lifecycle");
   await db?.pool.query("DELETE FROM commission_inquiries");
   await db?.pool.query("DELETE FROM documents");
   await db?.pool.query("DELETE FROM payments");
@@ -159,91 +138,6 @@ function request(method = "GET", path = "", body, cookie = sessionCookie) {
     headers,
     body: body === undefined ? undefined : JSON.stringify(body)
   }));
-}
-
-function invoke(handlerImplementation, path, method = "GET", body) {
-  return handlerImplementation(new Request(`http://localhost${path}`, {
-    method,
-    headers: {
-      Cookie: sessionCookie,
-      ...(body === undefined ? {} : { "Content-Type": "application/json" })
-    },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  }));
-}
-
-async function createCanonicalCommission(payload) {
-  const {
-    client_id: clientId,
-    title,
-    description,
-    medium,
-    width,
-    height,
-    price,
-    sales_tax_rate: salesTaxRate,
-    shipping,
-    estimated_completion: estimatedCompletion,
-    origin_inquiry_id: inquiryId,
-    ...unexpected
-  } = payload;
-  const draftResponse = await invoke(
-    quotationHandler,
-    `/admin/api/clients/${clientId}/quotations`,
-    "POST",
-    {
-      artwork_title: title,
-      artwork_description: description,
-      artwork_medium: medium,
-      artwork_width: width,
-      artwork_height: height,
-      price,
-      sales_tax_rate: salesTaxRate,
-      shipping_charge: shipping,
-      estimated_completion: estimatedCompletion,
-      inquiry_id: inquiryId,
-      request_id: crypto.randomUUID(),
-      ...unexpected
-    }
-  );
-  if (draftResponse.status !== 201) return draftResponse;
-  const draft = (await draftResponse.json()).quotation;
-  const issuedResponse = await invoke(
-    quotationHandler,
-    `/admin/api/quotations/${draft.id}/issue`,
-    "POST"
-  );
-  if (issuedResponse.status !== 201) return issuedResponse;
-  const client = (await db.pool.query(
-    "SELECT full_name, email FROM clients WHERE id = $1",
-    [clientId]
-  )).rows[0];
-  const acceptanceResponse = await invoke(
-    acceptanceHandler,
-    `/admin/api/quotations/${draft.id}/accept`,
-    "POST",
-    {
-      request_id: crypto.randomUUID(),
-      acceptance_method: "admin_recorded",
-      client_name_entered: client.full_name,
-      client_email: client.email,
-      accepted_by_client_confirmation: true
-    }
-  );
-  if (acceptanceResponse.status !== 201) return acceptanceResponse;
-  const conversionResponse = await invoke(
-    quotationHandler,
-    `/admin/api/quotations/${draft.id}/create-commission`,
-    "POST"
-  );
-  if (conversionResponse.status !== 201) return conversionResponse;
-  const conversion = await conversionResponse.json();
-  const detailResponse = await request("GET", `/${conversion.commission.id}`);
-  const detail = await detailResponse.json();
-  return Response.json(
-    { success: true, commission: detail.commission },
-    { status: conversionResponse.status }
-  );
 }
 
 test("phase 13 exposes only protected commission paths", () => {
@@ -314,6 +208,36 @@ test("phase 13 returns commission detail by id", async () => {
   assert.equal(body.commission.client_name, "Second Client");
   assert.equal(body.commission.title, "Later Commission");
   assert.equal(body.commission.status, "draft");
+});
+
+test("Admin Commission read model prefers canonical lifecycle and exposes compact activation context", async () => {
+  const id = commissions["Later Commission"];
+  await db.pool.query(
+    `INSERT INTO commission_lifecycle (
+       commission_id, lifecycle_status, activated_at, activation_source
+     ) VALUES ($1, 'active', '2026-10-12T15:00:00Z', 'required_deposit')`,
+    [id]
+  );
+  const contract = (await db.pool.query(
+    `INSERT INTO documents (
+       commission_id, client_id, document_type, document_number,
+       version, file_location, document_snapshot
+     ) VALUES ($1, $2, 'contract', 'SAS-CON-2026-0099', 1,
+       '/admin/contract.html', '{}'::jsonb)
+     RETURNING id`,
+    [id, clients["Second Client"]]
+  )).rows[0];
+
+  const detail = await (await request("GET", `/${id}`)).json();
+  const listed = await (await request()).json();
+  const listRow = listed.commissions.find((commission) => String(commission.id) === String(id));
+
+  assert.equal(detail.commission.lifecycle_status, "active");
+  assert.equal(detail.commission.activation_source, "required_deposit");
+  assert.equal(new Date(detail.commission.activated_at).toISOString(), "2026-10-12T15:00:00.000Z");
+  assert.equal(String(detail.commission.contract_document_id), String(contract.id));
+  assert.equal(detail.commission.contract_document_number, "SAS-CON-2026-0099");
+  assert.equal(listRow.lifecycle_status, "active");
 });
 
 test("phase 6 returns protected commission activity without internal audit fields", async () => {
@@ -640,124 +564,6 @@ test("RC2.1 blocks direct Admin Commission creation", async () => {
   )).rows[0].count, 2);
 });
 
-test("phase 21 creates a commission with atomic origin provenance", async () => {
-  const response = await createCanonicalCommission(createPayload({
-    origin_inquiry_id: inquiryId
-  }));
-  const body = await response.json();
-  const stored = await db.pool.query(
-    `SELECT commission_id, inquiry_id, relationship_type
-     FROM commission_inquiries
-     WHERE commission_id = $1`,
-    [body.commission.id]
-  );
-
-  assert.equal(response.status, 201);
-  assert.deepEqual(stored.rows.map((row) => ({
-    ...row,
-    commission_id: String(row.commission_id)
-  })), [{
-    commission_id: String(body.commission.id),
-    inquiry_id: inquiryId,
-    relationship_type: "origin"
-  }]);
-  assert.equal(body.commission.inquiries[0].id, inquiryId);
-  assert.equal(body.commission.inquiries[0].relationship_type, "origin");
-});
-
-test("phase 21 client coherence compares inquiry and client email case-insensitively", async () => {
-  await db.pool.query(
-    "UPDATE inquiries SET client_email = ' FIRST@EXAMPLE.INVALID ' WHERE id = $1",
-    [inquiryId]
-  );
-
-  const response = await createCanonicalCommission(createPayload({
-    origin_inquiry_id: inquiryId
-  }));
-
-  assert.equal(response.status, 201);
-});
-
-test("phase 21 rejects an origin inquiry belonging to a different client", async () => {
-  const before = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
-  const response = await createCanonicalCommission(createPayload({
-    client_id: clients["Second Client"],
-    origin_inquiry_id: inquiryId
-  }));
-  const after = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
-
-  assert.equal(response.status, 409);
-  assert.equal(
-    (await response.json()).message,
-    "Inquiry does not match the selected Client."
-  );
-  assert.equal(after.rows[0].count, before.rows[0].count);
-});
-
-test("phase 21 rejects an unknown origin inquiry without creating a commission", async () => {
-  const before = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
-  const response = await createCanonicalCommission(createPayload({
-    origin_inquiry_id: "11111111-1111-4111-8111-111111111111"
-  }));
-  const after = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
-
-  assert.equal(response.status, 404);
-  assert.equal((await response.json()).message, "Inquiry not found.");
-  assert.equal(after.rows[0].count, before.rows[0].count);
-});
-
-test("phase 21 rolls back commission creation if the provenance insert fails", async () => {
-  const before = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
-
-  await db.pool.query(
-    "ALTER TABLE commission_inquiries ADD CONSTRAINT phase21_force_link_failure CHECK (false)"
-  );
-
-  try {
-    const response = await createCanonicalCommission(createPayload({
-      origin_inquiry_id: inquiryId
-    }));
-    const after = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
-
-    assert.equal(response.status, 500);
-    assert.equal(after.rows[0].count, before.rows[0].count);
-  } finally {
-    await db.pool.query(
-      "ALTER TABLE commission_inquiries DROP CONSTRAINT phase21_force_link_failure"
-    );
-  }
-});
-
-test("phase 21 rejects a malformed origin inquiry id", async () => {
-  const response = await createCanonicalCommission(createPayload({
-    origin_inquiry_id: "not-a-uuid"
-  }));
-
-  assert.equal(response.status, 400);
-  assert.equal((await response.json()).message, "Inquiry id must be a valid UUID.");
-});
-
-test("phase 21 commission detail returns minimal provenance", async () => {
-  const created = await createCanonicalCommission(createPayload({
-    origin_inquiry_id: inquiryId
-  }));
-  const createdBody = await created.json();
-  const response = await request("GET", `/${createdBody.commission.id}`);
-  const body = await response.json();
-
-  assert.equal(response.status, 200);
-  assert.deepEqual(Object.keys(body.commission.inquiries[0]).sort(), [
-    "client_email",
-    "client_name",
-    "created_at",
-    "form_type",
-    "id",
-    "relationship_type",
-    "status"
-  ]);
-  assert.equal(body.commission.inquiries[0].id, inquiryId);
-});
-
 test("phase 21 legacy commission detail remains valid without provenance", async () => {
   const response = await request("GET", `/${commissions["Earlier Commission"]}`);
   const body = await response.json();
@@ -765,45 +571,6 @@ test("phase 21 legacy commission detail remains valid without provenance", async
   assert.equal(response.status, 200);
   assert.deepEqual(body.commission.inquiries, []);
 });
-
-for (const medium of ["Acrylic", "Watercolor", "Oil", "Drawing"]) {
-  test(`phase 14 accepts the approved medium ${medium}`, async () => {
-    const response = await createCanonicalCommission(createPayload({ medium }));
-
-    assert.equal(response.status, 201);
-    assert.equal((await response.json()).commission.medium, medium);
-  });
-}
-
-test("phase 14 rejects an unsupported medium", async () => {
-  const response = await createCanonicalCommission(createPayload({
-    medium: "Fresco"
-  }));
-
-  assert.equal(response.status, 400);
-  assert.equal((await response.json()).message, "Artwork medium is unsupported.");
-});
-
-for (const [rate, expectedTax] of [
-  ["0.00", "0.00"],
-  ["0.06", "24.00"],
-  ["0.07", "28.00"],
-  ["0.08", "32.00"]
-]) {
-  test(`phase 14 calculates sales tax for rate ${rate}`, async () => {
-    const response = await createCanonicalCommission(createPayload({
-      price: "400.00",
-      sales_tax_rate: rate,
-      shipping: "0"
-    }));
-    const commission = (await response.json()).commission;
-
-    assert.equal(response.status, 201);
-    assert.equal(commission.price, "400.00");
-    assert.equal(commission.sales_tax, expectedTax);
-    assert.equal(commission.balance, String((400 + Number(expectedTax)).toFixed(2)));
-  });
-}
 
 test("commission edit accepts the outside-Pennsylvania zero-tax rate", async () => {
   const id = commissions["Earlier Commission"];
@@ -819,136 +586,4 @@ test("commission edit accepts the outside-Pennsylvania zero-tax rate", async () 
   assert.equal(commission.deposit_amount, "0.00");
   assert.equal(commission.shipping, "20.00");
   assert.equal(commission.balance, "420.00");
-});
-
-for (const rate of ["", "0.05", "0.09", "7"] ) {
-  test(`phase 14 rejects sales tax rate ${JSON.stringify(rate)}`, async () => {
-    const response = await createCanonicalCommission(createPayload({
-      sales_tax_rate: rate
-    }));
-
-    assert.equal(response.status, 400);
-    assert.match((await response.json()).message, /Sales tax rate/);
-  });
-}
-
-test("phase 14 rejects a browser-supplied sales tax amount", async () => {
-  const response = await createCanonicalCommission({
-    ...createPayload(),
-    sales_tax: "0.01"
-  });
-
-  assert.equal(response.status, 400);
-  assert.equal(
-    (await response.json()).message,
-    "Request body contains unsupported fields."
-  );
-});
-
-test("phase 15 required deposit policy does not reduce stored balance", async () => {
-  const response = await createCanonicalCommission(createPayload({
-    price: "400.00",
-    sales_tax_rate: "0.06",
-    shipping: "20.00"
-  }));
-  const commission = (await response.json()).commission;
-
-  assert.equal(response.status, 201);
-  assert.equal(commission.price, "400.00");
-  assert.equal(commission.sales_tax, "24.00");
-  assert.equal(commission.shipping, "20.00");
-  assert.equal(commission.deposit_amount, "0.00");
-  assert.equal(commission.balance, "444.00");
-});
-
-test("phase 13 rejects an unknown client", async () => {
-  const response = await createCanonicalCommission(createPayload({
-    client_id: "999999999"
-  }));
-
-  assert.equal(response.status, 404);
-  assert.equal((await response.json()).message, "Client not found.");
-});
-
-for (const [field, value, message] of [
-  ["title", "   ", "Artwork title is required."],
-  ["description", "", "Artwork description is required."],
-  ["medium", " ", "Artwork medium is required."],
-  ["width", "0", "artwork_width must be greater than 0."],
-  ["width", "-1", "artwork_width must be greater than 0."],
-  ["height", "0", "artwork_height must be greater than 0."],
-  ["height", "-1", "artwork_height must be greater than 0."],
-  ["price", "-0.01", "Price must be a valid monetary amount."],
-  ["shipping", "-0.01", "Shipping charge must be a valid monetary amount."],
-  ["estimated_completion", "2027-02-30", "Estimated completion must be a valid date."]
-]) {
-  test(`phase 13 rejects invalid ${field} value ${JSON.stringify(value)}`, async () => {
-    const response = await createCanonicalCommission(createPayload({ [field]: value }));
-
-    assert.equal(response.status, 400);
-    assert.equal((await response.json()).message, message);
-  });
-}
-
-test("canonical creation preserves NULL optional dimensions", async () => {
-  const response = await createCanonicalCommission(createPayload({
-    width: "",
-    height: null,
-    shipping: "0",
-    estimated_completion: ""
-  }));
-  const commission = (await response.json()).commission;
-
-  assert.equal(response.status, 201);
-  assert.equal(commission.width, null);
-  assert.equal(commission.height, null);
-  assert.equal(commission.sales_tax, "6.00");
-  assert.equal(commission.shipping, "0.00");
-  assert.equal(commission.estimated_completion, null);
-});
-
-test("phase 13 commission number matches the approved format", async () => {
-  const response = await createCanonicalCommission(createPayload());
-  const commission = (await response.json()).commission;
-
-  assert.equal(response.status, 201);
-  assert.match(commission.commission_number, /^SAS-COM-\d{4}-\d{4,}$/);
-});
-
-test("phase 13 concurrent creations receive distinct commission numbers", async () => {
-  const [firstResponse, secondResponse] = await Promise.all([
-    createCanonicalCommission(createPayload({ title: "Concurrent One" })),
-    createCanonicalCommission(createPayload({ title: "Concurrent Two" }))
-  ]);
-  const first = await firstResponse.json();
-  const second = await secondResponse.json();
-
-  assert.equal(firstResponse.status, 201);
-  assert.equal(secondResponse.status, 201);
-  assert.notEqual(first.commission.commission_number, second.commission.commission_number);
-});
-
-test("canonical creation leaves unrelated masters unchanged and creates only its Quotation document", async () => {
-  const inquiriesBefore = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
-  const clientsBefore = await db.pool.query("SELECT * FROM clients ORDER BY id");
-
-  const response = await createCanonicalCommission(createPayload());
-  const inquiriesAfter = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
-  const clientsAfter = await db.pool.query("SELECT * FROM clients ORDER BY id");
-  const relatedCounts = await db.pool.query(`
-    SELECT
-      (SELECT count(*)::integer FROM payments) AS payments,
-      (SELECT count(*)::integer FROM documents) AS documents
-  `);
-
-  assert.equal(response.status, 201);
-  assert.deepEqual(inquiriesAfter.rows, inquiriesBefore.rows);
-  assert.deepEqual(clientsAfter.rows, clientsBefore.rows);
-  assert.deepEqual(relatedCounts.rows[0], {
-    payments: 0,
-    documents: 1
-  });
-  assert.equal((await db.pool.query(
-    "SELECT document_type FROM documents"
-  )).rows[0].document_type, "quotation");
 });

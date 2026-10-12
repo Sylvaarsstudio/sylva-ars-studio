@@ -74,7 +74,7 @@
           <label>Client Name <input type="text" name="client_name_entered" required></label>
           <label>Client Email <input type="email" name="client_email" required></label>
           <label class="commission-form-wide"><input type="checkbox" name="accepted_by_client_confirmation" required> I confirm that the client explicitly accepted this quotation through a written channel and that I am recording that acceptance on the client's behalf.</label>
-          <div class="commission-form-wide commission-form-actions"><button type="submit" class="admin-button">Confirm Acceptance</button><button type="button" class="admin-text-button" id="cancel-quotation-acceptance">Cancel</button></div>
+          <div class="commission-form-wide commission-form-actions"><button type="submit" class="admin-button" id="confirm-quotation-acceptance">Confirm Acceptance</button><button type="button" class="admin-text-button" id="cancel-quotation-acceptance">Cancel</button></div>
         </form>
       </section>
       <section id="quotation-acceptance-record" hidden></section>
@@ -82,10 +82,6 @@
         <p class="admin-notice" id="quotation-contract-status"></p>
         <a class="admin-link" id="quotation-prepare-contract" href="create-contract.html">Prepare Contract</a>
         <button type="button" class="admin-help-trigger" data-glossary-key="contract_source_quotation" aria-label="Learn about Contract Source Quotation">i</button>
-      </section>
-      <section id="quotation-commission-action" hidden>
-        <p class="admin-notice">This accepted Quotation can create one canonical Commission.</p>
-        <button type="button" class="admin-button" id="create-commission-from-quotation">Create Commission</button>
       </section>
       <section id="quotation-preview" hidden></section>
     </section>
