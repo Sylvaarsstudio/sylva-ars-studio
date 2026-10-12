@@ -116,8 +116,8 @@ async function listDocuments(db, { commissionId = null, documentType = null } = 
        p.payment_type,
        p.payment_date
      FROM documents d
-     JOIN commissions c ON c.id = d.commission_id
-     JOIN clients cl ON cl.id = c.client_id
+     LEFT JOIN commissions c ON c.id = d.commission_id
+     JOIN clients cl ON cl.id = COALESCE(d.client_id, c.client_id)
      LEFT JOIN payments p ON p.id = d.payment_id
      ${whereClause}
      ORDER BY d.created_at DESC, d.id DESC`,
@@ -131,7 +131,7 @@ async function listDocuments(db, { commissionId = null, documentType = null } = 
     version: row.version,
     created_at: row.created_at,
     file_location: row.file_location,
-    commission: {
+    commission: row.commission_id === null ? null : {
       id: row.commission_id,
       commission_number: row.commission_number,
       title: row.commission_title

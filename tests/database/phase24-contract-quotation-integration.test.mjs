@@ -112,15 +112,21 @@ async function insertQuotation({
   const hash = storedHash || hashQuotationSnapshot(snapshot);
   const quotation = (await db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, quotation_status,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       artwork_width, artwork_height, snapshot_version,
+       quotation_number, version, quotation_status,
        issued_at, accepted_at, expires_at, price, sales_tax_rate,
        sales_tax, shipping_charge, estimated_completion,
        required_deposit_rate, required_deposit, special_terms,
        quotation_snapshot, snapshot_hash
-     ) VALUES ($1, $2, 1, $3, '2026-10-01T16:00:00Z',
-       $4, $5, 400, .07, 28, 25, '2027-04-15', .50, 200,
-       'Accepted special terms.', $6::jsonb, $7) RETURNING id`,
-    [commissionId, number, status, status === "accepted" ? "2026-10-02T16:00:00Z" : null,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, 1, $9,
+       '2026-10-01T16:00:00Z', $10, $11, 400, .07, 28, 25,
+       '2027-04-15', .50, 200, 'Accepted special terms.', $12::jsonb, $13)
+     RETURNING id`,
+    [commissionId, clientId, snapshot.commission.title, snapshot.commission.description,
+     snapshot.commission.medium, snapshot.commission.dimensions.width,
+     snapshot.commission.dimensions.height, number, status,
+     status === "accepted" ? "2026-10-02T16:00:00Z" : null,
      expiresAt, JSON.stringify(snapshot), hash]
   )).rows[0];
   if (withAcceptance) {

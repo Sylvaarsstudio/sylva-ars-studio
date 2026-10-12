@@ -13,13 +13,22 @@ const {
   buildPaymentPayload,
   calculateFinancialPreview,
   createApp,
+  describeActivitySection,
   describeCommissionEvent,
+  describeCommercialSection,
+  describeCommunicationsSection,
   describeDocument,
+  describeDeliverySection,
+  describeDocumentsSection,
+  describeFinancialSection,
+  describeProductionSection,
+  describeTimelineSection,
   formatCurrency,
   inferSalesTaxRate,
   paymentMethodLabels,
   renderCommissionDocumentsMarkup,
   renderCommissionCommunicationsMarkup,
+  renderCommercialSourceMarkup,
   renderCommissionEventsMarkup,
   renderCommissionTimelineMarkup,
   renderNextActionMarkup,
@@ -146,6 +155,15 @@ function createDocument() {
     "#close-commission-detail": createElement(),
     "#edit-commission": createElement(),
     "#change-commission-status": createElement(),
+    "#commission-commercial-source-detail": createElement(),
+    "#commission-commercial-summary": createElement(),
+    "#commission-production-summary": createElement(),
+    "#commission-financial-summary": createElement(),
+    "#commission-delivery-summary": createElement(),
+    "#commission-communications-summary": createElement(),
+    "#commission-documents-summary": createElement(),
+    "#commission-timeline-summary": createElement(),
+    "#commission-activity-summary": createElement(),
     "#commission-payments": createElement(),
     "#payment-list": createElement(),
     "#payment-status": createElement(),
@@ -325,6 +343,10 @@ test("admin commission detail opens", async () => {
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Oil/);
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /commission-status-badge/);
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Draft/);
+  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Commission Overview/);
+  assert.equal(documentObject.elements["#commission-financial-summary"].textContent, "Financial — $0.00 paid · $116.00 outstanding");
+  assert.equal(documentObject.elements["#commission-documents-summary"].textContent, "Documents — None");
+  assert.equal(documentObject.elements["#commission-communications-summary"].textContent, "Communications — None");
 });
 
 test("Back to Commissions restores the list without another request", async () => {
@@ -506,6 +528,84 @@ test("Commission detail includes the derived Next Action card and glossary help"
   assert.match(html, /id="commission-next-action"/);
   assert.match(html, /id="commission-next-action-detail"/);
   assert.match(html, /data-glossary-key="next_action"/);
+});
+
+test("RC2.2 keeps Overview and Next Action visible above eight independently collapsible sections", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  const detail = html.match(/<section class="inquiry-detail-panel commission-detail-card"[\s\S]*?<p class="admin-notice" id="commission-detail-status"/)[0];
+  const sectionIds = [
+    "commission-commercial-section",
+    "commission-production",
+    "commission-financial-section",
+    "commission-delivery-section",
+    "commission-communications-section",
+    "commission-documents-section",
+    "commission-timeline",
+    "commission-activity"
+  ];
+
+  assert.ok(detail.indexOf("commission-detail-fields") < detail.indexOf("commission-section-list"));
+  assert.ok(detail.indexOf("commission-next-action") < detail.indexOf("commission-section-list"));
+  assert.equal((detail.match(/<details class="commission-section"/g) || []).length, 8);
+  assert.doesNotMatch(detail, /<details class="commission-section"[^>]*\sopen(?:\s|>)/);
+  assert.doesNotMatch(detail, /<details class="commission-section"[^>]*\sname=/);
+  for (let index = 1; index < sectionIds.length; index += 1) {
+    assert.ok(detail.indexOf(`id="${sectionIds[index - 1]}"`) < detail.indexOf(`id="${sectionIds[index]}"`));
+  }
+});
+
+test("RC2.2 section summaries use only already-loaded canonical detail data", () => {
+  const canonical = {
+    ...sampleCommission,
+    source_quotation_id: "19",
+    source_quotation_number: "SAS-QUO-2026-0019",
+    source_quotation_version: 1,
+    amount_paid: "450.00",
+    balance: "554.00"
+  };
+  assert.equal(describeCommercialSection(canonical, { eligible: false }), "Commercial — Quote accepted · Contract pending");
+  assert.equal(describeCommercialSection(sampleCommission, null), "Commercial — Legacy record");
+  assert.equal(describeProductionSection({ initialized: true, production_status: "in_progress" }), "Production — In Progress");
+  assert.equal(describeFinancialSection(canonical), "Financial — $450.00 paid · $554.00 outstanding");
+  assert.equal(describeDeliverySection({ initialized: false, delivery: null }), "Delivery — Not configured");
+  assert.equal(describeDeliverySection({ initialized: true, delivery: { delivery_status: "shipped", carrier: "UPS" } }), "Delivery — Shipped · UPS");
+  assert.equal(describeCommunicationsSection([]), "Communications — None");
+  assert.equal(describeCommunicationsSection([{ communication_status: "ready" }, { communication_status: "sent" }]), "Communications — 2 records · 1 Ready");
+  assert.equal(describeDocumentsSection([]), "Documents — None");
+  assert.equal(describeDocumentsSection([{}, {}, {}]), "Documents — 3 issued");
+  assert.equal(describeTimelineSection(new Array(6).fill({})), "Timeline — 6 milestones");
+  assert.equal(describeActivitySection(new Array(18).fill({})), "Activity — 18 events");
+});
+
+test("RC2.2 Commercial keeps canonical source, Acceptance, and Inquiry provenance together", () => {
+  const markup = renderCommercialSourceMarkup({
+    ...sampleCommission,
+    source_quotation_id: "19",
+    source_quotation_number: "SAS-QUO-2026-0019",
+    source_quotation_version: 1,
+    inquiries: [{
+      id: "11111111-1111-4111-8111-111111111111",
+      relationship_type: "origin",
+      form_type: "commission_request",
+      client_name: "Test Client"
+    }]
+  });
+  assert.match(markup, /Source Accepted Quotation/);
+  assert.match(markup, /Recorded with the accepted Source Quotation/);
+  assert.match(markup, /Source Inquiry/);
+  assert.match(markup, /11111111-1111-4111-8111-111111111111/);
+});
+
+test("RC2.2 keeps Communication actions distinct and provides accessible responsive section styling", () => {
+  const html = readFileSync(new URL("../../web/admin/commissions.html", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../web/css/admin.css", import.meta.url), "utf8");
+  assert.match(html, /class="commission-communication-actions"[\s\S]*id="create-communication"[\s\S]*id="new-communication-draft"[\s\S]*id="record-manual-communication"/);
+  assert.match(css, /\.commission-section > summary:focus-visible/);
+  assert.match(css, /\.commission-communication-actions\s*\{[\s\S]*flex-direction:\s*column/);
+  assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.commission-section > summary/);
 });
 
 test("Commission detail includes read-only canonical Financial Obligations", () => {
@@ -1446,50 +1546,30 @@ test("admin commission edit cancel restores read-only detail", async () => {
   assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
 });
 
-test("admin commission form opens", () => {
-  const documentObject = createDocument();
-  const app = createApp(documentObject, async () => jsonResponse({}));
-
-  app.openCreate();
-
-  assert.equal(documentObject.elements["#commission-create"].hidden, false);
-  assert.equal(documentObject.elements["#commission-detail"].hidden, true);
-  assert.equal(documentObject.inputs.sales_tax_rate.value, "0.06");
-  assert.equal(documentObject.inputs.shipping.value, "0");
-});
-
-test("admin commission form uses the approved medium and tax selects", () => {
+test("RC2.1 removes direct Commission creation and routes Admin to Quotations", () => {
   const html = readFileSync(
     new URL("../../web/admin/commissions.html", import.meta.url),
     "utf8"
   );
-  const commissionForms = [
-    html.match(/<form[^>]+id="commission-edit-form"[\s\S]*?<\/form>/)[0],
-    html.match(/<form class="admin-form" id="commission-form"[\s\S]*?<\/form>/)[0]
-  ].join("\n");
+  const editForm = html.match(/<form[^>]+id="commission-edit-form"[\s\S]*?<\/form>/)[0];
 
-  assert.match(html, /<select name="medium" required>/);
+  assert.doesNotMatch(html, /id="new-commission"|id="commission-form"|Prepare Quotation/);
+  assert.match(html, /href="quotations\.html"[^>]*>Quotations</);
+  assert.match(editForm, /<select name="medium" required>/);
   for (const medium of ["Acrylic", "Watercolor", "Oil", "Drawing"]) {
-    assert.match(html, new RegExp(`<option value="${medium}">${medium}</option>`));
+    assert.match(editForm, new RegExp(`<option value="${medium}">${medium}</option>`));
   }
-  assert.doesNotMatch(html, /<input[^>]+name="medium"/);
-  assert.match(html, /<select name="sales_tax_rate" required>/);
+  assert.doesNotMatch(editForm, /<input[^>]+name="medium"/);
+  assert.match(editForm, /<select name="sales_tax_rate" required>/);
   assert.equal(
-    (html.match(/value="0\.00">Outside Pennsylvania — PA sales tax not applicable — 0%/g) || []).length,
-    2
+    (editForm.match(/value="0\.00">Outside Pennsylvania — PA sales tax not applicable — 0%/g) || []).length,
+    1
   );
   assert.equal(
-    (html.match(/value="0\.06" selected>Pennsylvania — 6%/g) || []).length,
-    2
+    (editForm.match(/value="0\.06" selected>Pennsylvania — 6%/g) || []).length,
+    1
   );
-  assert.match(html, /value="0\.07">Allegheny County — 7%/);
-  assert.match(html, /value="0\.08">Philadelphia — 8%/);
-  assert.doesNotMatch(commissionForms, /name="sales_tax"/);
-  assert.match(html, /Required Deposit \(50%\)/);
-  assert.match(html, /Estimated Remaining After Deposit/);
-  assert.match(html, /id="commission-edit-form"/);
-  assert.equal((html.match(/<select name="medium" required>/g) || []).length, 2);
-  assert.equal((html.match(/<select name="sales_tax_rate" required>/g) || []).length, 2);
+  assert.doesNotMatch(editForm, /name="sales_tax"/);
 });
 
 test("admin commission edit exposes no protected inputs", () => {
@@ -1513,58 +1593,6 @@ test("admin commission edit exposes no protected inputs", () => {
   }
 });
 
-test("admin commission client selector loads names and emails", async () => {
-  const documentObject = createDocument();
-  const app = createApp(
-    documentObject,
-    async () => jsonResponse({ success: true, clients: [sampleClient] })
-  );
-
-  await app.loadClients();
-
-  const markup = documentObject.inputs.client_id.innerHTML;
-  assert.match(markup, /value="1"/);
-  assert.match(markup, /Test Client/);
-  assert.match(markup, /test@example\.invalid/);
-});
-
-test("origin inquiry selector shows only inquiries matching the selected client email", () => {
-  const markup = renderOriginInquiryOptions([
-    {
-      id: "11111111-1111-4111-8111-111111111111",
-      form_type: "commission_request",
-      status: "accepted",
-      client_email: " TEST@example.invalid ",
-      created_at: "2026-10-10T10:00:00Z"
-    },
-    {
-      id: "22222222-2222-4222-8222-222222222222",
-      form_type: "contact",
-      status: "new",
-      client_email: "other@example.invalid",
-      created_at: "2026-10-11T10:00:00Z"
-    }
-  ], "test@example.invalid");
-
-  assert.match(markup, /11111111-1111-4111-8111-111111111111/);
-  assert.match(markup, /Commission Request/);
-  assert.doesNotMatch(markup, /22222222-2222-4222-8222-222222222222/);
-});
-
-test("admin commission creation includes an optional origin inquiry id", () => {
-  const documentObject = createDocument();
-  fillValidForm(documentObject);
-  documentObject.inputs.origin_inquiry_id.value =
-    "11111111-1111-4111-8111-111111111111";
-
-  const payload = buildCreatePayload(documentObject.elements["#commission-form"]);
-
-  assert.equal(
-    payload.origin_inquiry_id,
-    "11111111-1111-4111-8111-111111111111"
-  );
-});
-
 test("commission detail renders linked inquiry provenance", () => {
   const inquiries = [{
     id: "11111111-1111-4111-8111-111111111111",
@@ -1575,48 +1603,32 @@ test("commission detail renders linked inquiry provenance", () => {
     relationship_type: "origin",
     created_at: "2026-10-10T10:00:00Z"
   }];
-  const markup = renderDetailMarkup({ ...sampleCommission, inquiries });
+  const markup = renderCommercialSourceMarkup({ ...sampleCommission, inquiries });
 
-  assert.match(markup, /Source \/ Inquiries/);
+  assert.match(markup, /Source Inquiry/);
   assert.match(markup, /Origin/);
   assert.match(markup, /Commission Request/);
   assert.match(markup, /11111111-1111-4111-8111-111111111111/);
   assert.match(renderProvenanceMarkup([]), /No linked inquiries/);
 });
 
-for (const field of ["client_id", "title", "description", "medium", "price"]) {
-  test(`admin commission form rejects an empty ${field}`, () => {
-    const documentObject = createDocument();
-    fillValidForm(documentObject);
-    documentObject.inputs[field].value = "   ";
-
-    assert.throws(
-      () => buildCreatePayload(documentObject.elements["#commission-form"]),
-      /required/
-    );
+test("commission detail identifies its canonical source Quotation without fabricating one for legacy records", () => {
+  const canonical = renderCommercialSourceMarkup({
+    ...sampleCommission,
+    source_quotation_id: "19",
+    source_quotation_number: "SAS-QUO-2026-0019",
+    source_quotation_version: 2
   });
-}
-
-test("admin commission creation sends normalized values", async () => {
-  const documentObject = createDocument();
-  const calls = [];
-  const app = createApp(documentObject, async (url, options) => {
-    calls.push({ url, options });
-    return jsonResponse({ success: true, commission: sampleCommission }, 201);
+  const legacy = renderCommercialSourceMarkup({
+    ...sampleCommission,
+    source_quotation_id: null,
+    source_quotation_number: null,
+    source_quotation_version: null
   });
-  fillValidForm(documentObject);
 
-  await app.submitCreate();
-
-  const payload = JSON.parse(calls[0].options.body);
-  assert.equal(calls[0].url, "/admin/api/commissions");
-  assert.equal(calls[0].options.method, "POST");
-  assert.equal(payload.client_id, "1");
-  assert.equal(payload.title, "Test Commission");
-  assert.equal(payload.price, 100);
-  assert.equal(payload.sales_tax_rate, "0.06");
-  assert.equal(Object.hasOwn(payload, "sales_tax"), false);
-  assert.equal(payload.estimated_completion, null);
+  assert.match(canonical, /quotation\.html\?id=19/);
+  assert.match(canonical, /SAS-QUO-2026-0019 · v2/);
+  assert.match(legacy, /Legacy Commission — no canonical source quotation/);
 });
 
 test("admin commission edit payload contains only approved fields", () => {
@@ -1637,50 +1649,6 @@ test("admin commission edit payload contains only approved fields", () => {
   ]);
   assert.equal(Object.hasOwn(payload, "client_id"), false);
   assert.equal(Object.hasOwn(payload, "sales_tax"), false);
-});
-
-test("admin commission financial preview calculates the required deposit", () => {
-  const documentObject = createDocument();
-  const app = createApp(documentObject, async () => jsonResponse({}));
-  documentObject.inputs.price.value = "400";
-  documentObject.inputs.sales_tax_rate.value = "0.06";
-  documentObject.inputs.shipping.value = "20";
-
-  const preview = app.updateFinancialPreview();
-
-  assert.deepEqual(preview, {
-    salesTaxCents: 2400,
-    requiredDepositCents: 20000,
-    estimatedRemainingCents: 24400
-  });
-  assert.equal(documentObject.elements["#sales-tax-preview"].textContent, "$24.00");
-  assert.equal(documentObject.elements["#required-deposit-preview"].textContent, "$200.00");
-  assert.equal(
-    documentObject.elements["#remaining-after-deposit-preview"].textContent,
-    "$244.00"
-  );
-});
-
-test("admin commission zero-tax preview preserves deposit and shipping", () => {
-  const documentObject = createDocument();
-  const app = createApp(documentObject, async () => jsonResponse({}));
-  documentObject.inputs.price.value = "400";
-  documentObject.inputs.sales_tax_rate.value = "0.00";
-  documentObject.inputs.shipping.value = "20";
-
-  const preview = app.updateFinancialPreview();
-
-  assert.deepEqual(preview, {
-    salesTaxCents: 0,
-    requiredDepositCents: 20000,
-    estimatedRemainingCents: 22000
-  });
-  assert.equal(documentObject.elements["#sales-tax-preview"].textContent, "$0.00");
-  assert.equal(documentObject.elements["#required-deposit-preview"].textContent, "$200.00");
-  assert.equal(
-    documentObject.elements["#remaining-after-deposit-preview"].textContent,
-    "$220.00"
-  );
 });
 
 test("admin commission required deposit changes only with price", () => {
@@ -1752,22 +1720,6 @@ test("admin commission detail separates required and received deposits", () => {
   assert.match(markup, /\$200\.00/);
   assert.match(markup, /Deposit Amount/);
   assert.match(markup, /\$0\.00/);
-});
-
-test("admin commission creation updates the list and detail", async () => {
-  const documentObject = createDocument();
-  const app = createApp(
-    documentObject,
-    async () => jsonResponse({ success: true, commission: sampleCommission }, 201)
-  );
-  fillValidForm(documentObject);
-
-  await app.submitCreate();
-
-  assert.equal(documentObject.elements["#commission-count"].textContent, "1");
-  assert.match(documentObject.elements["#commission-list"].innerHTML, /SAS-COM-2026-0001/);
-  assert.match(documentObject.elements["#commission-detail-fields"].innerHTML, /Test Commission/);
-  assert.equal(documentObject.elements["#commission-detail-status"].textContent, "Commission created.");
 });
 
 test("admin commission edit uses PATCH and updates list and detail", async () => {

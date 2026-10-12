@@ -75,7 +75,18 @@ function request(path, method = "GET", body) {
 }
 
 async function createDraft(body = {}) {
-  return request(`/admin/api/commissions/${commissionId}/quotations`, "POST", body);
+  return request(`/admin/api/clients/${clientId}/quotations`, "POST", {
+    artwork_title: "Portrait",
+    artwork_description: "Commission scope",
+    artwork_medium: "Oil",
+    artwork_width: "20",
+    artwork_height: "24",
+    price: "400.00",
+    sales_tax_rate: "0.06",
+    shipping_charge: "20.00",
+    estimated_completion: "2027-02-15",
+    ...body
+  });
 }
 
 test("quotation migration creates the versioned schema and document relationship", async () => {
@@ -95,48 +106,60 @@ test("quotation migration creates the versioned schema and document relationship
 test("quotation status, commercial checks, and supersedes FK are enforced", async () => {
   await assert.rejects(
     db.pool.query(`INSERT INTO quotations (
-      commission_id, quotation_number, version, quotation_status, price,
+      commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+      quotation_number, version, quotation_status, price,
       sales_tax_rate, sales_tax, shipping_charge, required_deposit_rate, required_deposit
-    ) VALUES ($1, 'SAS-QUO-2026-9901', 1, 'cancelled', 100, .06, 6, 0, .50, 50)`, [commissionId])
+    ) VALUES ($1, $2, 'Portrait', 'Scope', 'Oil', 'SAS-QUO-2026-9901', 1,
+      'cancelled', 100, .06, 6, 0, .50, 50)`, [commissionId, clientId])
   );
   await assert.rejects(
     db.pool.query(`INSERT INTO quotations (
-      commission_id, quotation_number, version, price, sales_tax_rate,
+      commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+      quotation_number, version, price, sales_tax_rate,
       sales_tax, shipping_charge, required_deposit_rate, required_deposit
-    ) VALUES ($1, 'SAS-QUO-2026-9902', 1, -1, .06, 0, 0, .50, 0)`, [commissionId])
+    ) VALUES ($1, $2, 'Portrait', 'Scope', 'Oil', 'SAS-QUO-2026-9902', 1,
+      -1, .06, 0, 0, .50, 0)`, [commissionId, clientId])
   );
   await assert.rejects(
     db.pool.query(`INSERT INTO quotations (
-      commission_id, quotation_number, version, supersedes_quotation_id,
+      commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+      quotation_number, version, supersedes_quotation_id,
       price, sales_tax_rate, sales_tax, shipping_charge,
       required_deposit_rate, required_deposit
-    ) VALUES ($1, 'SAS-QUO-2026-9903', 2, 999999, 100, .06, 6, 0, .50, 50)`, [commissionId])
+    ) VALUES ($1, $2, 'Portrait', 'Scope', 'Oil', 'SAS-QUO-2026-9903', 2,
+      999999, 100, .06, 6, 0, .50, 50)`, [commissionId, clientId])
   );
 });
 
 test("quotation family versions and request ids are unique", async () => {
   const requestId = randomUUID();
   await db.pool.query(`INSERT INTO quotations (
-    commission_id, quotation_number, version, price, sales_tax_rate,
+    commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+    quotation_number, version, price, sales_tax_rate,
     sales_tax, shipping_charge, required_deposit_rate, required_deposit, request_id
-  ) VALUES ($1, 'SAS-QUO-2026-9904', 1, 100, .06, 6, 0, .50, 50, $2)`, [commissionId, requestId]);
+  ) VALUES ($1, $2, 'Portrait', 'Scope', 'Oil', 'SAS-QUO-2026-9904', 1,
+    100, .06, 6, 0, .50, 50, $3)`, [commissionId, clientId, requestId]);
   await assert.rejects(
     db.pool.query(`INSERT INTO quotations (
-      commission_id, quotation_number, version, price, sales_tax_rate,
+      commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+      quotation_number, version, price, sales_tax_rate,
       sales_tax, shipping_charge, required_deposit_rate, required_deposit
-    ) VALUES ($1, 'SAS-QUO-2026-9904', 1, 100, .06, 6, 0, .50, 50)`, [commissionId])
+    ) VALUES ($1, $2, 'Portrait', 'Scope', 'Oil', 'SAS-QUO-2026-9904', 1,
+      100, .06, 6, 0, .50, 50)`, [commissionId, clientId])
   );
   await assert.rejects(
     db.pool.query(`INSERT INTO quotations (
-      commission_id, quotation_number, version, price, sales_tax_rate,
+      commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+      quotation_number, version, price, sales_tax_rate,
       sales_tax, shipping_charge, required_deposit_rate, required_deposit, request_id
-    ) VALUES ($1, 'SAS-QUO-2026-9905', 1, 100, .06, 6, 0, .50, 50, $2)`, [commissionId, requestId])
+    ) VALUES ($1, $2, 'Portrait', 'Scope', 'Oil', 'SAS-QUO-2026-9905', 1,
+      100, .06, 6, 0, .50, 50, $3)`, [commissionId, clientId, requestId])
   );
 });
 
 test("quotation routes are protected valid strings", () => {
   assert.ok(Array.isArray(config.path));
-  assert.equal(config.path.length, 6);
+  assert.equal(config.path.length, 9);
   assert.ok(config.path.every((path) => typeof path === "string" && path.startsWith("/admin/")));
 });
 
@@ -147,7 +170,7 @@ test("30-calendar-day expiry preserves America/New_York wall time across DST", (
   );
 });
 
-test("draft initializes from mutable commission commercial values", async () => {
+test("pre-Commission draft initializes from Client-owned commercial input", async () => {
   const response = await createDraft({ request_id: randomUUID() });
   assert.equal(response.status, 201);
   const quotation = (await response.json()).quotation;
@@ -182,7 +205,7 @@ test("concurrent draft retries create one quotation", async () => {
   assert.equal((await db.pool.query(
     "SELECT count(*)::integer AS count FROM commission_events WHERE event_type = 'quotation_created' AND request_id = $1",
     [requestId]
-  )).rows[0].count, 1);
+  )).rows[0].count, 0);
 });
 
 test("concurrent distinct drafts receive distinct quotation numbers", async () => {
@@ -224,7 +247,7 @@ test("issue freezes snapshot, hash, expiry, and matching quotation document", as
   assert.equal(document.document_number, quotation.quotation_number);
   assert.equal(document.version, 1);
   assert.deepEqual(document.document_snapshot, quotation.quotation_snapshot);
-  const listed = await listDocuments(db, { commissionId: String(commissionId), documentType: "quotation" });
+  const listed = await listDocuments(db, { documentType: "quotation" });
   assert.equal(listed.length, 1);
   assert.equal(listed[0].quotation.id, draft.id);
 });
@@ -258,7 +281,7 @@ test("concurrent issue is idempotent and creates one document", async () => {
   assert.equal((await db.pool.query(
     "SELECT count(*)::integer AS count FROM commission_events WHERE event_type = 'quotation_issued' AND source_id = $1",
     [String(draft.id)]
-  )).rows[0].count, 1);
+  )).rows[0].count, 0);
 });
 
 test("mark sent and withdraw enforce the approved transitions", async () => {

@@ -81,9 +81,19 @@ function invoke(handler, path, method = "GET", body, authenticated = true) {
 async function createIssuedQuotation() {
   const draftResponse = await invoke(
     quotationHandler,
-    `/admin/api/commissions/${commissionId}/quotations`,
+    `/admin/api/clients/${clientId}/quotations`,
     "POST",
-    { request_id: randomUUID() }
+    {
+      artwork_title: "Acceptance Portrait",
+      artwork_description: "Scope",
+      artwork_medium: "Oil",
+      artwork_width: "20",
+      artwork_height: "24",
+      price: "400.00",
+      sales_tax_rate: "0.06",
+      shipping_charge: "20.00",
+      request_id: randomUUID()
+    }
   );
   const draft = (await draftResponse.json()).quotation;
   const issuedResponse = await invoke(quotationHandler, `/admin/api/quotations/${draft.id}/issue`, "POST");
@@ -209,7 +219,7 @@ test("quotation acceptance is recorded from immutable server truth", async () =>
   const acceptance = (await response.json()).acceptance;
   assert.equal(acceptance.acceptance_type, "quotation");
   assert.equal(String(acceptance.quotation_id), String(quotation.id));
-  assert.equal(String(acceptance.commission_id), String(commissionId));
+  assert.equal(acceptance.commission_id, null);
   assert.equal(String(acceptance.client_id), String(clientId));
   assert.equal(acceptance.subject_number, quotation.quotation_number);
   assert.equal(acceptance.subject_version, quotation.version);
@@ -228,9 +238,17 @@ test("sent quotation can be accepted", async () => {
 test("draft quotation cannot be accepted", async () => {
   const draftResponse = await invoke(
     quotationHandler,
-    `/admin/api/commissions/${commissionId}/quotations`,
+    `/admin/api/clients/${clientId}/quotations`,
     "POST",
-    { request_id: randomUUID() }
+    {
+      artwork_title: "Acceptance Portrait",
+      artwork_description: "Scope",
+      artwork_medium: "Oil",
+      price: "400.00",
+      sales_tax_rate: "0.06",
+      shipping_charge: "20.00",
+      request_id: randomUUID()
+    }
   );
   const draft = (await draftResponse.json()).quotation;
   assert.equal((await accept(draft.id)).status, 409);
@@ -254,7 +272,7 @@ test("acceptance and quotation accepted transition commit atomically", async () 
      FROM commission_events
      WHERE event_type = 'quotation_accepted'
        AND source_type = 'acceptance'`,
-  )).rows[0].count, 1);
+  )).rows[0].count, 0);
 });
 
 test("same request id is idempotent", async () => {
@@ -281,7 +299,7 @@ test("concurrent duplicate acceptance creates one effective record", async () =>
      FROM commission_events
      WHERE event_type = 'quotation_accepted'
        AND source_type = 'acceptance'`,
-  )).rows[0].count, 1);
+  )).rows[0].count, 0);
 });
 
 test("a second effective acceptance with a new intent is rejected", async () => {
@@ -316,12 +334,14 @@ test("withdrawn declined expired and superseded quotations are rejected", async 
 test("database prevents an issued or sent quotation without snapshot evidence", async () => {
   await assert.rejects(db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, quotation_status,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       quotation_number, version, quotation_status,
        issued_at, expires_at, price, sales_tax_rate, sales_tax,
        shipping_charge, required_deposit_rate, required_deposit
-     ) VALUES ($1, 'SAS-QUO-2026-9993', 1, 'issued', NOW(), NOW() + INTERVAL '30 days',
+     ) VALUES ($1, $2, 'Acceptance Portrait', 'Scope', 'Oil',
+       'SAS-QUO-2026-9993', 1, 'issued', NOW(), NOW() + INTERVAL '30 days',
        400, .06, 24, 20, .50, 200)`,
-    [commissionId]
+    [commissionId, clientId]
   ));
 });
 
@@ -329,13 +349,15 @@ test("tampered snapshot hash is rejected", async () => {
   const snapshot = { immutable: "snapshot" };
   const quotationId = (await db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, quotation_status,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       quotation_number, version, quotation_status,
        issued_at, expires_at, price, sales_tax_rate, sales_tax,
        shipping_charge, required_deposit_rate, required_deposit,
        quotation_snapshot, snapshot_hash
-     ) VALUES ($1, 'SAS-QUO-2026-9991', 1, 'issued', $2, $3,
-       400, .06, 24, 20, .50, 200, $4::jsonb, $5) RETURNING id`,
-    [commissionId, issuedNow, new Date("2026-11-10T17:00:00Z"), JSON.stringify(snapshot), "0".repeat(64)]
+     ) VALUES ($1, $2, 'Acceptance Portrait', 'Scope', 'Oil',
+       'SAS-QUO-2026-9991', 1, 'issued', $3, $4,
+       400, .06, 24, 20, .50, 200, $5::jsonb, $6) RETURNING id`,
+    [commissionId, clientId, issuedNow, new Date("2026-11-10T17:00:00Z"), JSON.stringify(snapshot), "0".repeat(64)]
   )).rows[0].id;
   const response = await accept(quotationId);
   assert.equal(response.status, 409);

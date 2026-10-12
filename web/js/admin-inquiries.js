@@ -185,6 +185,7 @@
       statusForm: documentObject.querySelector("#inquiry-status-form"),
       statusSelect: documentObject.querySelector("#inquiry-status"),
       convertClient: documentObject.querySelector("#convert-inquiry-client"),
+      createQuotation: documentObject.querySelector("#create-inquiry-quotation"),
       closeDetail: documentObject.querySelector("#close-inquiry-detail")
     };
     let selectedInquiryId = "";
@@ -303,6 +304,10 @@
         elements.detailStatus.textContent = body.created
           ? "Client created."
           : "Existing client linked/found.";
+        if (elements.createQuotation && body.client?.id) {
+          elements.createQuotation.href = `quotation.html?client_id=${encodeURIComponent(body.client.id)}&inquiry_id=${encodeURIComponent(selectedInquiryId)}`;
+          elements.createQuotation.hidden = false;
+        }
         return body;
       } catch (error) {
         showError(elements.detailStatus, error);
@@ -329,6 +334,7 @@
         elements.detail.hidden = true;
         selectedInquiryId = "";
         selectedInquiry = null;
+        if (elements.createQuotation) elements.createQuotation.hidden = true;
         updateConversionAction();
       });
     }

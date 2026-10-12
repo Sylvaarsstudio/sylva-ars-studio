@@ -210,15 +210,12 @@ function resolveCommissionNextAction({
 
   if (selection.outcome === "no_quotation") {
     return createNextAction({
-      code: "prepare_quotation",
-      state: "action",
-      label: "Prepare Quotation",
-      reason: "This Commission has no Quotation yet.",
+      code: "legacy_commission_no_source_quotation",
+      state: "none",
+      label: "Legacy Commission",
+      reason: "Legacy Commission — no canonical source quotation. New Quotations are created before a Commission exists.",
       domain: "quotation",
-      target: {
-        label: "Prepare Quotation",
-        href: `/admin/quotation.html?commission_id=${encodeURIComponent(commission.id)}`
-      }
+      blockingReason: "legacy_commission_no_source_quotation"
     });
   }
 

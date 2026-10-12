@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quotations | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/admin.css">
+</head>
+<body>
+  <main class="admin-page">
+    <header class="admin-header">
+      <div><h1>Quotations</h1><p>Review pre-Commission commercial quotations.</p></div>
+      <nav class="admin-header-actions"><a href="dashboard.html" class="admin-link">Dashboard</a><a href="clients.html" class="admin-link">Clients</a><a href="commissions.html" class="admin-link">Commissions</a><a href="/admin-logout" class="admin-link">Log out</a></nav>
+    </header>
+    <label>Status <select id="quotation-status-filter"><option value="">All</option><option value="draft">Draft</option><option value="issued">Issued</option><option value="sent">Sent</option><option value="accepted">Accepted</option><option value="declined">Declined</option><option value="expired">Expired</option><option value="superseded">Superseded</option><option value="withdrawn">Withdrawn</option></select></label>
+    <p class="admin-notice" id="quotation-list-status" aria-live="polite"></p>
+    <div class="inquiry-table-wrap"><table class="inquiry-table"><thead><tr><th>Client</th><th>Number</th><th>Version</th><th>Status</th><th>Total</th><th>Issued</th><th>Expires</th><th></th></tr></thead><tbody id="quotation-list"></tbody></table></div>
+  </main>
+  <script src="../js/admin-quotations.js"></script>
+</body>
+</html>

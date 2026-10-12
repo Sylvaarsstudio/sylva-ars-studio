@@ -90,16 +90,18 @@ beforeEach(async () => {
   snapshot.commission.commission_id = String(commissionId);
   quotationId = (await db.pool.query(
     `INSERT INTO quotations (
-       commission_id, quotation_number, version, quotation_status,
+       commission_id, client_id, artwork_title, artwork_description, artwork_medium,
+       snapshot_version, quotation_number, version, quotation_status,
        issued_at, accepted_at, expires_at, price, sales_tax_rate, sales_tax,
        shipping_charge, estimated_completion, required_deposit,
        quotation_snapshot, snapshot_hash
      ) VALUES (
-       $1, 'SAS-QUO-2026-9911', 1, 'accepted',
+       $1, $2, 'Live Title', 'Portrait', 'Oil', 1,
+       'SAS-QUO-2026-9911', 1, 'accepted',
        '2026-10-11T16:00:00Z', '2026-10-12T16:00:00Z', '2026-11-10T17:00:00Z',
-       400, 0.06, 24, 20, '2027-02-15', 200, $2::jsonb, $3
+       400, 0.06, 24, 20, '2027-02-15', 200, $3::jsonb, $4
      ) RETURNING id`,
-    [commissionId, JSON.stringify(snapshot), "a".repeat(64)]
+    [commissionId, clientId, JSON.stringify(snapshot), "a".repeat(64)]
   )).rows[0].id;
 });
 
