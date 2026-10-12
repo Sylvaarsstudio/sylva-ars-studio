@@ -26,6 +26,7 @@ before(async () => {
 });
 
 afterEach(async () => {
+  await db?.pool.query("DELETE FROM communications");
   await db?.pool.query("DELETE FROM inquiries");
 });
 
@@ -80,7 +81,7 @@ test("phase 7 creates and returns a real contact inquiry", async () => {
   assert.equal(inquiry.client_name, "Test Client");
   assert.equal(inquiry.client_email, "inquiry-function@sylvaarsstudio.invalid");
   assert.equal(inquiry.message, "A valid inquiry message.");
-  assert.equal(inquiry.source_submission_id, null);
+  assert.match(inquiry.source_submission_id, uuidPattern);
 
   const relatedCounts = await db.pool.query(`
     SELECT

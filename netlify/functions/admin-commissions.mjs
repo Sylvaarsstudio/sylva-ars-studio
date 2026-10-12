@@ -1,9 +1,30 @@
 import { getDatabase } from "@netlify/database";
 
 import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import {
+  createCommissionDelivery,
+  enterCommissionStorage,
+  evaluateDeliveryReleaseEligibility,
+  normalizeDeliveryCreate,
+  normalizeDeliveryTransition,
+  normalizeDeliveryUpdate,
+  recordStorageNotice,
+  readCommissionDelivery,
+  transitionCommissionDelivery,
+  updateCommissionDelivery
+} from "../shared/commission-delivery.mjs";
+import { appendCommissionEvent } from "../shared/commission-events.mjs";
+import { readCommissionNextAction } from "../shared/commission-next-action.mjs";
+import { readCommissionObligations } from "../shared/commission-obligations.mjs";
+import {
+  initializeCommissionProduction,
+  readCommissionProduction
+} from "../shared/commission-production.mjs";
 
 const API_PATH = "/admin/api/commissions";
 const commissionIdPattern = /^[1-9][0-9]*$/;
+const inquiryIdPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const commissionNumberLockNamespace = 20260910;
 const allowedMediums = new Set([
   "Acrylic",
@@ -43,7 +64,8 @@ const createFields = new Set([
   "price",
   "sales_tax_rate",
   "shipping",
-  "estimated_completion"
+  "estimated_completion",
+  "origin_inquiry_id"
 ]);
 const editFields = new Set([
   "title",
@@ -115,6 +137,99 @@ function getCommissionStatusId(pathname) {
     return decodeURIComponent(segments[0]);
   } catch {
     return undefined;
+  }
+}
+
+function getCommissionEventsId(pathname) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const match = normalizedPath.match(/^\/admin\/api\/commissions\/([^/]+)\/events$/);
+
+  if (!match) return null;
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+function getCommissionProductionId(pathname) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const match = normalizedPath.match(/^\/admin\/api\/commissions\/([^/]+)\/production$/);
+
+  if (!match) return null;
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+function getCommissionNextActionId(pathname) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const match = normalizedPath.match(/^\/admin\/api\/commissions\/([^/]+)\/next-action$/);
+
+  if (!match) return null;
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+function getCommissionObligationsId(pathname) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const match = normalizedPath.match(/^\/admin\/api\/commissions\/([^/]+)\/obligations$/);
+
+  if (!match) return null;
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+function getCommissionDeliveryId(pathname) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const match = normalizedPath.match(/^\/admin\/api\/commissions\/([^/]+)\/delivery$/);
+
+  if (!match) return null;
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+function getCommissionDeliveryTransitionId(pathname) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const match = normalizedPath.match(
+    /^\/admin\/api\/commissions\/([^/]+)\/delivery\/transition$/
+  );
+
+  if (!match) return null;
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+function getCommissionDeliveryStorageAction(pathname) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const match = normalizedPath.match(
+    /^\/admin\/api\/commissions\/([^/]+)\/delivery\/(storage|storage-notice|final-notice)$/
+  );
+  if (!match) return null;
+  try {
+    return { commissionId: decodeURIComponent(match[1]), action: match[2] };
+  } catch {
+    return { commissionId: undefined, action: match[2] };
   }
 }
 
@@ -260,6 +375,9 @@ function normalizeCommissionCreate(data) {
     defaultValue: 0
   });
   const estimatedCompletion = normalizeDate(data.estimated_completion);
+  const originInquiryId = typeof data.origin_inquiry_id === "string"
+    ? data.origin_inquiry_id.trim()
+    : data.origin_inquiry_id;
   const firstError = [
     title,
     description,
@@ -280,6 +398,15 @@ function normalizeCommissionCreate(data) {
     return { error: "Medium is unsupported." };
   }
 
+  if (
+    originInquiryId !== null
+    && originInquiryId !== undefined
+    && originInquiryId !== ""
+    && !inquiryIdPattern.test(originInquiryId)
+  ) {
+    return { error: "Origin inquiry id is invalid." };
+  }
+
   const salesTaxCents = Math.round(price.cents * salesTaxRate.percent / 100);
 
   return {
@@ -293,7 +420,8 @@ function normalizeCommissionCreate(data) {
       price: price.value,
       sales_tax: formatCents(salesTaxCents),
       shipping: shipping.value,
-      estimated_completion: estimatedCompletion.value
+      estimated_completion: estimatedCompletion.value,
+      origin_inquiry_id: originInquiryId || null
     }
   };
 }
@@ -423,7 +551,34 @@ async function getCommission(db, id) {
     [id]
   );
 
-  return result.rows[0] || null;
+  const commission = result.rows[0];
+
+  if (!commission) {
+    return null;
+  }
+
+  commission.inquiries = await getCommissionInquiries(db.pool, id);
+  return commission;
+}
+
+async function getCommissionInquiries(queryable, commissionId) {
+  const result = await queryable.query(
+    `SELECT
+       i.id,
+       i.form_type,
+       i.status,
+       i.client_name,
+       i.client_email,
+       i.created_at,
+       ci.relationship_type
+     FROM commission_inquiries AS ci
+     JOIN inquiries AS i ON i.id = ci.inquiry_id
+     WHERE ci.commission_id = $1
+     ORDER BY ci.created_at ASC, i.created_at ASC`,
+    [commissionId]
+  );
+
+  return result.rows;
 }
 
 async function createCommission(db, data, year = new Date().getUTCFullYear()) {
@@ -442,6 +597,28 @@ async function createCommission(db, data, year = new Date().getUTCFullYear()) {
     if (!client) {
       await connection.query("ROLLBACK");
       return { outcome: "client_not_found" };
+    }
+
+    if (data.origin_inquiry_id) {
+      const inquiryResult = await connection.query(
+        `SELECT
+           id,
+           lower(btrim(client_email)) = lower(btrim($2)) AS client_matches
+         FROM inquiries
+         WHERE id = $1`,
+        [data.origin_inquiry_id, client.email]
+      );
+      const inquiry = inquiryResult.rows[0];
+
+      if (!inquiry) {
+        await connection.query("ROLLBACK");
+        return { outcome: "inquiry_not_found" };
+      }
+
+      if (!inquiry.client_matches) {
+        await connection.query("ROLLBACK");
+        return { outcome: "inquiry_client_mismatch" };
+      }
     }
 
     await connection.query(
@@ -488,6 +665,37 @@ async function createCommission(db, data, year = new Date().getUTCFullYear()) {
         data.estimated_completion
       ]
     );
+
+    await initializeCommissionProduction(
+      connection,
+      insertedResult.rows[0].id,
+      new Date()
+    );
+
+    if (data.origin_inquiry_id) {
+      await connection.query(
+        `INSERT INTO commission_inquiries (
+           commission_id,
+           inquiry_id,
+           relationship_type
+         )
+         VALUES ($1, $2, 'origin')`,
+        [insertedResult.rows[0].id, data.origin_inquiry_id]
+      );
+      await appendCommissionEvent(connection, {
+        commissionId: insertedResult.rows[0].id,
+        eventType: "inquiry_linked",
+        actorType: "admin",
+        sourceType: "inquiry",
+        sourceId: data.origin_inquiry_id,
+        payload: { relationship_type: "origin" }
+      });
+    }
+
+    const inquiries = await getCommissionInquiries(
+      connection,
+      insertedResult.rows[0].id
+    );
     const commissionResult = await connection.query(
       `SELECT
          c.id,
@@ -517,7 +725,10 @@ async function createCommission(db, data, year = new Date().getUTCFullYear()) {
     await connection.query("COMMIT");
     return {
       outcome: "success",
-      commission: commissionResult.rows[0]
+      commission: {
+        ...commissionResult.rows[0],
+        inquiries
+      }
     };
   } catch (error) {
     await connection.query("ROLLBACK");
@@ -628,6 +839,18 @@ async function updateCommissionStatus(db, id, status) {
       [status, id]
     );
 
+    await appendCommissionEvent(connection, {
+      commissionId: id,
+      eventType: "commission_status_changed",
+      actorType: "admin",
+      sourceType: "commission",
+      sourceId: id,
+      payload: {
+        previous_status: current.status,
+        new_status: status
+      }
+    });
+
     await connection.query("COMMIT");
     return {
       outcome: "success",
@@ -641,6 +864,25 @@ async function updateCommissionStatus(db, id, status) {
   }
 }
 
+async function listCommissionEvents(db, commissionId) {
+  const commission = await db.pool.query(
+    "SELECT id FROM commissions WHERE id = $1",
+    [commissionId]
+  );
+  if (!commission.rows[0]) return null;
+
+  const result = await db.pool.query(
+    `SELECT id, event_type, occurred_at, actor_type,
+            source_type, source_id, payload
+     FROM commission_events
+     WHERE commission_id = $1
+     ORDER BY occurred_at DESC, id DESC`,
+    [commissionId]
+  );
+
+  return result.rows;
+}
+
 function logFailure(action, error, details = {}) {
   console.error("Admin commission request failed.", {
     action,
@@ -652,7 +894,8 @@ function logFailure(action, error, details = {}) {
 
 function createHandler({
   databaseFactory = getDatabase,
-  environmentReader = readEnvironmentVariable
+  environmentReader = readEnvironmentVariable,
+  now = () => new Date()
 } = {}) {
   return async function handler(request) {
     const adminPassword = environmentReader("ADMIN_PASSWORD");
@@ -674,6 +917,326 @@ function createHandler({
     }
 
     const pathname = new URL(request.url).pathname;
+    const deliveryStorageAction = getCommissionDeliveryStorageAction(pathname);
+
+    if (deliveryStorageAction !== null) {
+      const { commissionId, action } = deliveryStorageAction;
+      if (commissionId === undefined || !commissionIdPattern.test(commissionId)) {
+        return jsonResponse(400, { success: false, message: "Invalid commission id." });
+      }
+      if (request.method !== "POST") {
+        return jsonResponse(405, { success: false, message: "Method not allowed. Use POST." });
+      }
+      const requestNow = now();
+      try {
+        const result = action === "storage"
+          ? await enterCommissionStorage(databaseFactory(), commissionId, {
+              now: () => requestNow
+            })
+          : await recordStorageNotice(databaseFactory(), commissionId, {
+              now: () => requestNow,
+              final: action === "final-notice"
+            });
+        if (result.outcome === "not_found") {
+          return jsonResponse(404, { success: false, message: "Commission not found." });
+        }
+        if (result.outcome === "not_initialized") {
+          return jsonResponse(404, { success: false, message: "Delivery is not initialized." });
+        }
+        if (["invalid_transition", "not_in_storage", "conflict"].includes(result.outcome)) {
+          return jsonResponse(409, {
+            success: false,
+            message: action === "storage"
+              ? "This Delivery cannot enter Storage from its current status."
+              : "This notice can only be recorded once while the Delivery is in Storage."
+          });
+        }
+        return jsonResponse(200, {
+          success: true,
+          created: result.outcome === "success",
+          delivery: result.delivery
+        });
+      } catch (error) {
+        logFailure(`delivery_${action}`, error, { commission_id: commissionId });
+        return jsonResponse(500, {
+          success: false,
+          message: "Unable to complete the Storage action."
+        });
+      }
+    }
+
+    const deliveryTransitionCommissionId = getCommissionDeliveryTransitionId(pathname);
+
+    if (deliveryTransitionCommissionId !== null) {
+      if (
+        deliveryTransitionCommissionId === undefined
+        || !commissionIdPattern.test(deliveryTransitionCommissionId)
+      ) {
+        return jsonResponse(400, { success: false, message: "Invalid commission id." });
+      }
+      if (request.method !== "POST") {
+        return jsonResponse(405, { success: false, message: "Method not allowed. Use POST." });
+      }
+      const requestNow = now();
+      const normalized = normalizeDeliveryTransition(await parseJsonBody(request), requestNow);
+      if (normalized.error) {
+        return jsonResponse(400, { success: false, message: normalized.error });
+      }
+      try {
+        const result = await transitionCommissionDelivery(
+          databaseFactory(),
+          deliveryTransitionCommissionId,
+          normalized.transition,
+          { now: () => requestNow }
+        );
+        if (result.outcome === "not_found") {
+          return jsonResponse(404, { success: false, message: "Commission not found." });
+        }
+        if (result.outcome === "not_initialized") {
+          return jsonResponse(404, { success: false, message: "Delivery is not initialized." });
+        }
+        if (result.outcome === "terminal") {
+          return jsonResponse(409, { success: false, message: "Terminal Delivery records cannot be changed." });
+        }
+        if (result.outcome !== "success") {
+          const messages = {
+            shipping_destination_incomplete: "Recipient and complete destination are required before shipping.",
+            carrier_required: "Carrier is required before shipping.",
+            canonical_obligations_outstanding: "Every canonical Financial Obligation must be satisfied, waived, or voided before artwork release.",
+            invalid_transition: "The requested Delivery transition is not allowed."
+          };
+          return jsonResponse(409, {
+            success: false,
+            message: messages[result.outcome] || "The requested Delivery transition is not allowed."
+          });
+        }
+        return jsonResponse(200, { success: true, delivery: result.delivery });
+      } catch (error) {
+        logFailure("delivery_transition", error, { commission_id: deliveryTransitionCommissionId });
+        return jsonResponse(500, { success: false, message: "Unable to transition Delivery." });
+      }
+    }
+
+    const deliveryCommissionId = getCommissionDeliveryId(pathname);
+
+    if (deliveryCommissionId !== null) {
+      if (
+        deliveryCommissionId === undefined
+        || !commissionIdPattern.test(deliveryCommissionId)
+      ) {
+        return jsonResponse(400, { success: false, message: "Invalid commission id." });
+      }
+      try {
+        const db = databaseFactory();
+        if (request.method === "GET") {
+          const requestNow = now();
+          const [result, releaseEligibility] = await Promise.all([
+            readCommissionDelivery(db, deliveryCommissionId, { now: requestNow }),
+            evaluateDeliveryReleaseEligibility(db.pool, deliveryCommissionId)
+          ]);
+          if (!result) {
+            return jsonResponse(404, { success: false, message: "Commission not found." });
+          }
+          return jsonResponse(200, {
+            success: true,
+            commission_id: String(deliveryCommissionId),
+            ...result,
+            release_eligibility: releaseEligibility
+          });
+        }
+
+        if (request.method === "POST") {
+          const normalized = normalizeDeliveryCreate(await parseJsonBody(request));
+          if (normalized.error) {
+            return jsonResponse(400, { success: false, message: normalized.error });
+          }
+          const requestNow = now();
+          const result = await createCommissionDelivery(
+            db,
+            deliveryCommissionId,
+            normalized.delivery,
+            { now: () => requestNow }
+          );
+          if (result.outcome === "not_found") {
+            return jsonResponse(404, { success: false, message: "Commission not found." });
+          }
+          if (result.outcome === "already_initialized") {
+            return jsonResponse(409, { success: false, message: "Delivery already exists." });
+          }
+          if (result.outcome === "blocked") {
+            return jsonResponse(409, {
+              success: false,
+              reason: result.reason,
+              message: result.message
+            });
+          }
+          return jsonResponse(201, { success: true, delivery: result.delivery });
+        }
+
+        if (request.method === "PATCH") {
+          const normalized = normalizeDeliveryUpdate(await parseJsonBody(request));
+          if (normalized.error) {
+            return jsonResponse(400, { success: false, message: normalized.error });
+          }
+          const requestNow = now();
+          const result = await updateCommissionDelivery(
+            db,
+            deliveryCommissionId,
+            normalized.delivery,
+            { now: () => requestNow }
+          );
+          if (result.outcome === "not_found") {
+            return jsonResponse(404, { success: false, message: "Commission not found." });
+          }
+          if (result.outcome === "not_initialized") {
+            return jsonResponse(404, { success: false, message: "Delivery is not initialized." });
+          }
+          if (result.outcome === "terminal") {
+            return jsonResponse(409, { success: false, message: "Terminal Delivery records cannot be changed." });
+          }
+          if (result.outcome === "costs_not_allowed_for_pickup") {
+            return jsonResponse(400, { success: false, message: "Actual shipping and protection costs are not allowed for pickup." });
+          }
+          return jsonResponse(200, { success: true, delivery: result.delivery });
+        }
+
+        return jsonResponse(405, {
+          success: false,
+          message: "Method not allowed. Use GET, POST, or PATCH."
+        });
+      } catch (error) {
+        logFailure("delivery", error, { commission_id: deliveryCommissionId });
+        return jsonResponse(500, {
+          success: false,
+          message: "Unable to load delivery."
+        });
+      }
+    }
+
+    const obligationsCommissionId = getCommissionObligationsId(pathname);
+
+    if (obligationsCommissionId !== null) {
+      if (
+        obligationsCommissionId === undefined
+        || !commissionIdPattern.test(obligationsCommissionId)
+      ) {
+        return jsonResponse(400, { success: false, message: "Invalid commission id." });
+      }
+      if (request.method !== "GET") {
+        return jsonResponse(405, { success: false, message: "Method not allowed. Use GET." });
+      }
+      try {
+        const result = await readCommissionObligations(
+          databaseFactory(),
+          obligationsCommissionId
+        );
+        if (!result) {
+          return jsonResponse(404, { success: false, message: "Commission not found." });
+        }
+        return jsonResponse(200, {
+          success: true,
+          commission_id: String(obligationsCommissionId),
+          ...result
+        });
+      } catch (error) {
+        logFailure("obligations", error, { commission_id: obligationsCommissionId });
+        return jsonResponse(500, {
+          success: false,
+          message: "Unable to load financial obligations."
+        });
+      }
+    }
+
+    const nextActionCommissionId = getCommissionNextActionId(pathname);
+
+    if (nextActionCommissionId !== null) {
+      if (
+        nextActionCommissionId === undefined
+        || !commissionIdPattern.test(nextActionCommissionId)
+      ) {
+        return jsonResponse(400, { success: false, message: "Invalid commission id." });
+      }
+      if (request.method !== "GET") {
+        return jsonResponse(405, { success: false, message: "Method not allowed. Use GET." });
+      }
+      try {
+        const nextAction = await readCommissionNextAction(
+          databaseFactory(),
+          nextActionCommissionId,
+          { now: now() }
+        );
+        if (!nextAction) {
+          return jsonResponse(404, { success: false, message: "Commission not found." });
+        }
+        return jsonResponse(200, {
+          success: true,
+          commission_id: String(nextActionCommissionId),
+          next_action: nextAction
+        });
+      } catch (error) {
+        logFailure("next_action", error, { commission_id: nextActionCommissionId });
+        return jsonResponse(500, {
+          success: false,
+          message: "Unable to resolve the next action."
+        });
+      }
+    }
+
+    const productionCommissionId = getCommissionProductionId(pathname);
+
+    if (productionCommissionId !== null) {
+      if (
+        productionCommissionId === undefined
+        || !commissionIdPattern.test(productionCommissionId)
+      ) {
+        return jsonResponse(400, { success: false, message: "Invalid commission id." });
+      }
+      if (request.method !== "GET") {
+        return jsonResponse(405, { success: false, message: "Method not allowed. Use GET." });
+      }
+      try {
+        const production = await readCommissionProduction(
+          databaseFactory(),
+          productionCommissionId
+        );
+        if (!production) {
+          return jsonResponse(404, { success: false, message: "Commission not found." });
+        }
+        return jsonResponse(200, { success: true, production });
+      } catch (error) {
+        logFailure("production", error, { commission_id: productionCommissionId });
+        return jsonResponse(500, {
+          success: false,
+          message: "Unable to load production status."
+        });
+      }
+    }
+
+    const eventsCommissionId = getCommissionEventsId(pathname);
+
+    if (eventsCommissionId !== null) {
+      if (eventsCommissionId === undefined || !commissionIdPattern.test(eventsCommissionId)) {
+        return jsonResponse(400, { success: false, message: "Invalid commission id." });
+      }
+      if (request.method !== "GET") {
+        return jsonResponse(405, { success: false, message: "Method not allowed. Use GET." });
+      }
+      try {
+        const events = await listCommissionEvents(databaseFactory(), eventsCommissionId);
+        if (events === null) {
+          return jsonResponse(404, { success: false, message: "Commission not found." });
+        }
+        return jsonResponse(200, {
+          success: true,
+          total: events.length,
+          events
+        });
+      } catch (error) {
+        logFailure("events", error, { commission_id: eventsCommissionId });
+        return jsonResponse(500, { success: false, message: "Unable to load commission activity." });
+      }
+    }
+
     const statusCommissionId = getCommissionStatusId(pathname);
 
     if (statusCommissionId !== null) {
@@ -787,6 +1350,20 @@ function createHandler({
             });
           }
 
+          if (result.outcome === "inquiry_not_found") {
+            return jsonResponse(404, {
+              success: false,
+              message: "Origin inquiry not found."
+            });
+          }
+
+          if (result.outcome === "inquiry_client_mismatch") {
+            return jsonResponse(409, {
+              success: false,
+              message: "Origin inquiry does not match the selected client."
+            });
+          }
+
           return jsonResponse(201, {
             success: true,
             commission: result.commission
@@ -886,7 +1463,16 @@ export const config = {
   path: [
     "/admin/api/commissions",
     "/admin/api/commissions/:id",
-    "/admin/api/commissions/:id/status"
+    "/admin/api/commissions/:id/status",
+    "/admin/api/commissions/:id/events",
+    "/admin/api/commissions/:id/production",
+    "/admin/api/commissions/:id/next-action",
+    "/admin/api/commissions/:id/obligations",
+    "/admin/api/commissions/:id/delivery",
+    "/admin/api/commissions/:id/delivery/transition",
+    "/admin/api/commissions/:id/delivery/storage",
+    "/admin/api/commissions/:id/delivery/storage-notice",
+    "/admin/api/commissions/:id/delivery/final-notice"
   ]
 };
 
@@ -895,6 +1481,15 @@ export {
   createHandler,
   commissionStatusTransitions,
   getCommission,
+  getCommissionEventsId,
+  getCommissionDeliveryId,
+  getCommissionDeliveryStorageAction,
+  getCommissionDeliveryTransitionId,
+  getCommissionNextActionId,
+  getCommissionObligationsId,
+  getCommissionProductionId,
+  getCommissionInquiries,
+  listCommissionEvents,
   listCommissions,
   normalizeCommissionCreate,
   normalizeCommissionEdit,

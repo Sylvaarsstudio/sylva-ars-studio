@@ -5,6 +5,7 @@
     receipt: "Receipt",
     invoice: "Invoice",
     contract: "Contract",
+    quotation: "Quotation",
     coa: "COA"
   };
 
@@ -41,9 +42,19 @@
         : "Payment Receipt";
     }
 
+    if (document.document_type === "contract") {
+      return {
+        commission_agreement: "Commission Agreement",
+        artwork_sales_agreement: "Artwork Sales Agreement"
+      }[document.contract_subtype] || "Contract";
+    }
+
+    if (document.document_type === "quotation") {
+      return `Quotation — Version ${document.version}`;
+    }
+
     return {
       invoice: "Final Invoice — Paid in full",
-      contract: "Contract",
       coa: "Certificate of Authenticity"
     }[document.document_type] || formatLabel(document.document_type);
   }

@@ -2,6 +2,9 @@ import { getDatabase } from "@netlify/database";
 import businessInformation from "../../web/js/business-info.js";
 
 import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { attemptAutomaticCommunicationSend } from "../shared/communication-automations.mjs";
+import { getCommunicationTemplate, renderCommunicationTemplate } from "../shared/communication-templates.mjs";
+import { createGmailEmailProvider } from "../shared/email-provider.mjs";
 
 const API_PATH_PATTERN = /^\/admin\/api\/commissions\/([^/]+)\/payments\/?$/;
 const commissionIdPattern = /^[1-9][0-9]*$/;
@@ -17,6 +20,7 @@ const allowedPaymentMethods = new Set([
 ]);
 const receiptNumberLockNamespace = 18518;
 const invoiceNumberLockNamespace = 18519;
+const documentNumberToken = "__SAS_DOCUMENT_NUMBER__";
 const createFields = new Set([
   "request_id",
   "payment_type",
@@ -432,10 +436,11 @@ function getCalendarDateInTimeZone(date, timeZone = "America/New_York") {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-function buildReceiptSnapshot({ receiptNumber, issuedAt, payment, commission }) {
+function buildReceiptSnapshot({ receiptNumber, receiptDate, issuedAt, payment, commission }) {
   return {
     receipt: {
       number: receiptNumber,
+      receipt_date: receiptDate,
       issued_at: issuedAt
     },
     payment: {
@@ -561,6 +566,33 @@ function buildFinalInvoiceSnapshot({ invoiceNumber, invoiceDate, commission, pay
       phone: businessInformation.phone,
       website: businessInformation.website
     }
+  };
+}
+
+function prepareDocumentAutomation(documentType, snapshot) {
+  const templateKey = documentType === "receipt" ? "receipt" : "final_invoice";
+  const automationKey = documentType === "receipt"
+    ? "receipt_delivery"
+    : "final_invoice_delivery";
+  const template = getCommunicationTemplate(templateKey);
+  const rendered = renderCommunicationTemplate(template, {
+    client_name: snapshot.client?.name,
+    commission_number: snapshot.commission?.number,
+    document_number: documentNumberToken
+  });
+
+  if (!template || rendered.error || !snapshot.client?.email) {
+    throw new Error("Payment document delivery automation context is incomplete.");
+  }
+
+  return {
+    automationKey,
+    body: rendered.body,
+    communicationType: template.communication_type,
+    recipient: snapshot.client.email,
+    subject: rendered.subject,
+    templateKey: template.key,
+    templateVersion: template.version
   };
 }
 
@@ -703,6 +735,8 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
     } else {
       snapshot = buildReceiptSnapshot({
         receiptNumber: documentNumber,
+        receiptDate: data.payment_date
+          || getCalendarDateInTimeZone(new Date(issuedAt)),
         issuedAt,
         payment: {
           id: null,
@@ -712,6 +746,8 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
         commission: updatedCommission
       });
     }
+
+    const documentAutomation = prepareDocumentAutomation(documentType, snapshot);
 
     const creationResult = await connection.query(
       `WITH number_lock AS MATERIALIZED (
@@ -727,6 +763,9 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
          CROSS JOIN number_lock
          WHERE d.document_type = $10
            AND d.document_number LIKE $15::text || '-' || $14::text || '-%'
+       ),
+       next_document_identity AS MATERIALIZED (
+         SELECT nextval(pg_get_serial_sequence('documents', 'id'))::bigint AS id
        ),
        locked_commission AS MATERIALIZED (
          SELECT id, balance
@@ -759,16 +798,21 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
        ),
        inserted_document AS (
          INSERT INTO documents (
-           commission_id, payment_id, document_type, document_number, version,
+           id, commission_id, payment_id, document_type, document_number, version,
            file_location, receipt_snapshot, document_snapshot, request_id
          )
+         OVERRIDING SYSTEM VALUE
          SELECT
+           di.id,
            $1,
            CASE WHEN $10 = 'receipt' THEN p.id ELSE NULL END,
            $10,
            n.document_number,
            1,
-           $11,
+           CASE
+             WHEN $10 = 'invoice' THEN $11::text || '?document=' || di.id::text
+             ELSE $11::text || '?receipt=' || di.id::text
+           END,
            CASE WHEN $10 = 'receipt' THEN
              jsonb_set(
                jsonb_set(
@@ -789,18 +833,158 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
          FROM inserted_payment AS p
          JOIN updated_commission AS c ON c.id = p.commission_id
          CROSS JOIN next_document_number AS n
+         CROSS JOIN next_document_identity AS di
          ON CONFLICT (document_number, version) DO NOTHING
-         RETURNING id, document_type, document_number
+         RETURNING id, document_type, document_number, file_location
+       ),
+       inserted_payment_event AS (
+         INSERT INTO commission_events (
+           commission_id, event_type, occurred_at, actor_type,
+           source_type, source_id, payload, request_id
+         )
+         SELECT
+           $1,
+           'payment_recorded',
+           $16::timestamptz,
+           'admin',
+           'payment',
+           p.id::text,
+           jsonb_build_object(
+             'payment_type', p.payment_type,
+             'amount', p.amount::text
+           ),
+           $2::uuid
+         FROM inserted_payment AS p
+         ON CONFLICT (request_id, event_type, source_type, source_id)
+           WHERE request_id IS NOT NULL
+             AND source_type IS NOT NULL
+             AND source_id IS NOT NULL
+         DO NOTHING
+         RETURNING id
+       ),
+       inserted_balance_event AS (
+         INSERT INTO commission_events (
+           commission_id, event_type, occurred_at, actor_type,
+           source_type, source_id, payload, request_id
+         )
+         SELECT
+           $1,
+           'balance_paid',
+           $16::timestamptz,
+           'system',
+           'payment',
+           p.id::text,
+           jsonb_build_object(
+             'payment_type', p.payment_type,
+             'amount', p.amount::text
+           ),
+           $2::uuid
+         FROM inserted_payment AS p
+         WHERE p.balance_after_payment = 0
+         ON CONFLICT (request_id, event_type, source_type, source_id)
+           WHERE request_id IS NOT NULL
+             AND source_type IS NOT NULL
+             AND source_id IS NOT NULL
+         DO NOTHING
+         RETURNING id
+       ),
+       inserted_document_event AS (
+         INSERT INTO commission_events (
+           commission_id, event_type, occurred_at, actor_type,
+           source_type, source_id, payload, request_id
+         )
+         SELECT
+           $1,
+           CASE
+             WHEN d.document_type = 'invoice' THEN 'final_invoice_issued'
+             ELSE 'receipt_issued'
+           END,
+           $16::timestamptz,
+           'system',
+           'document',
+           d.id::text,
+           jsonb_build_object(
+             'document_number', d.document_number,
+             'version', 1
+           ),
+           $2::uuid
+         FROM inserted_document AS d
+         ON CONFLICT (request_id, event_type, source_type, source_id)
+           WHERE request_id IS NOT NULL
+             AND source_type IS NOT NULL
+             AND source_id IS NOT NULL
+         DO NOTHING
+         RETURNING id
+       ),
+       inserted_communication AS (
+         INSERT INTO communications (
+           client_id, commission_id, document_id,
+           channel, communication_type, communication_status,
+           recipient, subject, body_snapshot, ready_at,
+           template_key, template_version,
+           automation_key, automation_mode, automation_source_key
+         )
+         SELECT
+           c.client_id,
+           $1,
+           d.id,
+           'email',
+           $23,
+           'ready',
+           $20,
+           replace($17, $19, d.document_number),
+           replace($18, $19, d.document_number),
+           $16::timestamptz,
+           $21,
+           $22,
+           $24,
+           'auto_send',
+           CASE
+             WHEN d.document_type = 'receipt' THEN 'receipt:' || d.id::text
+             ELSE 'final-invoice:' || d.id::text
+           END
+         FROM inserted_document AS d
+         JOIN commissions AS c ON c.id = $1
+         ON CONFLICT (automation_source_key)
+           WHERE automation_source_key IS NOT NULL
+         DO NOTHING
+         RETURNING id, automation_key, template_key, template_version,
+                   communication_type
+       ),
+       inserted_communication_event AS (
+         INSERT INTO commission_events (
+           commission_id, event_type, occurred_at, actor_type,
+           source_type, source_id, payload
+         )
+         SELECT
+           $1,
+           'communication_automation_created',
+           $16::timestamptz,
+           'system',
+           'communication',
+           communication.id::text,
+           jsonb_build_object(
+             'communication_id', communication.id::text,
+             'automation_key', communication.automation_key,
+             'template_key', communication.template_key,
+             'template_version', communication.template_version,
+             'communication_type', communication.communication_type
+           )
+         FROM inserted_communication AS communication
+         RETURNING id
        )
        SELECT
          row_to_json(p) AS payment,
          row_to_json(c) AS commission,
          d.id AS document_id,
          d.document_type,
-         d.document_number
+         d.document_number,
+         d.file_location,
+         communication.id AS communication_id
        FROM updated_commission AS c
        CROSS JOIN inserted_payment AS p
-       CROSS JOIN inserted_document AS d`,
+       CROSS JOIN inserted_document AS d
+       CROSS JOIN inserted_communication AS communication`,
       [
         commissionId,
         data.request_id,
@@ -816,7 +1000,16 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
         JSON.stringify(snapshot),
         numberNamespace,
         documentYear,
-        numberPrefix
+        numberPrefix,
+        issuedAt,
+        documentAutomation.subject,
+        documentAutomation.body,
+        documentNumberToken,
+        documentAutomation.recipient,
+        documentAutomation.templateKey,
+        documentAutomation.templateVersion,
+        documentAutomation.communicationType,
+        documentAutomation.automationKey
       ]
     );
 
@@ -857,21 +1050,11 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
     const payment = normalizePaymentRow(creationResult.rows[0].payment);
     const commission = normalizeCommissionRow(creationResult.rows[0].commission);
     const documentId = String(creationResult.rows[0].document_id);
-    const fileLocation = isFinalPayment
-      ? `/admin/invoice.html?document=${documentId}`
-      : `/admin/payment-receipt.html?receipt=${documentId}`;
-    const storedDocument = (await connection.query(
-      `UPDATE documents
-       SET file_location = $1
-       WHERE id = $2
-       RETURNING id, document_type, document_number, file_location`,
-      [fileLocation, documentId]
-    )).rows[0];
     const document = {
-      id: String(storedDocument.id),
-      document_type: storedDocument.document_type,
-      document_number: storedDocument.document_number,
-      file_location: storedDocument.file_location
+      id: documentId,
+      document_type: creationResult.rows[0].document_type,
+      document_number: creationResult.rows[0].document_number,
+      file_location: creationResult.rows[0].file_location
     };
 
     await connection.query("COMMIT");
@@ -906,7 +1089,8 @@ async function createPayment(db, commissionId, data, numberRetryCount = 0) {
       payment,
       document,
       receipt: document.document_type === "receipt" ? document : null,
-      commission
+      commission,
+      communication_id: creationResult.rows[0].communication_id
     };
   } catch (error) {
     await connection.query("ROLLBACK");
@@ -954,8 +1138,16 @@ function logFailure(action, error, details = {}) {
 
 function createHandler({
   databaseFactory = getDatabase,
-  environmentReader = readEnvironmentVariable
+  environmentReader = readEnvironmentVariable,
+  emailProvider = null,
+  providerFetch = globalThis.fetch?.bind(globalThis),
+  now = () => new Date()
 } = {}) {
+  const sendingProvider = emailProvider || createGmailEmailProvider({
+    environmentReader,
+    fetchImplementation: providerFetch,
+    now
+  });
   return async function handler(request) {
     const adminPassword = environmentReader("ADMIN_PASSWORD");
     const sessionSecret = environmentReader("ADMIN_SESSION_SECRET") || adminPassword;
@@ -1061,6 +1253,18 @@ function createHandler({
           message: "Payment request id is already in use."
         });
       }
+
+      let communicationId = result.communication_id || null;
+      if (!communicationId && result.document) {
+        const sourceKey = result.document.document_type === "receipt"
+          ? `receipt:${result.document.id}`
+          : `final-invoice:${result.document.id}`;
+        communicationId = (await databaseFactory().pool.query(
+          "SELECT id FROM communications WHERE automation_source_key = $1",
+          [sourceKey]
+        )).rows[0]?.id || null;
+      }
+      await attemptAutomaticCommunicationSend(databaseFactory(), communicationId, sendingProvider, now);
 
       return jsonResponse(result.created ? 201 : 200, {
         success: true,

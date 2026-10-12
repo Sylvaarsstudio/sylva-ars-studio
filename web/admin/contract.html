@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Draft Commission Agreement | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/documents.css">
+  <link rel="stylesheet" href="../css/admin-glossary.css">
+</head>
+
+<body class="contract-preview-page">
+  <main>
+    <nav class="contract-preview-actions" aria-label="Draft contract actions">
+      <a href="/admin/create-contract.html">Back to Preparation</a>
+      <button type="button" class="admin-help-trigger" data-glossary-key="contract.draft" aria-label="Learn about Draft Contract">i</button>
+      <button type="button" class="admin-help-trigger" data-glossary-key="snapshot" aria-label="Learn about Snapshot">i</button>
+      <button type="button" class="admin-help-trigger" data-glossary-key="contract_version" aria-label="Learn about Contract Version">i</button>
+      <button type="button" class="admin-help-trigger" data-glossary-key="contract_source_quotation" aria-label="Learn about Contract Source Quotation">i</button>
+      <button type="button" id="print-contract">Print / Save PDF</button>
+    </nav>
+    <p class="contract-preview-status" id="contract-preview-status" aria-live="polite">
+      Loading draft preview…
+    </p>
+    <article class="document contract-document" id="contract-preview" hidden></article>
+  </main>
+
+  <script src="../js/admin-glossary.js"></script>
+  <script src="../js/admin-contract.js"></script>
+</body>
+
+</html>

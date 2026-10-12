@@ -4,7 +4,7 @@ import { hasValidAdminSession } from "../shared/admin-session.mjs";
 
 const API_PATH = "/admin/api/documents";
 const positiveIntegerPattern = /^[1-9][0-9]*$/;
-const allowedDocumentTypes = new Set(["contract", "invoice", "coa", "receipt"]);
+const allowedDocumentTypes = new Set(["contract", "invoice", "coa", "receipt", "quotation"]);
 
 function jsonResponse(status, body) {
   return Response.json(body, {
@@ -43,6 +43,45 @@ function normalizeFilters(searchParams) {
   };
 }
 
+function derivePaymentMetadata(row) {
+  if (row.payment_id !== null) {
+    return {
+      id: row.payment_id,
+      payment_type: row.payment_type,
+      payment_date: row.payment_date
+    };
+  }
+
+  if (row.document_type !== "invoice") {
+    return null;
+  }
+
+  const payments = Array.isArray(row.document_snapshot?.payments)
+    ? row.document_snapshot.payments
+    : [];
+  const finalPayment = [...payments].reverse().find(
+    (payment) => payment?.receipt_number === null
+  ) || payments.at(-1);
+
+  if (!finalPayment?.payment_type) {
+    return null;
+  }
+
+  return {
+    id: null,
+    payment_type: finalPayment.payment_type,
+    payment_date: finalPayment.payment_date || null
+  };
+}
+
+function deriveContractSubtype(row) {
+  if (row.document_type !== "contract") {
+    return null;
+  }
+
+  return row.document_snapshot?.contract?.subtype || null;
+}
+
 async function listDocuments(db, { commissionId = null, documentType = null } = {}) {
   const conditions = [];
   const values = [];
@@ -66,6 +105,8 @@ async function listDocuments(db, { commissionId = null, documentType = null } = 
        d.version,
        d.created_at,
        d.file_location,
+       d.document_snapshot,
+       d.quotation_id,
        c.id AS commission_id,
        c.commission_number,
        c.title AS commission_title,
@@ -99,11 +140,9 @@ async function listDocuments(db, { commissionId = null, documentType = null } = 
       id: row.client_id,
       full_name: row.client_full_name
     },
-    payment: row.payment_id === null ? null : {
-      id: row.payment_id,
-      payment_type: row.payment_type,
-      payment_date: row.payment_date
-    }
+    contract_subtype: deriveContractSubtype(row),
+    quotation: row.quotation_id === null ? null : { id: row.quotation_id },
+    payment: derivePaymentMetadata(row)
   }));
 }
 
@@ -184,6 +223,12 @@ export const config = {
   path: "/admin/api/documents"
 };
 
-export { createHandler, listDocuments, normalizeFilters };
+export {
+  createHandler,
+  deriveContractSubtype,
+  derivePaymentMetadata,
+  listDocuments,
+  normalizeFilters
+};
 
 export default createHandler();

@@ -5,25 +5,40 @@ import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
 const {
+  CONTRACT_ELIGIBILITY_API_PATH,
   buildCreatePayload,
+  buildDeliveryCreatePayload,
+  buildDeliveryUpdatePayload,
   buildEditPayload,
   buildPaymentPayload,
   calculateFinancialPreview,
   createApp,
+  describeCommissionEvent,
   describeDocument,
   formatCurrency,
   inferSalesTaxRate,
   paymentMethodLabels,
   renderCommissionDocumentsMarkup,
+  renderCommissionCommunicationsMarkup,
+  renderCommissionEventsMarkup,
+  renderCommissionTimelineMarkup,
+  renderNextActionMarkup,
+  renderObligationsMarkup,
+  renderDeliveryActionsMarkup,
+  renderDeliveryMarkup,
+  renderProductionMarkup,
   renderDetailMarkup,
   renderListMarkup,
+  renderOriginInquiryOptions,
   renderPaymentsMarkup,
+  renderProvenanceMarkup,
   renderStatusOptions,
   statusTransitions
 } = require("../../web/js/admin-commissions.js");
 
 const formFields = [
   "client_id",
+  "origin_inquiry_id",
   "title",
   "description",
   "medium",
@@ -40,7 +55,20 @@ const formFields = [
   "payment_method",
   "payment_date",
   "external_reference",
-  "notes"
+  "notes",
+  "delivery_method",
+  "recipient_name",
+  "address_line1",
+  "address_line2",
+  "city",
+  "state_region",
+  "postal_code",
+  "country",
+  "carrier",
+  "service_level",
+  "tracking_number",
+  "actual_shipping_cost",
+  "protection_cost"
 ];
 
 function createClassList() {
@@ -99,7 +127,11 @@ function createDocument() {
   const editForm = createFormElement();
   const statusForm = createFormElement();
   const paymentForm = createFormElement();
+  const deliveryCreateForm = createFormElement();
+  const deliveryEditForm = createFormElement();
   paymentForm.hidden = true;
+  deliveryCreateForm.hidden = true;
+  deliveryEditForm.hidden = true;
   const elements = {
     "#commission-count": createElement(),
     "#commission-index-toolbar": createElement(),
@@ -124,6 +156,42 @@ function createDocument() {
     "#cancel-payment": createElement(),
     "#commission-document-list": createElement(),
     "#commission-documents-status": createElement(),
+    "#commission-communications-list": createElement(),
+    "#commission-communications-status": createElement(),
+    "#create-communication": createElement(),
+    "#new-communication-draft": createElement(),
+    "#record-manual-communication": createElement(),
+    "#quotation-list": createElement(),
+    "#quotation-status": createElement(),
+    "#prepare-quotation": createElement(),
+    "#prepare-contract": createElement(),
+    "#contract-eligibility-status": createElement(),
+    "#commission-activity-list": createElement(),
+    "#commission-activity-status": createElement(),
+    "#commission-timeline-list": createElement(),
+    "#commission-timeline-status": createElement(),
+    "#commission-production-detail": createElement(),
+    "#commission-production-status": createElement(),
+    "#commission-next-action-detail": createElement(),
+    "#commission-next-action-status": createElement(),
+    "#commission-obligations-detail": createElement(),
+    "#commission-obligations-status": createElement(),
+    "#commission-delivery-detail": createElement(),
+    "#commission-delivery-status": createElement(),
+    "#commission-delivery-actions": createElement(),
+    "#create-delivery": createElement(),
+    "#edit-delivery": createElement(),
+    "#delivery-create-form": deliveryCreateForm,
+    "#cancel-delivery-create": createElement(),
+    "#delivery-shipping-fields": createElement(),
+    "#delivery-edit-form": deliveryEditForm,
+    "#cancel-delivery-edit": createElement(),
+    "#delivery-actual-cost-field": createElement(),
+    "#delivery-protection-cost-field": createElement(),
+    "#delivery-cancel-confirmation": createElement(),
+    "#confirm-delivery-cancel": createElement(),
+    "#keep-delivery": createElement(),
+    "#delivery-scheduled-at": createElement(),
     "#commission-status-form": statusForm,
     "#cancel-commission-status": createElement(),
     "#commission-status-confirmation": createElement(),
@@ -147,6 +215,7 @@ function createDocument() {
   elements["#commission-edit-form"].hidden = true;
   elements["#commission-status-form"].hidden = true;
   elements["#commission-status-confirmation"].hidden = true;
+  elements["#delivery-cancel-confirmation"].hidden = true;
   elements["#commission-create"].hidden = true;
 
   return {
@@ -154,6 +223,8 @@ function createDocument() {
     inputs: form.inputs,
     editInputs: editForm.inputs,
     paymentInputs: paymentForm.inputs,
+    deliveryCreateInputs: deliveryCreateForm.inputs,
+    deliveryEditInputs: deliveryEditForm.inputs,
     statusInputs: statusForm.inputs,
     querySelector(selector) {
       return elements[selector];
@@ -197,7 +268,8 @@ const sampleCommission = {
   balance: "116.00",
   status: "draft",
   estimated_completion: null,
-  created_at: "2026-01-01T10:00:00Z"
+  created_at: "2026-01-01T10:00:00Z",
+  inquiries: []
 };
 
 function fillValidForm(documentObject) {
@@ -348,7 +420,822 @@ test("admin commission status confirmation can be cancelled without a request", 
   app.cancelStatusConfirmation();
   assert.equal(documentObject.elements["#commission-status-confirmation"].hidden, true);
   assert.equal(documentObject.elements["#commission-status-form"].hidden, false);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 12);
+});
+
+test("Commission detail offers Contract preparation only when canonical eligibility passes", async () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, async (url) => {
+    if (url.startsWith(CONTRACT_ELIGIBILITY_API_PATH)) {
+      return jsonResponse({
+        success: true,
+        eligible: true,
+        message: "Accepted quotation is eligible for Contract preparation.",
+        quotation: { id: "9", quotation_number: "SAS-QUO-2026-0001", version: 1 }
+      });
+    }
+    if (url.includes("/payments")) return jsonResponse({ success: true, commission: sampleCommission, payments: [] });
+    if (url.startsWith("/admin/api/documents")) return jsonResponse({ success: true, documents: [] });
+    if (url.endsWith("/quotations")) return jsonResponse({ success: true, quotations: [] });
+    return jsonResponse({ success: true, commission: sampleCommission });
+  });
+
+  await app.openDetail(sampleCommission.id);
+
+  assert.equal(documentObject.elements["#prepare-contract"].hidden, false);
+  assert.equal(documentObject.elements["#prepare-contract"].href, "create-contract.html?commission_id=10");
+  assert.match(documentObject.elements["#contract-eligibility-status"].textContent, /eligible/i);
+});
+
+test("Commission detail keeps Contract preparation blocked with the backend reason", async () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, async (url) => {
+    if (url.startsWith(CONTRACT_ELIGIBILITY_API_PATH)) {
+      return jsonResponse({ success: true, eligible: false, reason: "no_accepted_quotation", message: "An accepted quotation is required." });
+    }
+    if (url.includes("/payments")) return jsonResponse({ success: true, commission: sampleCommission, payments: [] });
+    if (url.startsWith("/admin/api/documents")) return jsonResponse({ success: true, documents: [] });
+    if (url.endsWith("/quotations")) return jsonResponse({ success: true, quotations: [] });
+    return jsonResponse({ success: true, commission: sampleCommission });
+  });
+
+  await app.openDetail(sampleCommission.id);
+
+  assert.equal(documentObject.elements["#prepare-contract"].hidden, true);
+  assert.equal(documentObject.elements["#contract-eligibility-status"].textContent, "An accepted quotation is required.");
+});
+
+test("Commission detail includes the Activity History section and glossary help", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  assert.match(html, /id="commission-activity"/);
+  assert.match(html, /id="commission-activity-list"/);
+  assert.match(html, /data-glossary-key="activity_history"/);
+});
+
+test("Commission detail distinguishes Timeline milestones from Activity audit history", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  assert.match(html, /id="commission-timeline"/);
+  assert.match(html, /id="commission-timeline-list"/);
+  assert.match(html, /data-glossary-key="commission_timeline"/);
+  assert.match(html, /Timeline[\s\S]*Activity \/ History remains the audit trail/);
+});
+
+test("Commission detail includes read-only canonical Production without operational CTAs", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  assert.match(html, /id="commission-production"/);
+  assert.match(html, /id="commission-production-detail"/);
+  assert.match(html, /data-glossary-key="production\.canonical"/);
+  assert.doesNotMatch(html, />Reserve Production</);
+  assert.doesNotMatch(html, />Start Production</);
+});
+
+test("Commission detail includes the derived Next Action card and glossary help", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  assert.match(html, /id="commission-next-action"/);
+  assert.match(html, /id="commission-next-action-detail"/);
+  assert.match(html, /data-glossary-key="next_action"/);
+});
+
+test("Commission detail includes read-only canonical Financial Obligations", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  assert.match(html, /id="commission-obligations"/);
+  assert.match(html, /id="commission-obligations-detail"/);
+  assert.match(html, /data-glossary-key="financial_obligation"/);
+  assert.doesNotMatch(html, />Create Charge</);
+  assert.doesNotMatch(html, />Allocate Payment</);
+  assert.doesNotMatch(html, />Waive</);
+  assert.doesNotMatch(html, />Void</);
+});
+
+test("Financial Obligations renderer distinguishes empty canonical state from legacy totals", () => {
+  const markup = renderObligationsMarkup({ initialized: false, obligations: [] });
+  assert.match(markup, /No canonical obligations yet\./);
+  assert.match(markup, /Legacy financial totals remain available for compatibility but are not canonical obligations\./);
+});
+
+test("Financial Obligations renderer shows canonical amounts without mutation actions", () => {
+  const markup = renderObligationsMarkup({
+    initialized: true,
+    obligations: [{
+      id: "5",
+      obligation_type: "modification_charge",
+      obligation_status: "open",
+      amount: "125.00",
+      allocated_amount: "25.00",
+      outstanding_amount: "100.00",
+      due_at: null,
+      source_type: "quotation",
+      source_id: "17"
+    }]
+  });
+  assert.match(markup, /Modification Charge/);
+  assert.match(markup, /\$125\.00/);
+  assert.match(markup, /\$25\.00/);
+  assert.match(markup, /\$100\.00/);
+  assert.match(markup, /Quotation 17/);
+  assert.doesNotMatch(markup, /<button|<form/);
+});
+
+test("Commission detail loads Financial Obligations from its protected read endpoint", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    if (url.endsWith("/obligations")) {
+      return jsonResponse({
+        success: true,
+        initialized: false,
+        obligations: []
+      });
+    }
+    return commissionDetailFetch()(url);
+  });
+
+  await app.openDetail(sampleCommission.id);
+
+  assert.ok(calls.includes(`/admin/api/commissions/${sampleCommission.id}/obligations`));
+  assert.match(documentObject.elements["#commission-obligations-detail"].innerHTML, /No canonical obligations yet/);
+});
+
+test("Commission detail includes the canonical Delivery workflow without Storage controls", () => {
+  const html = readFileSync(
+    new URL("../../web/admin/commissions.html", import.meta.url),
+    "utf8"
+  );
+  assert.match(html, /id="commission-delivery"/);
+  assert.match(html, /id="commission-delivery-detail"/);
+  assert.match(html, /data-glossary-key="delivery"/);
+  assert.match(html, />Create Delivery</);
+  assert.match(html, /id="delivery-create-form"/);
+  assert.match(html, /id="delivery-edit-form"/);
+  assert.match(html, /id="delivery-cancel-confirmation"/);
+  assert.doesNotMatch(html, /Mark Abandoned|Dispose Artwork|Sell Artwork/);
+});
+
+test("Delivery renderer provides the approved empty canonical state without inference", () => {
+  const markup = renderDeliveryMarkup({ initialized: false, delivery: null });
+  assert.match(markup, /No canonical delivery record yet\./);
+  assert.match(markup, /No fulfillment has been inferred/);
+  assert.match(markup, /Shipping Charge/);
+});
+
+test("Delivery renderer shows populated historical fulfillment data read-only", () => {
+  const markup = renderDeliveryMarkup({
+    initialized: true,
+    delivery: {
+      id: "7",
+      delivery_method: "shipping",
+      delivery_status: "shipped",
+      recipient_name: "Delivery Recipient",
+      address_line1: "100 Test Avenue",
+      address_line2: null,
+      city: "Pittsburgh",
+      state_region: "PA",
+      postal_code: "15222",
+      country: "US",
+      carrier: "Test Carrier",
+      service_level: "Ground",
+      tracking_number: "TRACK-001",
+      actual_shipping_cost: "42.50",
+      protection_cost: "8.00",
+      ready_at: "2026-10-11T14:00:00Z",
+      scheduled_at: null,
+      shipped_at: "2026-10-11T16:00:00Z",
+      delivered_at: null,
+      picked_up_at: null,
+      storage_start_at: null
+    }
+  });
+  assert.match(markup, /Shipping/);
+  assert.match(markup, /Shipped/);
+  assert.match(markup, /Delivery Recipient/);
+  assert.match(markup, /100 Test Avenue, Pittsburgh, PA, 15222, US/);
+  assert.match(markup, /Test Carrier · Ground/);
+  assert.match(markup, /TRACK-001/);
+  assert.match(markup, /\$42\.50/);
+  assert.match(markup, /\$8\.00/);
+  assert.match(markup, /Shipping Charge is the commercial amount billed to the Client/);
+  assert.match(markup, /Actual Shipping Cost is the fulfillment cost to SAS/);
+  assert.doesNotMatch(markup, /<form|<button[^>]+data-delivery-action/);
+});
+
+test("Delivery renderer presents Storage timing, fee, notices, and legal-review eligibility", () => {
+  const markup = renderDeliveryMarkup({
+    initialized: true,
+    delivery: {
+      id: "8",
+      delivery_method: "pickup",
+      delivery_status: "in_storage",
+      recipient_name: "Storage Recipient",
+      storage_start_at: "2026-10-11T18:30:00Z",
+      storage_notice_at: "2026-11-15T19:30:00Z",
+      final_notice_at: "2026-11-18T19:30:00Z",
+      storage_state: {
+        free_storage_ends_at: "2026-11-10T19:30:00Z",
+        billable_weeks: 2,
+        estimated_storage_fee: "20.00",
+        abandonment_eligible_at: "2027-05-17T18:30:00Z",
+        abandonment_eligible: true
+      }
+    }
+  });
+  for (const text of [
+    "Storage Started", "Free Storage Ends", "Billable Weeks",
+    "Current Storage Fee", "Storage Notice", "Final Written Notice",
+    "Abandonment Review Eligible Date", "Eligible for legal review"
+  ]) assert.match(markup, new RegExp(text));
+  assert.match(markup, /\$20\.00/);
+  assert.doesNotMatch(markup, /Mark Abandoned|Dispose Artwork|Sell Artwork/);
+});
+
+test("Commission detail loads Delivery from its protected read endpoint", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    if (url.endsWith("/delivery")) {
+      return jsonResponse({ success: true, initialized: false, delivery: null });
+    }
+    return commissionDetailFetch()(url);
+  });
+
+  await app.openDetail(sampleCommission.id);
+
+  assert.ok(calls.includes(`/admin/api/commissions/${sampleCommission.id}/delivery`));
+  assert.match(documentObject.elements["#commission-delivery-detail"].innerHTML, /No canonical delivery record yet/);
+});
+
+test("Delivery release eligibility controls creation without hiding the canonical reason", async () => {
+  const blockedDocument = createDocument();
+  const blockedApp = createApp(blockedDocument, async (url) => {
+    if (url.endsWith("/delivery")) {
+      return jsonResponse({
+        success: true,
+        initialized: false,
+        delivery: null,
+        release_eligibility: {
+          eligible: false,
+          reason: "canonical_financial_clearance_unavailable",
+          message: "Canonical financial clearance is unavailable because no Financial Obligations exist."
+        }
+      });
+    }
+    return commissionDetailFetch()(url);
+  });
+  await blockedApp.openDetail(sampleCommission.id);
+  assert.equal(blockedDocument.elements["#create-delivery"].hidden, true);
+  assert.match(
+    blockedDocument.elements["#commission-delivery-detail"].innerHTML,
+    /Canonical financial clearance is unavailable/
+  );
+
+  const eligibleDocument = createDocument();
+  const eligibleApp = createApp(eligibleDocument, async (url) => {
+    if (url.endsWith("/delivery")) {
+      return jsonResponse({
+        success: true,
+        initialized: false,
+        delivery: null,
+        release_eligibility: { eligible: true, reason: null, message: "Release requirements satisfied." }
+      });
+    }
+    return commissionDetailFetch()(url);
+  });
+  await eligibleApp.openDetail(sampleCommission.id);
+  assert.equal(eligibleDocument.elements["#create-delivery"].hidden, false);
+});
+
+test("Delivery action renderer is method-specific, Storage-aware, and terminal-safe", () => {
+  const shippingReady = renderDeliveryActionsMarkup({
+    delivery_method: "shipping",
+    delivery_status: "ready"
+  });
+  assert.match(shippingReady, /data-delivery-transition="shipped"/);
+  assert.match(shippingReady, /data-delivery-transition="cancelled"/);
+  assert.match(shippingReady, /data-delivery-storage-action="storage"/);
+  assert.doesNotMatch(shippingReady, /scheduled|picked_up/i);
+
+  const pickupReady = renderDeliveryActionsMarkup({
+    delivery_method: "pickup",
+    delivery_status: "ready"
+  });
+  assert.match(pickupReady, /data-delivery-transition="scheduled"/);
+  assert.match(pickupReady, /data-delivery-transition="picked_up"/);
+  assert.match(pickupReady, /id="delivery-scheduled-at"/);
+  assert.match(pickupReady, /data-delivery-storage-action="storage"/);
+  assert.doesNotMatch(pickupReady, /shipped/i);
+
+  const inStorage = renderDeliveryActionsMarkup({
+    delivery_method: "pickup",
+    delivery_status: "in_storage",
+    storage_notice_at: null,
+    final_notice_at: null
+  });
+  assert.match(inStorage, /Record Storage Notice/);
+  assert.match(inStorage, /Record Final Written Notice/);
+  assert.match(inStorage, /data-delivery-transition="scheduled"/);
+  assert.match(inStorage, /data-delivery-transition="picked_up"/);
+  assert.doesNotMatch(inStorage, /Mark Abandoned|Dispose Artwork|Sell Artwork/);
+
+  assert.match(renderDeliveryActionsMarkup({
+    delivery_method: "shipping",
+    delivery_status: "delivered"
+  }), /terminal and read-only/);
+});
+
+test("Delivery creation shows shipping destination fields only for shipping", async () => {
+  const documentObject = createDocument();
+  const app = createApp(documentObject, commissionDetailFetch());
+  await app.openDetail(sampleCommission.id);
+  documentObject.deliveryCreateInputs.delivery_method.value = "pickup";
+  app.openDeliveryCreate();
+  assert.equal(documentObject.elements["#delivery-shipping-fields"].hidden, true);
+  documentObject.deliveryCreateInputs.delivery_method.value = "shipping";
+  app.openDeliveryCreate();
+  assert.equal(documentObject.elements["#delivery-shipping-fields"].hidden, false);
+});
+
+test("Delivery payload builders preserve snapshots and isolate actual shipping costs", () => {
+  const documentObject = createDocument();
+  Object.assign(documentObject.deliveryCreateInputs.delivery_method, { value: "shipping" });
+  Object.assign(documentObject.deliveryCreateInputs.recipient_name, { value: " Recipient " });
+  Object.assign(documentObject.deliveryCreateInputs.address_line1, { value: " 100 Test Avenue " });
+  Object.assign(documentObject.deliveryCreateInputs.city, { value: " Pittsburgh " });
+  Object.assign(documentObject.deliveryCreateInputs.state_region, { value: " PA " });
+  Object.assign(documentObject.deliveryCreateInputs.postal_code, { value: " 15222 " });
+  Object.assign(documentObject.deliveryCreateInputs.country, { value: " US " });
+  const created = buildDeliveryCreatePayload(documentObject.elements["#delivery-create-form"]);
+  assert.equal(created.recipient_name, "Recipient");
+  assert.equal(created.address_line1, "100 Test Avenue");
+  assert.equal(created.city, "Pittsburgh");
+  assert.equal("actual_shipping_cost" in created, false);
+  assert.equal("delivery_status" in created, false);
+
+  documentObject.deliveryEditInputs.actual_shipping_cost.value = "42.50";
+  documentObject.deliveryEditInputs.protection_cost.value = "8";
+  const updated = buildDeliveryUpdatePayload(
+    documentObject.elements["#delivery-edit-form"],
+    "shipping"
+  );
+  assert.equal(updated.actual_shipping_cost, "42.50");
+  assert.equal(updated.protection_cost, "8");
+  assert.equal("delivery_method" in updated, false);
+  assert.equal("delivery_status" in updated, false);
+});
+
+test("Admin Delivery create and transition use the protected workflow endpoints", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const pendingDelivery = {
+    id: "70",
+    commission_id: sampleCommission.id,
+    ...Object.fromEntries([
+      "address_line2", "scheduled_at", "shipped_at", "delivered_at",
+      "picked_up_at", "storage_start_at", "actual_shipping_cost", "protection_cost"
+    ].map((field) => [field, null])),
+    delivery_method: "shipping",
+    delivery_status: "pending",
+    recipient_name: "Recipient",
+    address_line1: "100 Test Avenue",
+    city: "Pittsburgh",
+    state_region: "PA",
+    postal_code: "15222",
+    country: "US",
+    carrier: "Carrier",
+    service_level: null,
+    tracking_number: null,
+    ready_at: null,
+    notes: null
+  };
+  const app = createApp(documentObject, async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.endsWith("/delivery") && !options.method) {
+      return jsonResponse({
+        success: true,
+        initialized: false,
+        delivery: null,
+        release_eligibility: { eligible: true, reason: null, message: "Eligible." }
+      });
+    }
+    if (url.endsWith("/delivery") && options.method === "POST") {
+      return jsonResponse({ success: true, delivery: pendingDelivery }, 201);
+    }
+    if (url.endsWith("/delivery/transition")) {
+      return jsonResponse({
+        success: true,
+        delivery: {
+          ...pendingDelivery,
+          delivery_status: "ready",
+          ready_at: "2026-10-11T18:30:00Z"
+        }
+      });
+    }
+    return commissionDetailFetch()(url);
+  });
+  await app.openDetail(sampleCommission.id);
+  Object.assign(documentObject.deliveryCreateInputs.delivery_method, { value: "shipping" });
+  Object.assign(documentObject.deliveryCreateInputs.recipient_name, { value: "Recipient" });
+  Object.assign(documentObject.deliveryCreateInputs.address_line1, { value: "100 Test Avenue" });
+  Object.assign(documentObject.deliveryCreateInputs.city, { value: "Pittsburgh" });
+  Object.assign(documentObject.deliveryCreateInputs.state_region, { value: "PA" });
+  Object.assign(documentObject.deliveryCreateInputs.postal_code, { value: "15222" });
+  Object.assign(documentObject.deliveryCreateInputs.country, { value: "US" });
+  Object.assign(documentObject.deliveryCreateInputs.carrier, { value: "Carrier" });
+  assert.equal((await app.submitDeliveryCreate({ preventDefault() {} })).delivery_status, "pending");
+  assert.equal((await app.transitionDelivery("ready")).delivery_status, "ready");
+  const createCall = calls.find((call) => call.url.endsWith("/delivery") && call.options.method === "POST");
+  const transitionCall = calls.find((call) => call.url.endsWith("/delivery/transition"));
+  assert.ok(createCall);
+  assert.deepEqual(JSON.parse(transitionCall.options.body), { next_status: "ready" });
+  assert.match(documentObject.elements["#commission-delivery-detail"].innerHTML, /Ready/);
+});
+
+test("Admin Storage actions use explicit endpoints and refresh obligations and Activity", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const readyDelivery = {
+    id: "72",
+    commission_id: sampleCommission.id,
+    delivery_method: "pickup",
+    delivery_status: "ready",
+    recipient_name: "Recipient",
+    storage_start_at: null,
+    storage_notice_at: null,
+    final_notice_at: null
+  };
+  const storedDelivery = {
+    ...readyDelivery,
+    delivery_status: "in_storage",
+    storage_start_at: "2026-10-11T18:30:00Z",
+    storage_fee_start_at: "2026-11-10T19:30:00Z",
+    storage_state: {
+      free_storage_ends_at: "2026-11-10T19:30:00Z",
+      billable_weeks: 0,
+      estimated_storage_fee: "0.00",
+      abandonment_eligible_at: null,
+      abandonment_eligible: false
+    }
+  };
+  const app = createApp(documentObject, async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.endsWith("/delivery") && !options.method) {
+      return jsonResponse({ success: true, initialized: true, delivery: readyDelivery });
+    }
+    if (url.endsWith("/delivery/storage")) {
+      return jsonResponse({ success: true, created: true, delivery: storedDelivery });
+    }
+    if (url.endsWith("/delivery/storage-notice")) {
+      return jsonResponse({
+        success: true,
+        created: true,
+        delivery: { ...storedDelivery, storage_notice_at: "2026-10-12T18:30:00Z" }
+      });
+    }
+    return commissionDetailFetch()(url);
+  });
+  await app.openDetail(sampleCommission.id);
+  assert.equal((await app.performDeliveryStorageAction("storage")).delivery_status, "in_storage");
+  assert.ok(calls.some((call) => call.url.endsWith("/delivery/storage") && call.options.method === "POST"));
+  await app.performDeliveryStorageAction("storage-notice");
+  assert.ok(calls.some((call) => call.url.endsWith("/delivery/storage-notice") && call.options.method === "POST"));
+  assert.ok(calls.some((call) => call.url.endsWith("/obligations")));
+  assert.ok(calls.some((call) => call.url.endsWith("/events")));
+  assert.doesNotMatch(documentObject.elements["#commission-delivery-actions"].innerHTML, /Mark Abandoned/);
+});
+
+test("Delivery cancellation requires explicit confirmation before its transition request", async () => {
+  const documentObject = createDocument();
+  let transitionCalls = 0;
+  const delivery = {
+    id: "71",
+    commission_id: sampleCommission.id,
+    delivery_method: "pickup",
+    delivery_status: "ready",
+    recipient_name: "Recipient"
+  };
+  const app = createApp(documentObject, async (url, options = {}) => {
+    if (url.endsWith("/delivery") && !options.method) {
+      return jsonResponse({ success: true, initialized: true, delivery });
+    }
+    if (url.endsWith("/delivery/transition")) {
+      transitionCalls += 1;
+      return jsonResponse({
+        success: true,
+        delivery: { ...delivery, delivery_status: "cancelled" }
+      });
+    }
+    return commissionDetailFetch()(url);
+  });
+  await app.openDetail(sampleCommission.id);
+  assert.equal(await app.transitionDelivery("cancelled"), null);
+  assert.equal(transitionCalls, 0);
+  assert.equal(documentObject.elements["#delivery-cancel-confirmation"].hidden, false);
+  const cancelled = await app.confirmDeliveryCancellation();
+  assert.equal(cancelled.delivery_status, "cancelled");
+  assert.equal(transitionCalls, 1);
+  assert.match(documentObject.elements["#commission-delivery-status"].textContent, /Commission was not cancelled/);
+});
+
+test("Activity renderer presents Delivery workflow events without raw payload", () => {
+  const events = [
+    {
+      id: "1",
+      event_type: "delivery_created",
+      occurred_at: "2026-10-11T18:00:00Z",
+      payload: { delivery_method: "shipping", recipient_name: "Private Name" }
+    },
+    {
+      id: "2",
+      event_type: "delivery_shipped",
+      occurred_at: "2026-10-11T19:00:00Z",
+      payload: { tracking_number: "PRIVATE-TRACKING" }
+    }
+  ];
+  const markup = renderCommissionEventsMarkup(events);
+  assert.match(markup, /Artwork shipped/);
+  assert.match(markup, /Shipping delivery created/);
+  assert.doesNotMatch(markup, /Private Name|PRIVATE-TRACKING|tracking_number|recipient_name/);
+});
+
+test("Activity renderer presents Storage events without exposing raw metadata", () => {
+  const markup = renderCommissionEventsMarkup([
+    { id: "1", event_type: "delivery_in_storage", occurred_at: "2026-10-11T18:30:00Z", payload: {} },
+    { id: "2", event_type: "storage_fee_created", occurred_at: "2026-11-11T19:30:00Z", payload: { amount: "10.00", private_note: "DO NOT SHOW" } },
+    { id: "3", event_type: "storage_final_notice_recorded", occurred_at: "2026-11-12T19:30:00Z", payload: { abandonment_eligible_at: "2027-05-11T18:30:00Z" } }
+  ]);
+  assert.match(markup, /Artwork moved to Storage/);
+  assert.match(markup, /Storage Fee created — \$10\.00/);
+  assert.match(markup, /Final Written Notice recorded/);
+  assert.doesNotMatch(markup, /DO NOT SHOW|private_note|abandonment_eligible_at/);
+});
+
+test("Activity renderer presents Communication events without exposing message bodies", () => {
+  const markup = renderCommissionEventsMarkup([
+    {
+      id: 32,
+      event_type: "communication_draft_created",
+      occurred_at: "2026-10-11T18:00:00Z",
+      payload: { communication_type: "quotation", channel: "email", communication_id: "8" }
+    },
+    {
+      id: 33,
+      event_type: "manual_communication_recorded",
+      occurred_at: "2026-10-11T19:00:00Z",
+      payload: { communication_type: "manual_note", channel: "manual", communication_id: "9" }
+    },
+    {
+      id: 34,
+      event_type: "communication_generated_from_template",
+      occurred_at: "2026-10-11T20:00:00Z",
+      payload: { communication_type: "quotation", template_key: "quotation", template_version: 1, communication_id: "10" }
+    },
+    {
+      id: 35,
+      event_type: "communication_marked_ready",
+      occurred_at: "2026-10-11T21:00:00Z",
+      payload: { communication_type: "quotation", template_key: "quotation", template_version: 1, communication_id: "10" }
+    },
+    {
+      id: 36,
+      event_type: "communication_queued",
+      occurred_at: "2026-10-11T21:01:00Z",
+      payload: { communication_type: "quotation", channel: "email", communication_id: "10" }
+    },
+    {
+      id: 37,
+      event_type: "communication_sent",
+      occurred_at: "2026-10-11T21:02:00Z",
+      payload: { communication_type: "quotation", channel: "email", provider: "fake", communication_id: "10" }
+    },
+    {
+      id: 38,
+      event_type: "communication_failed",
+      occurred_at: "2026-10-11T21:03:00Z",
+      payload: { communication_type: "receipt", channel: "email", error_code: "provider_unavailable", communication_id: "11" }
+    },
+    {
+      id: 39,
+      event_type: "communication_reconciliation_inconclusive",
+      occurred_at: "2026-10-11T21:04:00Z",
+      payload: { communication_id: "12", provider: "gmail", result: "inconclusive", recipient: "PRIVATE" }
+    },
+    {
+      id: 40,
+      event_type: "communication_marked_sent_manually",
+      occurred_at: "2026-10-11T21:05:00Z",
+      payload: { communication_id: "12", provider: "manual", result: "confirmed_sent", body: "PRIVATE BODY" }
+    }
+  ]);
+  assert.match(markup, /Quotation draft created/);
+  assert.match(markup, /Manual Note recorded/);
+  assert.match(markup, /Quotation draft generated from Quotation/);
+  assert.match(markup, /Quotation reviewed and marked ready/);
+  assert.match(markup, /Quotation claimed for sending/);
+  assert.match(markup, /Quotation sent via Fake/);
+  assert.match(markup, /Receipt send failed — Provider Unavailable/);
+  assert.match(markup, /Communication reconciliation requires manual review/);
+  assert.match(markup, /Communication marked Sent after external verification/);
+  assert.doesNotMatch(markup, /PRIVATE|body_snapshot|recipient|subject|provider_message_id/);
+});
+
+test("Next Action renderer links only an allowed action state", () => {
+  const actionMarkup = renderNextActionMarkup({
+    code: "continue_quotation",
+    state: "action",
+    label: "Continue Quotation",
+    reason: "A draft is available.",
+    target: { label: "Continue Quotation", href: "/admin/quotation.html?id=7" }
+  });
+  const waitingMarkup = renderNextActionMarkup({
+    code: "await_quotation_acceptance",
+    state: "waiting",
+    label: "Await Quotation Acceptance",
+    reason: "The sent Quotation remains valid.",
+    target: { label: "Unsafe", href: "/admin/unsafe" }
+  });
+  const blockedMarkup = renderNextActionMarkup({
+    code: "data_integrity_review",
+    state: "blocked",
+    label: "Data integrity review required",
+    reason: "Canonical records are ambiguous.",
+    target: null
+  });
+
+  assert.match(actionMarkup, /href="\/admin\/quotation\.html\?id=7"/);
+  assert.match(actionMarkup, /Continue Quotation/);
+  assert.doesNotMatch(waitingMarkup, /href=/);
+  assert.match(waitingMarkup, /Waiting/);
+  assert.doesNotMatch(blockedMarkup, /href=/);
+  assert.match(blockedMarkup, /Blocked/);
+});
+
+test("Commission detail loads Next Action from its protected endpoint", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    if (url.endsWith("/next-action")) {
+      return jsonResponse({
+        success: true,
+        commission_id: "10",
+        next_action: {
+          code: "prepare_quotation",
+          state: "action",
+          label: "Prepare Quotation",
+          reason: "This Commission has no Quotation yet.",
+          target: {
+            label: "Prepare Quotation",
+            href: "/admin/quotation.html?commission_id=10"
+          }
+        }
+      });
+    }
+    return commissionDetailFetch()(url);
+  });
+
+  await app.openDetail(sampleCommission.id);
+
+  assert.ok(calls.includes(`/admin/api/commissions/${sampleCommission.id}/next-action`));
+  assert.match(documentObject.elements["#commission-next-action-detail"].innerHTML, /Prepare Quotation/);
+  assert.match(documentObject.elements["#commission-next-action-detail"].innerHTML, /data-next-action-state="action"/);
+});
+
+test("Production renderer distinguishes legacy uninitialized state without inference", () => {
+  const markup = renderProductionMarkup({ initialized: false });
+  assert.match(markup, /Not initialized/);
+  assert.match(markup, /No status has been inferred from Legacy Commission Status/);
+  assert.doesNotMatch(markup, /commission-status-badge">Not Started/);
+});
+
+test("Production renderer displays canonical status, milestones, and contextual help", () => {
+  const markup = renderProductionMarkup({
+    initialized: true,
+    production_status: "paused",
+    paused_from_status: "in_progress",
+    started_at: "2026-10-11T14:00:00Z",
+    paused_at: "2026-10-11T16:00:00Z",
+    created_at: "2026-10-11T12:00:00Z",
+    updated_at: "2026-10-11T16:00:00Z"
+  });
+  assert.match(markup, /Paused/);
+  assert.match(markup, /Paused From/);
+  assert.match(markup, /In Progress/);
+  assert.match(markup, /data-glossary-key="production\.paused"/);
+  assert.match(markup, /Canonical Production is tracked independently/);
+});
+
+test("Commission detail loads canonical Production from its protected endpoint", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    if (url.endsWith("/production")) {
+      return jsonResponse({
+        success: true,
+        production: {
+          initialized: true,
+          production_status: "not_started",
+          created_at: "2026-10-11T12:00:00Z",
+          updated_at: "2026-10-11T12:00:00Z"
+        }
+      });
+    }
+    return commissionDetailFetch()(url);
+  });
+
+  await app.openDetail(sampleCommission.id);
+
+  assert.ok(calls.includes(`/admin/api/commissions/${sampleCommission.id}/production`));
+  assert.match(documentObject.elements["#commission-production-detail"].innerHTML, /Not Started/);
+});
+
+test("Activity renderer orders newest first and renders known events without raw payload", () => {
+  const markup = renderCommissionEventsMarkup([
+    {
+      id: "1", event_type: "quotation_issued", occurred_at: "2026-10-11T14:00:00Z",
+      payload: { quotation_number: "SAS-QUO-2026-0004", version: 1, client_email: "hidden@example.invalid" }
+    },
+    {
+      id: "2", event_type: "payment_recorded", occurred_at: "2026-10-11T15:00:00Z",
+      payload: { payment_type: "deposit", amount: "200.00" }
+    }
+  ]);
+  assert.ok(markup.indexOf("Deposit recorded") < markup.indexOf("SAS-QUO-2026-0004 v1 issued"));
+  assert.doesNotMatch(markup, /hidden@example\.invalid|client_email|\{&quot;/);
+});
+
+test("Activity renderer has a safe unknown-event fallback and empty state", () => {
+  assert.equal(describeCommissionEvent({ event_type: "future_verified_fact", payload: {} }), "Future Verified Fact");
+  assert.match(renderCommissionEventsMarkup([]), /No activity recorded yet/);
+});
+
+test("Activity renderer presents canonical Production events without raw status payload", () => {
+  assert.equal(
+    describeCommissionEvent({
+      event_type: "production_resumed",
+      payload: { previous_status: "paused", new_status: "revision_in_progress" }
+    }),
+    "Production resumed — Revision In Progress"
+  );
+});
+
+test("Commission detail loads Activity from the protected read endpoint", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    if (url.endsWith("/events")) return jsonResponse({ success: true, events: [{ id: "1", event_type: "commission_status_changed", occurred_at: "2026-10-11T16:00:00Z", payload: { previous_status: "draft", new_status: "quoted" } }] });
+    if (url.includes("/payments")) return jsonResponse({ success: true, commission: sampleCommission, payments: [] });
+    if (url.startsWith("/admin/api/documents")) return jsonResponse({ success: true, documents: [] });
+    if (url.endsWith("/quotations")) return jsonResponse({ success: true, quotations: [] });
+    if (url.startsWith(CONTRACT_ELIGIBILITY_API_PATH)) return jsonResponse({ success: true, eligible: false, message: "Unavailable." });
+    return jsonResponse({ success: true, commission: sampleCommission });
+  });
+  await app.openDetail(sampleCommission.id);
+  assert.ok(calls.includes("/admin/api/commissions/10/events"));
+  assert.match(documentObject.elements["#commission-activity-list"].innerHTML, /Draft to Quoted/);
+});
+
+test("Timeline renderer orders milestones and shows domain and derived temporal state", () => {
+  const markup = renderCommissionTimelineMarkup([
+    { type: "estimated_completion", title: "Estimated completion", domain: "production", status: "upcoming", starts_at: "2026-11-15T05:00:00Z", all_day: true },
+    { type: "commission_created", title: "Commission created", domain: "commission", status: "historical", starts_at: "2026-10-01T14:00:00Z", all_day: false }
+  ]);
+  assert.ok(markup.indexOf("Commission created") < markup.indexOf("Estimated completion"));
+  assert.match(markup, /Production · Upcoming/);
+  assert.match(renderCommissionTimelineMarkup([]), /No timeline milestones available/);
+});
+
+test("Commission detail loads Timeline from its protected read endpoint", async () => {
+  const documentObject = createDocument();
+  const calls = [];
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    if (url.endsWith("/timeline")) return jsonResponse({ success: true, entries: [{ type: "commission_created", title: "Commission created", domain: "commission", status: "historical", starts_at: "2026-01-01T10:00:00Z", all_day: false }] });
+    if (url.includes("/payments")) return jsonResponse({ success: true, commission: sampleCommission, payments: [] });
+    if (url.startsWith("/admin/api/documents")) return jsonResponse({ success: true, documents: [] });
+    if (url.endsWith("/quotations")) return jsonResponse({ success: true, quotations: [] });
+    if (url.startsWith(CONTRACT_ELIGIBILITY_API_PATH)) return jsonResponse({ success: true, eligible: false, message: "Unavailable." });
+    return jsonResponse({ success: true, commission: sampleCommission });
+  });
+  await app.openDetail(sampleCommission.id);
+  assert.ok(calls.includes("/admin/api/commissions/10/timeline"));
+  assert.match(documentObject.elements["#commission-timeline-list"].innerHTML, /Commission created/);
 });
 
 test("Commission detail includes its Documents section", () => {
@@ -357,7 +1244,24 @@ test("Commission detail includes its Documents section", () => {
     "utf8"
   );
   assert.match(html, /id="commission-documents"/);
-  assert.match(html, /<h2>Documents<\/h2>/);
+  assert.match(html, /<h2>Documents[\s\S]*?<\/h2>/);
+});
+
+test("Commission detail includes recent Communications and no sending controls", () => {
+  const html = readFileSync(new URL("../../web/admin/commissions.html", import.meta.url), "utf8");
+  const markup = renderCommissionCommunicationsMarkup([{
+    id: "7", recipient: "client@example.invalid", communication_type: "quotation",
+    channel: "email", communication_status: "draft", created_at: "2026-10-11T12:00:00Z"
+  }]);
+  assert.match(html, /id="commission-communications"/);
+  assert.match(html, /New Draft/);
+  assert.match(html, /Create Communication/);
+  assert.match(html, /Record Manual Communication/);
+  assert.match(html, /data-glossary-key="communication"/);
+  assert.match(markup, /client@example\.invalid/);
+  assert.match(markup, /communications\.html\?communication_id=7/);
+  assert.match(renderCommissionCommunicationsMarkup([]), /No communications recorded/);
+  assert.doesNotMatch(html, /<button[^>]*>\s*(Send|Queue|Retry)\s*<\/button>/i);
 });
 
 test("Commission detail requests documents through the shared filtered endpoint", async () => {
@@ -423,6 +1327,20 @@ test("Commission documents show the payment association", () => {
   assert.match(markup, />Balance</);
 });
 
+test("Commission documents show the derived final invoice payment association", () => {
+  const markup = renderCommissionDocumentsMarkup([{
+    document_number: "SAS-INV-2026-0010",
+    document_type: "invoice",
+    version: 1,
+    created_at: "2026-10-09T10:00:00Z",
+    file_location: "/admin/invoice.html?document=10",
+    payment: { id: null, payment_type: "balance", payment_date: "2026-10-09" }
+  }]);
+
+  assert.match(markup, />Balance<\/td>/);
+  assert.doesNotMatch(markup, /Final Invoice — Paid in full<\/td>[\s\S]*<td>—<\/td>/);
+});
+
 test("Commission documents use the approved empty state", () => {
   assert.match(renderCommissionDocumentsMarkup([]), /No documents for this commission\./);
 });
@@ -455,6 +1373,23 @@ test("Commission Documents derives and displays friendly descriptions", () => {
     readFileSync("web/admin/commissions.html", "utf8"),
     /<th scope="col">Description<\/th>/
   );
+});
+
+test("Commission Documents supports future Commission Agreement metadata", () => {
+  const contract = {
+    id: "9",
+    document_number: "SAS-CON-2026-0001",
+    document_type: "contract",
+    contract_subtype: "commission_agreement",
+    version: 1,
+    created_at: "2026-10-09T10:00:00Z",
+    file_location: "/admin/contract.html?document=9",
+    payment: null
+  };
+  const markup = renderCommissionDocumentsMarkup([contract]);
+  assert.equal(describeDocument(contract), "Commission Agreement");
+  assert.match(markup, /Commission Agreement/);
+  assert.match(markup, /<td>—<\/td>/);
 });
 
 test("Documents failure does not break Payments or Commission Detail", async () => {
@@ -591,6 +1526,62 @@ test("admin commission client selector loads names and emails", async () => {
   assert.match(markup, /value="1"/);
   assert.match(markup, /Test Client/);
   assert.match(markup, /test@example\.invalid/);
+});
+
+test("origin inquiry selector shows only inquiries matching the selected client email", () => {
+  const markup = renderOriginInquiryOptions([
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      form_type: "commission_request",
+      status: "accepted",
+      client_email: " TEST@example.invalid ",
+      created_at: "2026-10-10T10:00:00Z"
+    },
+    {
+      id: "22222222-2222-4222-8222-222222222222",
+      form_type: "contact",
+      status: "new",
+      client_email: "other@example.invalid",
+      created_at: "2026-10-11T10:00:00Z"
+    }
+  ], "test@example.invalid");
+
+  assert.match(markup, /11111111-1111-4111-8111-111111111111/);
+  assert.match(markup, /Commission Request/);
+  assert.doesNotMatch(markup, /22222222-2222-4222-8222-222222222222/);
+});
+
+test("admin commission creation includes an optional origin inquiry id", () => {
+  const documentObject = createDocument();
+  fillValidForm(documentObject);
+  documentObject.inputs.origin_inquiry_id.value =
+    "11111111-1111-4111-8111-111111111111";
+
+  const payload = buildCreatePayload(documentObject.elements["#commission-form"]);
+
+  assert.equal(
+    payload.origin_inquiry_id,
+    "11111111-1111-4111-8111-111111111111"
+  );
+});
+
+test("commission detail renders linked inquiry provenance", () => {
+  const inquiries = [{
+    id: "11111111-1111-4111-8111-111111111111",
+    form_type: "commission_request",
+    status: "accepted",
+    client_name: "Test Client",
+    client_email: "test@example.invalid",
+    relationship_type: "origin",
+    created_at: "2026-10-10T10:00:00Z"
+  }];
+  const markup = renderDetailMarkup({ ...sampleCommission, inquiries });
+
+  assert.match(markup, /Source \/ Inquiries/);
+  assert.match(markup, /Origin/);
+  assert.match(markup, /Commission Request/);
+  assert.match(markup, /11111111-1111-4111-8111-111111111111/);
+  assert.match(renderProvenanceMarkup([]), /No linked inquiries/);
 });
 
 for (const field of ["client_id", "title", "description", "medium", "price"]) {
@@ -988,7 +1979,7 @@ test("Payments section and Record Payment form are present", () => {
   );
 
   assert.match(html, /id="commission-payments"/);
-  assert.match(html, /<h2>Payments<\/h2>/);
+  assert.match(html, /<h2>Payments[\s\S]*?<\/h2>/);
   assert.match(html, /id="record-payment">Record Payment</);
   assert.match(html, /id="payment-list"/);
 });

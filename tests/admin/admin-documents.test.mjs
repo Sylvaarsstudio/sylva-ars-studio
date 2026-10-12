@@ -111,6 +111,7 @@ test("Document filters produce the approved query", () => {
 test("Receipt uses its friendly label", () => assert.equal(documentTypeLabels.receipt, "Receipt"));
 test("Invoice uses its friendly label", () => assert.equal(documentTypeLabels.invoice, "Invoice"));
 test("Contract uses its friendly label", () => assert.equal(documentTypeLabels.contract, "Contract"));
+test("Quotation uses its friendly label", () => assert.equal(documentTypeLabels.quotation, "Quotation"));
 test("COA uses its friendly label", () => assert.equal(documentTypeLabels.coa, "COA"));
 
 test("Documents derives friendly descriptions without stored description data", () => {
@@ -125,6 +126,28 @@ test("Documents derives friendly descriptions without stored description data", 
   assert.equal(
     describeDocument({ ...sampleDocument, document_type: "invoice", payment: null }),
     "Final Invoice — Paid in full"
+  );
+  assert.equal(
+    describeDocument({
+      ...sampleDocument,
+      document_type: "contract",
+      contract_subtype: "commission_agreement",
+      payment: null
+    }),
+    "Commission Agreement"
+  );
+  assert.equal(
+    describeDocument({
+      ...sampleDocument,
+      document_type: "contract",
+      contract_subtype: "artwork_sales_agreement",
+      payment: null
+    }),
+    "Artwork Sales Agreement"
+  );
+  assert.equal(
+    describeDocument({ ...sampleDocument, document_type: "quotation", version: 2, payment: null }),
+    "Quotation — Version 2"
   );
 });
 
@@ -143,7 +166,22 @@ test("Document versions render as v1 and v2", () => {
 });
 
 test("A document without a payment renders an em dash", () => {
-  assert.match(renderDocumentsMarkup([{ ...sampleDocument, payment: null }]), /<td>—<\/td>/);
+  assert.match(renderDocumentsMarkup([{
+    ...sampleDocument,
+    document_type: "contract",
+    payment: null
+  }]), /<td>—<\/td>/);
+});
+
+test("A final invoice renders its derived balance payment", () => {
+  const markup = renderDocumentsMarkup([{
+    ...sampleDocument,
+    document_type: "invoice",
+    payment: { id: null, payment_type: "balance", payment_date: "2026-10-09" }
+  }]);
+
+  assert.match(markup, />Balance<\/td>/);
+  assert.doesNotMatch(markup, /Final Invoice — Paid in full<\/td>[\s\S]*<td>—<\/td>/);
 });
 
 test("View uses the stored file_location", () => {
@@ -156,10 +194,19 @@ test("View opens in a protected new tab", () => {
   assert.match(markup, /rel="noopener"/);
 });
 
-test("Create Document opens the legacy generator", () => {
+test("Prepare Contract opens the persistent draft flow", () => {
   const html = readFileSync("web/admin/documents.html", "utf8");
-  assert.match(html, /href="\/admin\/generate-documents\.html"[^>]*>Create Document<\/a>/);
-  assert.match(html, /Manual document generation is not yet added to the persistent Documents index\./);
+  assert.match(html, /href="\/admin\/create-contract\.html"[^>]*>Prepare Contract<\/a>/);
+  assert.match(html, /Contract terms are still under review\. Contract issuance is not yet enabled\./);
+  assert.match(html, /href="\/admin\/generate-documents\.html"[^>]*>Legacy Generator<\/a>/);
+});
+
+test("legacy generator remains available with a terms-under-review warning", () => {
+  const html = readFileSync("web/admin/generate-documents.html", "utf8");
+  assert.match(html, /Legacy contract generator — terms under review\./);
+  assert.match(html, /href="\/admin\/create-contract\.html"[^>]*>Prepare a persistent contract draft<\/a>/);
+  assert.match(html, /<option value="artwork-sales-agreement\.html">Artwork Sales Agreement<\/option>/);
+  assert.match(html, /<option value="commission-agreement\.html">Commission Agreement<\/option>/);
 });
 
 test("Documents index exposes no Delete action", () => {

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Glossary | Sylva Ars Studio</title>
+  <link rel="stylesheet" href="../css/admin.css">
+  <link rel="stylesheet" href="../css/admin-glossary.css">
+</head>
+
+<body>
+  <main class="admin-page admin-glossary-page">
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Admin Glossary</h1>
+        <p>Shared operational vocabulary for Sylva Ars Studio.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="dashboard.html" class="admin-link">Dashboard</a>
+        <a href="commissions.html" class="admin-link">Commissions</a>
+        <a href="documents.html" class="admin-link">Documents</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <section class="admin-glossary-search" aria-label="Glossary search">
+      <label for="glossary-search">Search glossary</label>
+      <input type="search" id="glossary-search" autocomplete="off" placeholder="Search a term or domain">
+      <p><strong id="glossary-count">0</strong> terms</p>
+    </section>
+
+    <div id="admin-glossary-list"></div>
+  </main>
+
+  <script src="../js/admin-glossary.js"></script>
+</body>
+
+</html>

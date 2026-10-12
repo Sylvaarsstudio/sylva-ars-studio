@@ -98,7 +98,7 @@
         </div>
         <dl class="receipt-meta">
           ${renderRow("Receipt Number", receipt.number)}
-          ${renderRow("Date", formatDate(receipt.issued_at))}
+          ${renderRow("Date", formatDate(receipt.receipt_date || receipt.issued_at))}
         </dl>
       </header>
 
