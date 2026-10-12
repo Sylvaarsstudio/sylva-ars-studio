@@ -23,6 +23,7 @@ let handler;
 let sessionCookie;
 let clients;
 let commissions;
+let inquiryId;
 
 before(async () => {
   database = new NetlifyDB({ logger: () => {} });
@@ -74,13 +75,17 @@ beforeEach(async () => {
     commissionResult.rows.map((commission) => [commission.title, commission.id])
   );
 
-  await db.pool.query(`
+  inquiryId = (await db.pool.query(`
     INSERT INTO inquiries (form_type, client_name, client_email, message)
-    VALUES ('commission_request', 'Inquiry Client', 'inquiry@example.invalid', 'Unchanged')
-  `);
+    VALUES ('commission_request', 'Inquiry Client', 'first@example.invalid', 'Unchanged')
+    RETURNING id
+  `)).rows[0].id;
 });
 
 afterEach(async () => {
+  await db?.pool.query("TRUNCATE commission_events RESTART IDENTITY");
+  await db?.pool.query("DELETE FROM commission_production");
+  await db?.pool.query("DELETE FROM commission_inquiries");
   await db?.pool.query("DELETE FROM documents");
   await db?.pool.query("DELETE FROM payments");
   await db?.pool.query("DELETE FROM commissions");
@@ -136,7 +141,16 @@ test("phase 13 exposes only protected commission paths", () => {
   assert.deepEqual(config.path, [
     "/admin/api/commissions",
     "/admin/api/commissions/:id",
-    "/admin/api/commissions/:id/status"
+    "/admin/api/commissions/:id/status",
+    "/admin/api/commissions/:id/events",
+    "/admin/api/commissions/:id/production",
+    "/admin/api/commissions/:id/next-action",
+    "/admin/api/commissions/:id/obligations",
+    "/admin/api/commissions/:id/delivery",
+    "/admin/api/commissions/:id/delivery/transition",
+    "/admin/api/commissions/:id/delivery/storage",
+    "/admin/api/commissions/:id/delivery/storage-notice",
+    "/admin/api/commissions/:id/delivery/final-notice"
   ]);
   assert.equal(config.path.every((path) => typeof path === "string"), true);
 });
@@ -156,7 +170,13 @@ for (const [method, path, body] of [
   ["GET", "/1", undefined],
   ["POST", "", {}],
   ["PATCH", "/1", {}],
-  ["PATCH", "/1/status", { status: "quoted" }]
+  ["PATCH", "/1/status", { status: "quoted" }],
+  ["GET", "/1/events", undefined],
+  ["GET", "/1/production", undefined],
+  ["GET", "/1/next-action", undefined],
+  ["GET", "/1/obligations", undefined],
+  ["GET", "/1/delivery", undefined],
+  ["POST", "/1/delivery/transition", { next_status: "ready" }]
 ]) {
   test(`phase 13 rejects unauthenticated ${method} ${path || "list"}`, async () => {
     const response = await request(method, path, body, "");
@@ -185,6 +205,36 @@ test("phase 13 returns commission detail by id", async () => {
   assert.equal(body.commission.client_name, "Second Client");
   assert.equal(body.commission.title, "Later Commission");
   assert.equal(body.commission.status, "draft");
+});
+
+test("phase 6 returns protected commission activity without internal audit fields", async () => {
+  const id = commissions["Later Commission"];
+  assert.equal((await request("PATCH", `/${id}/status`, { status: "quoted" })).status, 200);
+  const response = await request("GET", `/${id}/events`);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.total, 1);
+  assert.deepEqual(Object.keys(body.events[0]).sort(), [
+    "actor_type",
+    "event_type",
+    "id",
+    "occurred_at",
+    "payload",
+    "source_id",
+    "source_type"
+  ]);
+  assert.equal(body.events[0].event_type, "commission_status_changed");
+  assert.equal(body.events[0].source_type, "commission");
+  assert.deepEqual(body.events[0].payload, {
+    previous_status: "draft",
+    new_status: "quoted"
+  });
+});
+
+test("phase 6 activity returns 404 for an unknown commission and rejects mutations", async () => {
+  assert.equal((await request("GET", "/999999/events")).status, 404);
+  assert.equal((await request("POST", `/${commissions["Later Commission"]}/events`, {})).status, 405);
 });
 
 test("phase 13 returns 404 for an unknown commission", async () => {
@@ -291,7 +341,7 @@ test("commission status rejects additional payload fields", async () => {
   );
 });
 
-test("commission status changes only status and creates no related records", async () => {
+test("commission status changes only status and creates only its audit event", async () => {
   const id = commissions["Earlier Commission"];
   await db.pool.query("UPDATE commissions SET status = 'in_progress' WHERE id = $1", [id]);
   const before = (await db.pool.query(
@@ -317,6 +367,10 @@ test("commission status changes only status and creates no related records", asy
       (SELECT count(*)::integer FROM payments) AS payments,
       (SELECT count(*)::integer FROM documents) AS documents
   `);
+  const event = (await db.pool.query(
+    "SELECT event_type, payload FROM commission_events WHERE commission_id = $1",
+    [id]
+  )).rows[0];
   const { status, ...unchanged } = after;
 
   assert.equal(response.status, 200);
@@ -324,6 +378,8 @@ test("commission status changes only status and creates no related records", asy
   assert.deepEqual(unchanged, before);
   assert.deepEqual(inquiriesAfter.rows, inquiriesBefore.rows);
   assert.deepEqual(relatedCounts.rows[0], { payments: 0, documents: 0 });
+  assert.equal(event.event_type, "commission_status_changed");
+  assert.deepEqual(event.payload, { previous_status: "in_progress", new_status: "completed" });
 });
 
 for (const [field, value, responseField, expected] of [
@@ -476,6 +532,133 @@ test("phase 13 creates a valid draft commission", async () => {
   assert.equal(body.commission.deposit_amount, "0.00");
   assert.equal(body.commission.sales_tax, "6.00");
   assert.equal(body.commission.balance, "116.00");
+  assert.deepEqual(body.commission.inquiries, []);
+});
+
+test("phase 21 creates a commission with atomic origin provenance", async () => {
+  const response = await request("POST", "", createPayload({
+    origin_inquiry_id: inquiryId
+  }));
+  const body = await response.json();
+  const stored = await db.pool.query(
+    `SELECT commission_id, inquiry_id, relationship_type
+     FROM commission_inquiries
+     WHERE commission_id = $1`,
+    [body.commission.id]
+  );
+
+  assert.equal(response.status, 201);
+  assert.deepEqual(stored.rows.map((row) => ({
+    ...row,
+    commission_id: String(row.commission_id)
+  })), [{
+    commission_id: String(body.commission.id),
+    inquiry_id: inquiryId,
+    relationship_type: "origin"
+  }]);
+  assert.equal(body.commission.inquiries[0].id, inquiryId);
+  assert.equal(body.commission.inquiries[0].relationship_type, "origin");
+});
+
+test("phase 21 client coherence compares inquiry and client email case-insensitively", async () => {
+  await db.pool.query(
+    "UPDATE inquiries SET client_email = ' FIRST@EXAMPLE.INVALID ' WHERE id = $1",
+    [inquiryId]
+  );
+
+  const response = await request("POST", "", createPayload({
+    origin_inquiry_id: inquiryId
+  }));
+
+  assert.equal(response.status, 201);
+});
+
+test("phase 21 rejects an origin inquiry belonging to a different client", async () => {
+  const before = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
+  const response = await request("POST", "", createPayload({
+    client_id: clients["Second Client"],
+    origin_inquiry_id: inquiryId
+  }));
+  const after = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
+
+  assert.equal(response.status, 409);
+  assert.equal(
+    (await response.json()).message,
+    "Origin inquiry does not match the selected client."
+  );
+  assert.equal(after.rows[0].count, before.rows[0].count);
+});
+
+test("phase 21 rejects an unknown origin inquiry without creating a commission", async () => {
+  const before = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
+  const response = await request("POST", "", createPayload({
+    origin_inquiry_id: "11111111-1111-4111-8111-111111111111"
+  }));
+  const after = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
+
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).message, "Origin inquiry not found.");
+  assert.equal(after.rows[0].count, before.rows[0].count);
+});
+
+test("phase 21 rolls back commission creation if the provenance insert fails", async () => {
+  const before = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
+
+  await db.pool.query(
+    "ALTER TABLE commission_inquiries ADD CONSTRAINT phase21_force_link_failure CHECK (false)"
+  );
+
+  try {
+    const response = await request("POST", "", createPayload({
+      origin_inquiry_id: inquiryId
+    }));
+    const after = await db.pool.query("SELECT count(*)::integer AS count FROM commissions");
+
+    assert.equal(response.status, 500);
+    assert.equal(after.rows[0].count, before.rows[0].count);
+  } finally {
+    await db.pool.query(
+      "ALTER TABLE commission_inquiries DROP CONSTRAINT phase21_force_link_failure"
+    );
+  }
+});
+
+test("phase 21 rejects a malformed origin inquiry id", async () => {
+  const response = await request("POST", "", createPayload({
+    origin_inquiry_id: "not-a-uuid"
+  }));
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).message, "Origin inquiry id is invalid.");
+});
+
+test("phase 21 commission detail returns minimal provenance", async () => {
+  const created = await request("POST", "", createPayload({
+    origin_inquiry_id: inquiryId
+  }));
+  const createdBody = await created.json();
+  const response = await request("GET", `/${createdBody.commission.id}`);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(body.commission.inquiries[0]).sort(), [
+    "client_email",
+    "client_name",
+    "created_at",
+    "form_type",
+    "id",
+    "relationship_type",
+    "status"
+  ]);
+  assert.equal(body.commission.inquiries[0].id, inquiryId);
+});
+
+test("phase 21 legacy commission detail remains valid without provenance", async () => {
+  const response = await request("GET", `/${commissions["Earlier Commission"]}`);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.commission.inquiries, []);
 });
 
 for (const medium of ["Acrylic", "Watercolor", "Oil", "Drawing"]) {
@@ -640,7 +823,7 @@ test("phase 13 concurrent creations receive distinct commission numbers", async 
   assert.notEqual(first.commission.commission_number, second.commission.commission_number);
 });
 
-test("phase 13 creation changes only commissions", async () => {
+test("phase 13 creation leaves unrelated master records unchanged", async () => {
   const inquiriesBefore = await db.pool.query("SELECT * FROM inquiries ORDER BY id");
   const clientsBefore = await db.pool.query("SELECT * FROM clients ORDER BY id");
 

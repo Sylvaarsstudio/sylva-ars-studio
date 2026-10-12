@@ -1,7 +1,11 @@
 (function initializeAdminCommissions(globalObject) {
   const API_PATH = "/admin/api/commissions";
   const CLIENTS_API_PATH = "/admin/api/clients";
+  const INQUIRIES_API_PATH = "/admin/api/inquiries";
   const DOCUMENTS_API_PATH = "/admin/api/documents";
+  const QUOTATIONS_API_PATH = "/admin/api/quotations";
+  const CONTRACT_ELIGIBILITY_API_PATH = "/admin/api/contracts/eligibility";
+  const COMMUNICATIONS_API_PATH = "/admin/api/communications";
   const statusTransitions = {
     draft: ["quoted", "cancelled"],
     quoted: ["draft", "approved", "cancelled"],
@@ -22,6 +26,7 @@
     receipt: "Receipt",
     invoice: "Invoice",
     contract: "Contract",
+    quotation: "Quotation",
     coa: "COA"
   };
   const labels = {
@@ -56,6 +61,11 @@
     "amount_paid",
     "balance"
   ]);
+  const fieldHelpKeys = {
+    required_deposit: "required_deposit",
+    deposit_amount: "deposit_received",
+    balance: "outstanding_balance"
+  };
 
   function escapeHtml(value) {
     return String(value)
@@ -167,6 +177,10 @@
     return String(value);
   }
 
+  function renderHelpTrigger(key, label) {
+    return `<button type="button" class="admin-help-trigger" data-glossary-key="${escapeHtml(key)}" aria-label="Learn about ${escapeHtml(label)}" aria-expanded="false" aria-controls="admin-glossary-popover">i</button>`;
+  }
+
   function renderListMarkup(commissions) {
     if (!commissions.length) {
       return '<tr><td colspan="8" class="inquiry-empty">No commissions yet.</td></tr>';
@@ -198,10 +212,11 @@
     };
     const renderField = (field) => hasContent(detail[field]) ? `
       <div class="commission-data-field" data-field="${escapeHtml(field)}">
-        <dt>${escapeHtml(labels[field])}</dt>
+        <dt>${escapeHtml(labels[field])}${fieldHelpKeys[field] ? renderHelpTrigger(fieldHelpKeys[field], labels[field]) : ""}</dt>
         <dd>${escapeHtml(formatDetailValue(field, detail[field]))}</dd>
       </div>
     ` : "";
+    const inquiries = Array.isArray(detail.inquiries) ? detail.inquiries : [];
 
     return `
       <article class="commission-detail-summary">
@@ -211,7 +226,10 @@
             <h2>${escapeHtml(detail.title)}</h2>
             <p class="commission-client">${escapeHtml(detail.client_name)} · ${escapeHtml(detail.client_email)}</p>
           </div>
-          <span class="commission-status-badge">${escapeHtml(formatLabel(detail.status))}</span>
+          <div>
+            <span class="commission-status-badge">${escapeHtml(formatLabel(detail.status))}</span>
+            ${renderHelpTrigger("commission.legacy_status", "Legacy Commission Status")}
+          </div>
         </header>
 
         <section class="commission-description">
@@ -252,12 +270,46 @@
             ${renderField("id")}
           </dl>
         </section>
+
+        <section class="commission-record-information commission-source-inquiries">
+          <h3>Source / Inquiries</h3>
+          ${renderProvenanceMarkup(inquiries)}
+        </section>
       </article>`;
+  }
+
+  function renderProvenanceMarkup(inquiries) {
+    if (!inquiries.length) {
+      return '<p class="inquiry-empty">No linked inquiries.</p>';
+    }
+
+    return `<ul>${inquiries.map((inquiry) => `
+      <li>
+        <strong>${escapeHtml(formatLabel(inquiry.relationship_type))}</strong>
+        ${renderHelpTrigger(`provenance.${inquiry.relationship_type}`, `${formatLabel(inquiry.relationship_type)} provenance`)}
+        — ${escapeHtml(formatLabel(inquiry.form_type))}
+        — ${escapeHtml(inquiry.client_name)}
+        <span>(${escapeHtml(inquiry.id)})</span>
+      </li>
+    `).join("")}</ul>`;
   }
 
   function renderClientOptions(clients) {
     return '<option value="">Select one</option>' + clients.map((client) =>
       `<option value="${escapeHtml(client.id)}">${escapeHtml(client.full_name)} — ${escapeHtml(client.email)}</option>`
+    ).join("");
+  }
+
+  function renderOriginInquiryOptions(inquiries, clientEmail) {
+    const normalizedClientEmail = String(clientEmail || "").trim().toLowerCase();
+    const matchingInquiries = normalizedClientEmail
+      ? inquiries.filter((inquiry) =>
+        String(inquiry.client_email || "").trim().toLowerCase() === normalizedClientEmail
+      )
+      : [];
+
+    return '<option value="">None</option>' + matchingInquiries.map((inquiry) =>
+      `<option value="${escapeHtml(inquiry.id)}">${escapeHtml(formatLabel(inquiry.form_type))} — ${escapeHtml(formatLabel(inquiry.status))} — ${escapeHtml(String(inquiry.created_at).slice(0, 10))}</option>`
     ).join("");
   }
 
@@ -314,6 +366,312 @@
     }).join("");
   }
 
+  function describeCommissionEvent(event) {
+    const payload = event?.payload && typeof event.payload === "object"
+      ? event.payload
+      : {};
+    const quotation = payload.quotation_number
+      ? `${payload.quotation_number}${payload.version ? ` v${payload.version}` : ""}`
+      : "Quotation";
+
+    return {
+      inquiry_linked: `Inquiry linked as ${formatLabel(payload.relationship_type || "source")}`,
+      quotation_created: `${quotation} created`,
+      quotation_issued: `${quotation} issued`,
+      quotation_sent: `${quotation} sent`,
+      quotation_accepted: `${quotation} accepted`,
+      quotation_withdrawn: `${quotation} withdrawn`,
+      quotation_superseded: `${quotation} superseded`,
+      contract_preview_prepared: "Contract draft preview prepared",
+      payment_recorded: `${formatLabel(payload.payment_type || "Payment")} recorded${hasContent(payload.amount) ? ` — ${formatCurrency(payload.amount)}` : ""}`,
+      deposit_received: `Required deposit received${hasContent(payload.amount) ? ` — ${formatCurrency(payload.amount)}` : ""}`,
+      balance_paid: `Balance paid${hasContent(payload.amount) ? ` — ${formatCurrency(payload.amount)}` : ""}`,
+      receipt_issued: `${payload.document_number || "Receipt"} issued`,
+      final_invoice_issued: `${payload.document_number || "Final Invoice"} issued`,
+      commission_status_changed: `Commission status changed from ${formatLabel(payload.previous_status || "unknown")} to ${formatLabel(payload.new_status || "unknown")}`,
+      production_initialized: "Canonical Production tracking initialized — Not Started",
+      production_reserved: "Production reserved",
+      production_started: "Production started",
+      production_awaiting_client_review: "Production awaiting Client review",
+      production_revision_started: "Production revision started",
+      production_final_presented: "Final artwork presented",
+      production_final_accepted: "Final artwork accepted",
+      production_paused: `Production paused from ${formatLabel(payload.previous_status || "unknown")}`,
+      production_resumed: `Production resumed — ${formatLabel(payload.new_status || "unknown")}`,
+      production_completed: "Production completed",
+      delivery_created: `${formatLabel(payload.delivery_method || "Delivery")} delivery created`,
+      delivery_ready: "Delivery ready",
+      delivery_scheduled: "Pickup scheduled",
+      delivery_shipped: "Artwork shipped",
+      delivery_delivered: "Artwork delivered",
+      delivery_picked_up: "Artwork picked up",
+      delivery_cancelled: "Delivery cancelled",
+      delivery_in_storage: "Artwork moved to Storage",
+      storage_notice_recorded: "Storage Notice recorded",
+      storage_fee_created: `Storage Fee created${hasContent(payload.amount) ? ` — ${formatCurrency(payload.amount)}` : ""}`,
+      storage_fee_updated: `Storage Fee updated${hasContent(payload.new_amount) ? ` — ${formatCurrency(payload.new_amount)}` : ""}`,
+      storage_final_notice_recorded: "Final Written Notice recorded",
+      communication_draft_created: `${formatLabel(payload.communication_type || "Communication")} draft created`,
+      manual_communication_recorded: `${formatLabel(payload.communication_type || "Manual communication")} recorded`,
+      communication_generated_from_template: `${formatLabel(payload.communication_type || "Communication")} draft generated from ${formatLabel(payload.template_key || "template")}`,
+      communication_marked_ready: `${formatLabel(payload.communication_type || "Communication")} reviewed and marked ready`,
+      communication_queued: `${formatLabel(payload.communication_type || "Communication")} claimed for sending`,
+      communication_sent: `${formatLabel(payload.communication_type || "Communication")} sent${payload.provider ? ` via ${formatLabel(payload.provider)}` : ""}`,
+      communication_failed: `${formatLabel(payload.communication_type || "Communication")} send failed${payload.error_code ? ` — ${formatLabel(payload.error_code)}` : ""}`,
+      communication_reconciliation_started: "Communication send reconciliation started",
+      communication_reconciled_sent: "Communication reconciled as Sent",
+      communication_reconciled_not_sent: "Communication reconciled as Not Sent",
+      communication_reconciliation_inconclusive: "Communication reconciliation requires manual review",
+      communication_marked_sent_manually: "Communication marked Sent after external verification",
+      communication_marked_failed_manually: "Communication marked Failed after manual review",
+      communication_automation_created: `${formatLabel(payload.automation_key || "Communication")} automation created`
+    }[event?.event_type] || formatLabel(event?.event_type || "Commission event");
+  }
+
+  function renderCommissionEventsMarkup(events) {
+    if (!events.length) {
+      return '<li class="inquiry-empty">No activity recorded yet.</li>';
+    }
+
+    return [...events]
+      .sort((left, right) => {
+        const byTime = String(right.occurred_at).localeCompare(String(left.occurred_at));
+        return byTime || Number(right.id) - Number(left.id);
+      })
+      .map((event) => `<li class="commission-activity-item" data-event-type="${escapeHtml(event.event_type)}">
+        <strong>${escapeHtml(describeCommissionEvent(event))}</strong>
+        <time datetime="${escapeHtml(event.occurred_at)}">${escapeHtml(formatDate(event.occurred_at))}</time>
+      </li>`).join("");
+  }
+
+  function renderCommissionTimelineMarkup(entries) {
+    if (!entries.length) {
+      return '<li class="inquiry-empty">No timeline milestones available.</li>';
+    }
+
+    return [...entries]
+      .sort((left, right) => String(left.starts_at).localeCompare(String(right.starts_at)))
+      .map((entry) => `<li class="commission-activity-item commission-timeline-item" data-entry-type="${escapeHtml(entry.type)}">
+        <strong>${escapeHtml(entry.title)}</strong>
+        <span>${escapeHtml(formatLabel(entry.domain))} · ${escapeHtml(formatLabel(entry.status))}</span>
+        <time datetime="${escapeHtml(entry.starts_at)}">${escapeHtml(entry.all_day
+          ? formatDateOnly(String(entry.starts_at).slice(0, 10))
+          : formatDate(entry.starts_at))}</time>
+      </li>`).join("");
+  }
+
+  function renderCommissionCommunicationsMarkup(communications) {
+    if (!communications.length) {
+      return '<tr><td colspan="6" class="inquiry-empty">No communications recorded for this commission.</td></tr>';
+    }
+
+    return communications.map((communication) => `<tr>
+      <td>${escapeHtml(formatDate(communication.created_at))}</td>
+      <td>${escapeHtml(communication.recipient)}</td>
+      <td>${escapeHtml(formatLabel(communication.communication_type))}</td>
+      <td>${escapeHtml(formatLabel(communication.channel))}</td>
+      <td>${escapeHtml(formatLabel(communication.communication_status))}</td>
+      <td><a class="admin-text-link" href="communications.html?communication_id=${encodeURIComponent(communication.id)}">View</a></td>
+    </tr>`).join("");
+  }
+
+  function renderProductionMarkup(production) {
+    if (!production?.initialized) {
+      return `<article class="commission-production-summary is-uninitialized">
+        <p><strong>Not initialized</strong> ${renderHelpTrigger("production.not_started", "Production Not Started")}</p>
+        <p>Canonical Production tracking was not initialized for this legacy Commission. No status has been inferred from Legacy Commission Status.</p>
+      </article>`;
+    }
+
+    const timestampFields = [
+      ["reserved_at", "Reserved"],
+      ["started_at", "Started"],
+      ["final_presented_at", "Final Presented"],
+      ["final_accepted_at", "Final Accepted"],
+      ["completed_at", "Completed"],
+      ["paused_at", "Last Paused"],
+      ["created_at", "Tracking Created"],
+      ["updated_at", "Last Updated"]
+    ];
+    const timestamps = timestampFields
+      .filter(([field]) => hasContent(production[field]))
+      .map(([field, label]) => `<div class="commission-data-field" data-field="${field}">
+        <dt>${label}</dt>
+        <dd>${escapeHtml(formatDate(production[field]))}</dd>
+      </div>`).join("");
+    const pausedFrom = hasContent(production.paused_from_status)
+      ? `<div class="commission-data-field" data-field="paused_from_status">
+          <dt>Paused From</dt>
+          <dd>${escapeHtml(formatLabel(production.paused_from_status))}</dd>
+        </div>`
+      : "";
+
+    return `<article class="commission-production-summary">
+      <p>
+        <span class="commission-status-badge">${escapeHtml(formatLabel(production.production_status))}</span>
+        ${renderHelpTrigger(`production.${production.production_status}`, `Production ${formatLabel(production.production_status)}`)}
+      </p>
+      <p>Canonical Production is tracked independently from Legacy Commission Status.</p>
+      <dl class="commission-data-grid">
+        ${pausedFrom}
+        ${timestamps}
+      </dl>
+    </article>`;
+  }
+
+  function renderNextActionMarkup(nextAction) {
+    if (!nextAction) {
+      return '<article class="commission-production-summary"><p><strong>Unavailable</strong></p><p>The next action could not be resolved.</p></article>';
+    }
+
+    const actionLink = nextAction.state === "action" && nextAction.target?.href
+      ? `<p><a class="admin-text-link" href="${escapeHtml(nextAction.target.href)}">${escapeHtml(nextAction.target.label || nextAction.label)}</a></p>`
+      : "";
+
+    return `<article class="commission-production-summary commission-next-action-summary" data-next-action-state="${escapeHtml(nextAction.state)}" data-next-action-code="${escapeHtml(nextAction.code)}">
+      <p><span class="commission-status-badge">${escapeHtml(formatLabel(nextAction.state))}</span></p>
+      <h3>${escapeHtml(nextAction.label)}</h3>
+      <p>${escapeHtml(nextAction.reason)}</p>
+      ${actionLink}
+    </article>`;
+  }
+
+  function renderObligationsMarkup(model) {
+    const obligations = model?.obligations || [];
+    const compatibilityNote = "Legacy financial totals remain available for compatibility but are not canonical obligations.";
+
+    if (!model?.initialized || !obligations.length) {
+      return `<article class="commission-production-summary is-uninitialized">
+        <p><strong>No canonical obligations yet.</strong></p>
+        <p>${compatibilityNote}</p>
+      </article>`;
+    }
+
+    return `<div class="inquiry-table-wrap">
+      <table class="inquiry-table">
+        <thead><tr><th>Type</th><th>Status</th><th>Amount</th><th>Allocated</th><th>Outstanding</th><th>Due</th><th>Source</th></tr></thead>
+        <tbody>${obligations.map((obligation) => `<tr>
+          <td>${escapeHtml(formatLabel(obligation.obligation_type))}</td>
+          <td>${escapeHtml(formatLabel(obligation.obligation_status))}</td>
+          <td>${escapeHtml(formatCurrency(obligation.amount))}</td>
+          <td>${escapeHtml(formatCurrency(obligation.allocated_amount))}</td>
+          <td>${escapeHtml(formatCurrency(obligation.outstanding_amount))}</td>
+          <td>${obligation.due_at ? escapeHtml(formatDate(obligation.due_at)) : "—"}</td>
+          <td>${obligation.source_type && obligation.source_id
+            ? `${escapeHtml(formatLabel(obligation.source_type))} ${escapeHtml(obligation.source_id)}`
+            : "—"}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+      <p>${compatibilityNote}</p>
+    </div>`;
+  }
+
+  function renderDeliveryMarkup(model) {
+    const delivery = model?.delivery;
+    if (!model?.initialized || !delivery) {
+      const releaseMessage = model?.release_eligibility?.message
+        ? `<p>${escapeHtml(model.release_eligibility.message)}</p>`
+        : "";
+      return `<article class="commission-production-summary is-uninitialized">
+        <p><strong>No canonical delivery record yet.</strong></p>
+        <p>No fulfillment has been inferred from Shipping Charge, Client address, Payments, Production, Documents, or Legacy Commission Status.</p>
+        ${releaseMessage}
+      </article>`;
+    }
+
+    const destination = [
+      delivery.address_line1,
+      delivery.address_line2,
+      delivery.city,
+      delivery.state_region,
+      delivery.postal_code,
+      delivery.country
+    ].filter(hasContent).join(", ");
+    const carrierService = [delivery.carrier, delivery.service_level]
+      .filter(hasContent)
+      .join(" · ");
+    const storageState = delivery.storage_state || {};
+    const storageFields = delivery.storage_start_at ? [
+      ["storage_start_at", "Storage Started", formatDate(delivery.storage_start_at), "storage_period"],
+      ["free_storage_ends_at", "Free Storage Ends", storageState.free_storage_ends_at ? formatDate(storageState.free_storage_ends_at) : null, "free_storage"],
+      ["billable_weeks", "Billable Weeks", String(storageState.billable_weeks ?? 0), "billable_week"],
+      ["estimated_storage_fee", "Current Storage Fee", formatCurrency(storageState.estimated_storage_fee ?? 0), "storage_fee"],
+      ["storage_notice_at", "Storage Notice", delivery.storage_notice_at ? formatDate(delivery.storage_notice_at) : "Not recorded", "storage_notice"],
+      ["final_notice_at", "Final Written Notice", delivery.final_notice_at ? formatDate(delivery.final_notice_at) : "Not recorded", "final_written_notice"],
+      ["abandonment_eligible_at", "Abandonment Review Eligible Date", storageState.abandonment_eligible_at ? formatDate(storageState.abandonment_eligible_at) : "Not established", "abandonment_eligibility"],
+      ["abandonment_eligible", "Abandonment Review", storageState.abandonment_eligible ? "Eligible for legal review — not automatically abandoned" : "Not eligible", "abandonment_review"]
+    ] : [];
+    const fields = [
+      ["delivery_method", "Method", formatLabel(delivery.delivery_method), "delivery_method"],
+      ["delivery_status", "Status", formatLabel(delivery.delivery_status), "delivery_status"],
+      ["recipient_name", "Recipient", delivery.recipient_name],
+      ["destination", "Destination", destination],
+      ["carrier_service", "Carrier / Service", carrierService],
+      ["tracking_number", "Tracking Number", delivery.tracking_number, "tracking_number"],
+      ["actual_shipping_cost", "Actual Shipping Cost", hasContent(delivery.actual_shipping_cost) ? formatCurrency(delivery.actual_shipping_cost) : null, "actual_shipping_cost"],
+      ["protection_cost", "Protection Cost", hasContent(delivery.protection_cost) ? formatCurrency(delivery.protection_cost) : null, "protection_cost"],
+      ["ready_at", "Ready", delivery.ready_at ? formatDate(delivery.ready_at) : null],
+      ["scheduled_at", "Scheduled", delivery.scheduled_at ? formatDate(delivery.scheduled_at) : null],
+      ["shipped_at", "Shipped", delivery.shipped_at ? formatDate(delivery.shipped_at) : null],
+      ["delivered_at", "Delivered", delivery.delivered_at ? formatDate(delivery.delivered_at) : null],
+      ["picked_up_at", "Picked Up", delivery.picked_up_at ? formatDate(delivery.picked_up_at) : null],
+      ...storageFields
+    ].filter(([, , value]) => hasContent(value));
+
+    return `<article class="commission-production-summary">
+      <p>
+        <span class="commission-status-badge">${escapeHtml(formatLabel(delivery.delivery_status))}</span>
+        ${renderHelpTrigger(`delivery.${delivery.delivery_status}`, `Delivery ${formatLabel(delivery.delivery_status)}`)}
+      </p>
+      <dl class="commission-data-grid">
+        ${fields.map(([field, label, value, helpKey]) => `<div class="commission-data-field" data-field="${escapeHtml(field)}">
+          <dt>${escapeHtml(label)}${helpKey ? renderHelpTrigger(helpKey, label) : ""}</dt>
+          <dd>${escapeHtml(value)}</dd>
+        </div>`).join("")}
+      </dl>
+      <p>Shipping Charge is the commercial amount billed to the Client; Actual Shipping Cost is the fulfillment cost to SAS.</p>
+    </article>`;
+  }
+
+  function renderDeliveryActionsMarkup(delivery) {
+    if (!delivery || ["delivered", "picked_up", "cancelled"].includes(delivery.delivery_status)) {
+      return delivery
+        ? '<p class="admin-notice">This Delivery is terminal and read-only.</p>'
+        : "";
+    }
+    const transitions = {
+      shipping: {
+        pending: [["ready", "Mark Ready"]],
+        ready: [["shipped", "Mark Shipped"], ["cancelled", "Cancel Delivery"]],
+        in_storage: [["ready", "Return to Ready"], ["shipped", "Mark Shipped"]],
+        shipped: [["delivered", "Mark Delivered"]]
+      },
+      pickup: {
+        pending: [["ready", "Mark Ready"], ["cancelled", "Cancel Delivery"]],
+        ready: [["scheduled", "Schedule Pickup"], ["picked_up", "Mark Picked Up"], ["cancelled", "Cancel Delivery"]],
+        scheduled: [["picked_up", "Mark Picked Up"], ["cancelled", "Cancel Delivery"]],
+        in_storage: [["scheduled", "Schedule Pickup"], ["picked_up", "Mark Picked Up"]]
+      }
+    }[delivery.delivery_method]?.[delivery.delivery_status] || [];
+    const storageEligible = delivery.delivery_method === "pickup"
+      ? ["ready", "scheduled"].includes(delivery.delivery_status)
+      : delivery.delivery_status === "ready";
+    const storageActions = delivery.delivery_status === "in_storage"
+      ? `${delivery.storage_notice_at ? "" : '<button type="button" class="admin-text-button" data-delivery-storage-action="storage-notice">Record Storage Notice</button>'}
+         ${delivery.final_notice_at ? "" : '<button type="button" class="admin-text-button" data-delivery-storage-action="final-notice">Record Final Written Notice</button>'}`
+      : storageEligible
+        ? '<button type="button" class="admin-text-button" data-delivery-storage-action="storage">Move to Storage</button>'
+        : "";
+    const scheduleInput = transitions.some(([status]) => status === "scheduled")
+      ? '<label>Pickup Date / Time <input type="datetime-local" id="delivery-scheduled-at"></label>'
+      : "";
+    return `<div class="commission-form-actions" data-delivery-actions>
+      ${scheduleInput}
+      ${transitions.map(([status, label]) => `<button type="button" class="${status === "cancelled" ? "admin-text-button" : "admin-button"}" data-delivery-transition="${status}">${label}</button>`).join("")}
+      ${storageActions}
+    </div>`;
+  }
+
   function describeDocument(document) {
     if (document.document_type === "receipt") {
       return document.payment?.payment_type === "deposit"
@@ -321,9 +679,19 @@
         : "Payment Receipt";
     }
 
+    if (document.document_type === "contract") {
+      return {
+        commission_agreement: "Commission Agreement",
+        artwork_sales_agreement: "Artwork Sales Agreement"
+      }[document.contract_subtype] || "Contract";
+    }
+
+    if (document.document_type === "quotation") {
+      return `Quotation — Version ${document.version}`;
+    }
+
     return {
       invoice: "Final Invoice — Paid in full",
-      contract: "Contract",
       coa: "Certificate of Authenticity"
     }[document.document_type] || formatLabel(document.document_type);
   }
@@ -344,6 +712,30 @@
         <td><a class="admin-text-link" href="${escapeHtml(document.file_location)}" target="_blank" rel="noopener">View</a></td>
       </tr>
     `).join("");
+  }
+
+  function renderQuotationsMarkup(quotations) {
+    if (!quotations.length) {
+      return '<tr><td colspan="9" class="inquiry-empty">No quotations for this commission.</td></tr>';
+    }
+
+    return quotations.map((quotation) => {
+      const snapshotTotal = quotation.quotation_snapshot?.commercial?.total;
+      const total = snapshotTotal ?? (
+        (toCents(quotation.price) + toCents(quotation.sales_tax) + toCents(quotation.shipping_charge)) / 100
+      );
+      return `<tr>
+        <td>${escapeHtml(quotation.quotation_number)}</td>
+        <td>v${escapeHtml(quotation.version)}</td>
+        <td>${escapeHtml(formatLabel(quotation.quotation_status))}${quotation.is_expired ? " (Expired)" : ""}</td>
+        <td>${escapeHtml(formatCurrency(quotation.price))}</td>
+        <td>${escapeHtml(formatCurrency(total))}</td>
+        <td>${quotation.issued_at ? escapeHtml(formatDate(quotation.issued_at)) : "—"}</td>
+        <td>${quotation.expires_at ? escapeHtml(formatDate(quotation.expires_at)) : "—"}</td>
+        <td>${quotation.sent_at ? escapeHtml(formatDate(quotation.sent_at)) : "—"}</td>
+        <td><a class="admin-text-link" href="quotation.html?id=${encodeURIComponent(quotation.id)}">View</a></td>
+      </tr>`;
+    }).join("");
   }
 
   function readRequired(form, field, label) {
@@ -396,7 +788,9 @@
       sales_tax_rate: readRequired(form, "sales_tax_rate", "Sales tax rate"),
       shipping: readNumber(form, "shipping", "Shipping", { defaultValue: 0 }),
       estimated_completion:
-        String(form.elements.namedItem("estimated_completion").value || "").trim() || null
+        String(form.elements.namedItem("estimated_completion").value || "").trim() || null,
+      origin_inquiry_id:
+        String(form.elements.namedItem("origin_inquiry_id").value || "").trim() || null
     };
   }
 
@@ -444,6 +838,51 @@
         String(form.elements.namedItem("external_reference").value || "").trim() || null,
       notes: String(form.elements.namedItem("notes").value || "").trim() || null
     };
+  }
+
+  function buildDeliveryCreatePayload(form) {
+    const method = readRequired(form, "delivery_method", "Delivery method");
+    const payload = {
+      delivery_method: method,
+      recipient_name: readRequired(form, "recipient_name", "Recipient name"),
+      notes: String(form.elements.namedItem("notes").value || "").trim() || null
+    };
+    for (const field of [
+      "address_line1", "address_line2", "city", "state_region", "postal_code",
+      "country", "carrier", "service_level", "tracking_number"
+    ]) {
+      payload[field] = String(form.elements.namedItem(field).value || "").trim() || null;
+    }
+    if (method === "shipping") {
+      for (const [field, label] of [
+        ["address_line1", "Address line 1"], ["city", "City"],
+        ["state_region", "State / region"], ["postal_code", "Postal code"],
+        ["country", "Country"]
+      ]) {
+        if (!payload[field]) throw new Error(`${label} is required for shipping.`);
+      }
+    }
+    return payload;
+  }
+
+  function buildDeliveryUpdatePayload(form, method) {
+    const payload = {};
+    for (const field of [
+      "recipient_name", "address_line1", "address_line2", "city", "state_region",
+      "postal_code", "country", "carrier", "service_level", "tracking_number", "notes"
+    ]) {
+      payload[field] = String(form.elements.namedItem(field).value || "").trim() || null;
+    }
+    if (method === "shipping") {
+      for (const field of ["actual_shipping_cost", "protection_cost"]) {
+        const value = String(form.elements.namedItem(field).value || "").trim();
+        if (value && (!/^\d+(?:\.\d{1,2})?$/.test(value) || Number(value) < 0)) {
+          throw new Error(`${field === "actual_shipping_cost" ? "Actual shipping cost" : "Protection cost"} must be 0 or greater with no more than 2 decimals.`);
+        }
+        payload[field] = value || null;
+      }
+    }
+    return payload;
   }
 
   async function fetchJson(fetchImplementation, url, options) {
@@ -497,6 +936,41 @@
       cancelPayment: documentObject.querySelector("#cancel-payment"),
       documentList: documentObject.querySelector("#commission-document-list"),
       documentStatus: documentObject.querySelector("#commission-documents-status"),
+      communicationsList: documentObject.querySelector("#commission-communications-list"),
+      communicationsStatus: documentObject.querySelector("#commission-communications-status"),
+      createCommunication: documentObject.querySelector("#create-communication"),
+      newCommunicationDraft: documentObject.querySelector("#new-communication-draft"),
+      recordManualCommunication: documentObject.querySelector("#record-manual-communication"),
+      quotationList: documentObject.querySelector("#quotation-list"),
+      quotationStatus: documentObject.querySelector("#quotation-status"),
+      prepareQuotation: documentObject.querySelector("#prepare-quotation"),
+      prepareContract: documentObject.querySelector("#prepare-contract"),
+      contractEligibilityStatus: documentObject.querySelector("#contract-eligibility-status"),
+      activityList: documentObject.querySelector("#commission-activity-list"),
+      activityStatus: documentObject.querySelector("#commission-activity-status"),
+      timelineList: documentObject.querySelector("#commission-timeline-list"),
+      timelineStatus: documentObject.querySelector("#commission-timeline-status"),
+      productionDetail: documentObject.querySelector("#commission-production-detail"),
+      productionStatus: documentObject.querySelector("#commission-production-status"),
+      nextActionDetail: documentObject.querySelector("#commission-next-action-detail"),
+      nextActionStatus: documentObject.querySelector("#commission-next-action-status"),
+      obligationsDetail: documentObject.querySelector("#commission-obligations-detail"),
+      obligationsStatus: documentObject.querySelector("#commission-obligations-status"),
+      deliveryDetail: documentObject.querySelector("#commission-delivery-detail"),
+      deliveryStatus: documentObject.querySelector("#commission-delivery-status"),
+      deliveryActions: documentObject.querySelector("#commission-delivery-actions"),
+      createDelivery: documentObject.querySelector("#create-delivery"),
+      editDelivery: documentObject.querySelector("#edit-delivery"),
+      deliveryCreateForm: documentObject.querySelector("#delivery-create-form"),
+      cancelDeliveryCreate: documentObject.querySelector("#cancel-delivery-create"),
+      deliveryShippingFields: documentObject.querySelector("#delivery-shipping-fields"),
+      deliveryEditForm: documentObject.querySelector("#delivery-edit-form"),
+      cancelDeliveryEdit: documentObject.querySelector("#cancel-delivery-edit"),
+      deliveryActualCostField: documentObject.querySelector("#delivery-actual-cost-field"),
+      deliveryProtectionCostField: documentObject.querySelector("#delivery-protection-cost-field"),
+      deliveryCancelConfirmation: documentObject.querySelector("#delivery-cancel-confirmation"),
+      confirmDeliveryCancel: documentObject.querySelector("#confirm-delivery-cancel"),
+      keepDelivery: documentObject.querySelector("#keep-delivery"),
       statusForm: documentObject.querySelector("#commission-status-form"),
       cancelStatus: documentObject.querySelector("#cancel-commission-status"),
       statusConfirmation:
@@ -523,10 +997,20 @@
       cancelCreate: documentObject.querySelector("#cancel-commission")
     };
     let commissions = [];
+    let clients = [];
+    let inquiries = [];
     let selectedCommission = null;
     let pendingStatus = null;
     let payments = [];
     let documents = [];
+    let communications = [];
+    let quotations = [];
+    let commissionEvents = [];
+    let commissionTimeline = [];
+    let production = { initialized: false };
+    let nextAction = null;
+    let obligations = { initialized: false, obligations: [] };
+    let delivery = { initialized: false, delivery: null };
     let paymentRequestId = null;
 
     function showError(element, error) {
@@ -545,6 +1029,38 @@
 
     function renderDocuments() {
       elements.documentList.innerHTML = renderCommissionDocumentsMarkup(documents);
+    }
+
+    function renderCommunications() {
+      elements.communicationsList.innerHTML = renderCommissionCommunicationsMarkup(communications);
+    }
+
+    function renderQuotations() {
+      elements.quotationList.innerHTML = renderQuotationsMarkup(quotations);
+    }
+
+    function renderCommissionEvents() {
+      elements.activityList.innerHTML = renderCommissionEventsMarkup(commissionEvents);
+    }
+
+    function renderCommissionTimeline() {
+      elements.timelineList.innerHTML = renderCommissionTimelineMarkup(commissionTimeline);
+    }
+
+    function renderObligations() {
+      elements.obligationsDetail.innerHTML = renderObligationsMarkup(obligations);
+    }
+
+    function renderDelivery() {
+      elements.deliveryDetail.innerHTML = renderDeliveryMarkup(delivery);
+      elements.deliveryActions.innerHTML = renderDeliveryActionsMarkup(delivery.delivery);
+      const terminal = ["delivered", "picked_up", "cancelled"].includes(
+        delivery.delivery?.delivery_status
+      );
+      elements.createDelivery.hidden = Boolean(
+        delivery.initialized || !delivery.release_eligibility?.eligible
+      );
+      elements.editDelivery.hidden = !delivery.initialized || terminal;
     }
 
     function formatPaymentInput(cents) {
@@ -592,7 +1108,32 @@
       renderPayments();
       documents = [];
       renderDocuments();
+      communications = [];
+      renderCommunications();
+      quotations = [];
+      renderQuotations();
+      commissionEvents = [];
+      renderCommissionEvents();
+      elements.activityStatus.textContent = "";
+      production = { initialized: false };
+      elements.productionDetail.innerHTML = renderProductionMarkup(production);
+      elements.productionStatus.textContent = "";
+      nextAction = null;
+      elements.nextActionDetail.innerHTML = renderNextActionMarkup(nextAction);
+      elements.nextActionStatus.textContent = "";
+      obligations = { initialized: false, obligations: [] };
+      renderObligations();
+      elements.obligationsStatus.textContent = "";
+      delivery = { initialized: false, delivery: null };
+      renderDelivery();
+      elements.deliveryStatus.textContent = "";
+      elements.deliveryCreateForm.hidden = true;
+      elements.deliveryEditForm.hidden = true;
+      elements.deliveryCancelConfirmation.hidden = true;
       elements.documentStatus.textContent = "";
+      elements.communicationsStatus.textContent = "";
+      elements.prepareContract.hidden = true;
+      elements.contractEligibilityStatus.textContent = "Contract unavailable — Accepted Quotation required.";
       cancelPayment();
       selectedCommission = null;
       showReadOnlyDetail();
@@ -673,10 +1214,38 @@
     async function loadClients() {
       try {
         const body = await fetchJson(fetchImplementation, CLIENTS_API_PATH);
+        clients = body.clients || [];
         elements.createForm.elements.namedItem("client_id").innerHTML =
-          renderClientOptions(body.clients);
-        return body.clients;
+          renderClientOptions(clients);
+        updateOriginInquiryOptions();
+        return clients;
       } catch (error) {
+        clients = [];
+        showError(elements.createStatus, error);
+        return [];
+      }
+    }
+
+    function updateOriginInquiryOptions() {
+      const selectedClientId = String(
+        elements.createForm.elements.namedItem("client_id").value || ""
+      );
+      const selectedClient = clients.find(
+        (client) => String(client.id) === selectedClientId
+      );
+      elements.createForm.elements.namedItem("origin_inquiry_id").innerHTML =
+        renderOriginInquiryOptions(inquiries, selectedClient?.email);
+    }
+
+    async function loadInquiries() {
+      try {
+        const body = await fetchJson(fetchImplementation, INQUIRIES_API_PATH);
+        inquiries = body.inquiries || [];
+        updateOriginInquiryOptions();
+        return inquiries;
+      } catch (error) {
+        inquiries = [];
+        updateOriginInquiryOptions();
         showError(elements.createStatus, error);
         return [];
       }
@@ -744,6 +1313,385 @@
       }
     }
 
+    async function loadCommunications() {
+      if (!selectedCommission) {
+        communications = [];
+        renderCommunications();
+        return [];
+      }
+
+      elements.communicationsStatus.textContent = "Loading communications…";
+      elements.communicationsStatus.classList?.remove("is-error");
+      elements.createCommunication.href = `communications.html?commission_id=${encodeURIComponent(selectedCommission.id)}&action=template`;
+      elements.newCommunicationDraft.href = `communications.html?commission_id=${encodeURIComponent(selectedCommission.id)}&action=draft`;
+      elements.recordManualCommunication.href = `communications.html?commission_id=${encodeURIComponent(selectedCommission.id)}&action=manual`;
+
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${COMMUNICATIONS_API_PATH}?commission_id=${encodeURIComponent(selectedCommission.id)}`
+        );
+        communications = body.communications || [];
+        renderCommunications();
+        elements.communicationsStatus.textContent = "";
+        return communications;
+      } catch (error) {
+        communications = [];
+        renderCommunications();
+        showError(elements.communicationsStatus, error);
+        return [];
+      }
+    }
+
+    async function loadQuotations() {
+      if (!selectedCommission) return [];
+      elements.quotationStatus.textContent = "Loading quotations…";
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/quotations`
+        );
+        quotations = body.quotations || [];
+        renderQuotations();
+        elements.prepareQuotation.href = `quotation.html?commission_id=${encodeURIComponent(selectedCommission.id)}`;
+        elements.prepareQuotation.hidden = quotations.length > 0;
+        elements.prepareQuotation.textContent = "Prepare Quotation";
+        elements.quotationStatus.textContent = "";
+        return quotations;
+      } catch (error) {
+        quotations = [];
+        renderQuotations();
+        showError(elements.quotationStatus, error);
+        return [];
+      }
+    }
+
+    async function loadContractEligibility() {
+      if (!selectedCommission) return null;
+      elements.prepareContract.hidden = true;
+      elements.contractEligibilityStatus.textContent = "Checking Contract eligibility…";
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${CONTRACT_ELIGIBILITY_API_PATH}?commission_id=${encodeURIComponent(selectedCommission.id)}`
+        );
+        elements.contractEligibilityStatus.textContent = body.message;
+        elements.prepareContract.hidden = !body.eligible;
+        if (body.eligible) {
+          elements.prepareContract.href = `create-contract.html?commission_id=${encodeURIComponent(selectedCommission.id)}`;
+        }
+        return body;
+      } catch (error) {
+        elements.prepareContract.hidden = true;
+        showError(elements.contractEligibilityStatus, error);
+        return null;
+      }
+    }
+
+    async function loadCommissionEvents() {
+      if (!selectedCommission) return [];
+      elements.activityStatus.textContent = "Loading activity…";
+      elements.activityStatus.classList?.remove("is-error");
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/events`
+        );
+        commissionEvents = body.events || [];
+        renderCommissionEvents();
+        elements.activityStatus.textContent = "";
+        return commissionEvents;
+      } catch (error) {
+        commissionEvents = [];
+        renderCommissionEvents();
+        showError(elements.activityStatus, error);
+        return [];
+      }
+    }
+
+    async function loadCommissionTimeline() {
+      if (!selectedCommission) return [];
+      elements.timelineStatus.textContent = "Loading timeline…";
+      elements.timelineStatus.classList?.remove("is-error");
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/timeline`
+        );
+        commissionTimeline = body.entries || [];
+        renderCommissionTimeline();
+        elements.timelineStatus.textContent = "";
+        return commissionTimeline;
+      } catch (error) {
+        commissionTimeline = [];
+        renderCommissionTimeline();
+        showError(elements.timelineStatus, error);
+        return [];
+      }
+    }
+
+    async function loadProduction() {
+      if (!selectedCommission) return null;
+      elements.productionStatus.textContent = "Loading production status…";
+      elements.productionStatus.classList?.remove("is-error");
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/production`
+        );
+        production = body.production || { initialized: false };
+        elements.productionDetail.innerHTML = renderProductionMarkup(production);
+        elements.productionStatus.textContent = "";
+        return production;
+      } catch (error) {
+        production = { initialized: false };
+        elements.productionDetail.innerHTML = renderProductionMarkup(production);
+        showError(elements.productionStatus, error);
+        return null;
+      }
+    }
+
+    async function loadNextAction() {
+      if (!selectedCommission) return null;
+      elements.nextActionStatus.textContent = "Resolving next action…";
+      elements.nextActionStatus.classList?.remove("is-error");
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/next-action`
+        );
+        nextAction = body.next_action || null;
+        elements.nextActionDetail.innerHTML = renderNextActionMarkup(nextAction);
+        elements.nextActionStatus.textContent = "";
+        return nextAction;
+      } catch (error) {
+        nextAction = null;
+        elements.nextActionDetail.innerHTML = renderNextActionMarkup(nextAction);
+        showError(elements.nextActionStatus, error);
+        return null;
+      }
+    }
+
+    async function loadObligations() {
+      if (!selectedCommission) return null;
+      elements.obligationsStatus.textContent = "Loading financial obligations…";
+      elements.obligationsStatus.classList?.remove("is-error");
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/obligations`
+        );
+        obligations = {
+          initialized: Boolean(body.initialized),
+          obligations: body.obligations || []
+        };
+        renderObligations();
+        elements.obligationsStatus.textContent = "";
+        return obligations;
+      } catch (error) {
+        obligations = { initialized: false, obligations: [] };
+        renderObligations();
+        showError(elements.obligationsStatus, error);
+        return null;
+      }
+    }
+
+    async function loadDelivery() {
+      if (!selectedCommission) return null;
+      elements.deliveryStatus.textContent = "Loading delivery…";
+      elements.deliveryStatus.classList?.remove("is-error");
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/delivery`
+        );
+        delivery = {
+          initialized: Boolean(body.initialized),
+          delivery: body.delivery || null,
+          release_eligibility: body.release_eligibility || null
+        };
+        renderDelivery();
+        elements.deliveryStatus.textContent = "";
+        return delivery;
+      } catch (error) {
+        delivery = { initialized: false, delivery: null };
+        renderDelivery();
+        showError(elements.deliveryStatus, error);
+        return null;
+      }
+    }
+
+    function toggleDeliveryShippingFields() {
+      const isShipping = elements.deliveryCreateForm.elements.namedItem("delivery_method").value === "shipping";
+      elements.deliveryShippingFields.hidden = !isShipping;
+      return isShipping;
+    }
+
+    function openDeliveryCreate() {
+      elements.deliveryCreateForm.hidden = false;
+      elements.deliveryEditForm.hidden = true;
+      elements.deliveryCancelConfirmation.hidden = true;
+      toggleDeliveryShippingFields();
+    }
+
+    function cancelDeliveryCreate() {
+      elements.deliveryCreateForm.hidden = true;
+    }
+
+    async function submitDeliveryCreate(event) {
+      event?.preventDefault();
+      if (!selectedCommission) return null;
+      let payload;
+      try {
+        payload = buildDeliveryCreatePayload(elements.deliveryCreateForm);
+      } catch (error) {
+        showError(elements.deliveryStatus, error);
+        return null;
+      }
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/delivery`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+        );
+        delivery = { initialized: true, delivery: body.delivery, release_eligibility: delivery.release_eligibility };
+        elements.deliveryCreateForm.hidden = true;
+        renderDelivery();
+        elements.deliveryStatus.textContent = "Delivery created.";
+        await loadCommissionEvents();
+        return body.delivery;
+      } catch (error) {
+        showError(elements.deliveryStatus, error);
+        return null;
+      }
+    }
+
+    function openDeliveryEdit() {
+      if (!delivery.delivery) return;
+      const form = elements.deliveryEditForm;
+      for (const field of [
+        "recipient_name", "address_line1", "address_line2", "city", "state_region",
+        "postal_code", "country", "carrier", "service_level", "tracking_number",
+        "actual_shipping_cost", "protection_cost", "notes"
+      ]) {
+        form.elements.namedItem(field).value = delivery.delivery[field] ?? "";
+      }
+      const isShipping = delivery.delivery.delivery_method === "shipping";
+      elements.deliveryActualCostField.hidden = !isShipping;
+      elements.deliveryProtectionCostField.hidden = !isShipping;
+      form.hidden = false;
+      elements.deliveryCreateForm.hidden = true;
+    }
+
+    function cancelDeliveryEdit() {
+      elements.deliveryEditForm.hidden = true;
+    }
+
+    async function submitDeliveryEdit(event) {
+      event?.preventDefault();
+      if (!selectedCommission || !delivery.delivery) return null;
+      let payload;
+      try {
+        payload = buildDeliveryUpdatePayload(
+          elements.deliveryEditForm,
+          delivery.delivery.delivery_method
+        );
+      } catch (error) {
+        showError(elements.deliveryStatus, error);
+        return null;
+      }
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/delivery`,
+          { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+        );
+        delivery.delivery = body.delivery;
+        elements.deliveryEditForm.hidden = true;
+        renderDelivery();
+        elements.deliveryStatus.textContent = "Delivery updated.";
+        return body.delivery;
+      } catch (error) {
+        showError(elements.deliveryStatus, error);
+        return null;
+      }
+    }
+
+    async function transitionDelivery(nextStatus) {
+      if (!selectedCommission || !delivery.delivery) return null;
+      if (nextStatus === "cancelled") {
+        elements.deliveryCancelConfirmation.hidden = false;
+        return null;
+      }
+      const payload = { next_status: nextStatus };
+      if (nextStatus === "scheduled") {
+        const scheduledInput = documentObject.querySelector("#delivery-scheduled-at");
+        payload.scheduled_at = scheduledInput?.value || null;
+      }
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/delivery/transition`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+        );
+        delivery.delivery = body.delivery;
+        renderDelivery();
+        elements.deliveryStatus.textContent = `Delivery marked ${formatLabel(nextStatus)}.`;
+        await loadCommissionEvents();
+        return body.delivery;
+      } catch (error) {
+        showError(elements.deliveryStatus, error);
+        return null;
+      }
+    }
+
+    async function performDeliveryStorageAction(action) {
+      if (!selectedCommission || !delivery.delivery) return null;
+      const messages = {
+        storage: "Artwork moved to Storage.",
+        "storage-notice": "Storage Notice recorded.",
+        "final-notice": "Final Written Notice recorded. Abandonment remains subject to legal review."
+      };
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/delivery/${action}`,
+          { method: "POST" }
+        );
+        delivery.delivery = body.delivery;
+        renderDelivery();
+        elements.deliveryStatus.textContent = body.created === false
+          ? "This Storage record already exists."
+          : messages[action];
+        await loadObligations();
+        await loadCommissionEvents();
+        return body.delivery;
+      } catch (error) {
+        showError(elements.deliveryStatus, error);
+        return null;
+      }
+    }
+
+    async function confirmDeliveryCancellation() {
+      elements.deliveryCancelConfirmation.hidden = true;
+      if (!selectedCommission || !delivery.delivery) return null;
+      try {
+        const body = await fetchJson(
+          fetchImplementation,
+          `${API_PATH}/${encodeURIComponent(selectedCommission.id)}/delivery/transition`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ next_status: "cancelled" }) }
+        );
+        delivery.delivery = body.delivery;
+        renderDelivery();
+        elements.deliveryStatus.textContent = "Delivery cancelled. The Commission was not cancelled.";
+        await loadCommissionEvents();
+        return body.delivery;
+      } catch (error) {
+        showError(elements.deliveryStatus, error);
+        return null;
+      }
+    }
+
     async function openDetail(id) {
       elements.createPanel.hidden = true;
       elements.detail.hidden = false;
@@ -761,8 +1709,17 @@
         updatePaymentAvailability();
         showReadOnlyDetail();
         elements.detailStatus.textContent = "";
+        await loadNextAction();
+        await loadProduction();
+        await loadCommissionTimeline();
+        await loadCommissionEvents();
         await loadPayments();
+        await loadQuotations();
+        await loadContractEligibility();
+        await loadObligations();
+        await loadDelivery();
         await loadDocuments();
+        await loadCommunications();
         return selectedCommission;
       } catch (error) {
         selectedCommission = null;
@@ -869,6 +1826,7 @@
       elements.createForm.reset();
       elements.createForm.elements.namedItem("sales_tax_rate").value = "0.06";
       elements.createForm.elements.namedItem("shipping").value = "0";
+      updateOriginInquiryOptions();
       updateFinancialPreview();
       elements.createStatus.textContent = "";
       elements.createStatus.classList?.remove("is-error");
@@ -1006,6 +1964,7 @@
         elements.detailFields.innerHTML = renderDetailMarkup(updatedCommission);
         showReadOnlyDetail();
         elements.detailStatus.textContent = "Commission status updated.";
+        await loadCommissionEvents();
         return updatedCommission;
       } catch {
         showError(
@@ -1140,6 +2099,7 @@
           ? `<a class="admin-text-link" href="${escapeHtml(paymentDocument.file_location)}">${actionLabel}</a>`
           : "";
         await loadDocuments();
+        await loadCommissionEvents();
         return body.payment;
       } catch (error) {
         showError(elements.paymentStatus, error);
@@ -1159,6 +2119,27 @@
       elements.editCommission.addEventListener("click", openEdit);
       elements.changeStatus.addEventListener("click", openStatus);
       elements.recordPayment.addEventListener("click", openPayment);
+      elements.createDelivery.addEventListener("click", openDeliveryCreate);
+      elements.editDelivery.addEventListener("click", openDeliveryEdit);
+      elements.deliveryCreateForm.elements.namedItem("delivery_method").addEventListener("change", toggleDeliveryShippingFields);
+      elements.deliveryCreateForm.addEventListener("submit", submitDeliveryCreate);
+      elements.cancelDeliveryCreate.addEventListener("click", cancelDeliveryCreate);
+      elements.deliveryEditForm.addEventListener("submit", submitDeliveryEdit);
+      elements.cancelDeliveryEdit.addEventListener("click", cancelDeliveryEdit);
+      elements.deliveryActions.addEventListener("click", (event) => {
+        const button = event.target.closest?.("[data-delivery-transition]");
+        if (button) transitionDelivery(button.getAttribute("data-delivery-transition"));
+        const storageButton = event.target.closest?.("[data-delivery-storage-action]");
+        if (storageButton) {
+          performDeliveryStorageAction(
+            storageButton.getAttribute("data-delivery-storage-action")
+          );
+        }
+      });
+      elements.confirmDeliveryCancel.addEventListener("click", confirmDeliveryCancellation);
+      elements.keepDelivery.addEventListener("click", () => {
+        elements.deliveryCancelConfirmation.hidden = true;
+      });
       elements.paymentForm.elements.namedItem("payment_type").addEventListener(
         "change",
         updatePaymentSuggestions
@@ -1187,6 +2168,10 @@
       );
       elements.cancelEdit.addEventListener("click", cancelEdit);
       elements.createForm.addEventListener("submit", submitCreate);
+      elements.createForm.elements.namedItem("client_id").addEventListener(
+        "change",
+        updateOriginInquiryOptions
+      );
       elements.createForm.elements.namedItem("price").addEventListener(
         "input",
         updateFinancialPreview
@@ -1211,24 +2196,44 @@
       cancelPayment,
       cancelStatus,
       cancelStatusConfirmation,
+      cancelDeliveryCreate,
+      cancelDeliveryEdit,
       closeCreate,
       loadClients,
+      loadInquiries,
       loadList,
       loadDocuments,
+      loadCommunications,
+      loadContractEligibility,
+      loadCommissionEvents,
+      loadCommissionTimeline,
+      loadNextAction,
+      loadObligations,
+      loadDelivery,
+      loadProduction,
+      loadQuotations,
       loadPayments,
       openCreate,
+      openDeliveryCreate,
+      openDeliveryEdit,
       openDetail,
       openEdit,
       openPayment,
       openStatus,
+      performDeliveryStorageAction,
       prepareStatusConfirmation,
       showCommissionIndex,
       submitCreate,
+      submitDeliveryCreate,
+      submitDeliveryEdit,
+      transitionDelivery,
+      confirmDeliveryCancellation,
       submitEdit,
       submitPayment,
       submitStatus,
       updateEditFinancialPreview,
       updateFinancialPreview,
+      updateOriginInquiryOptions,
       updatePaymentSuggestions
     };
   }
@@ -1236,10 +2241,16 @@
   const api = {
     API_PATH,
     CLIENTS_API_PATH,
+    INQUIRIES_API_PATH,
     DOCUMENTS_API_PATH,
+    QUOTATIONS_API_PATH,
+    CONTRACT_ELIGIBILITY_API_PATH,
+    COMMUNICATIONS_API_PATH,
     buildCreatePayload,
     buildEditPayload,
     buildPaymentPayload,
+    buildDeliveryCreatePayload,
+    buildDeliveryUpdatePayload,
     calculateFinancialPreview,
     createApp,
     describeDocument,
@@ -1248,10 +2259,23 @@
     inferSalesTaxRate,
     paymentMethodLabels,
     renderCommissionDocumentsMarkup,
+    renderCommissionCommunicationsMarkup,
+    renderCommissionEventsMarkup,
+    renderCommissionTimelineMarkup,
+    renderNextActionMarkup,
+    renderObligationsMarkup,
+    renderDeliveryMarkup,
+    renderDeliveryActionsMarkup,
+    renderProductionMarkup,
+    describeCommissionEvent,
     renderClientOptions,
     renderDetailMarkup,
     renderListMarkup,
     renderPaymentsMarkup,
+    renderQuotationsMarkup,
+    renderProvenanceMarkup,
+    renderOriginInquiryOptions,
+    renderHelpTrigger,
     renderStatusOptions,
     statusTransitions
   };
@@ -1265,7 +2289,12 @@
   if (globalObject.document) {
     const app = createApp(globalObject.document, globalObject.fetch.bind(globalObject));
     app.bindEvents();
-    app.loadList();
+    app.loadList().then(() => {
+      const commissionId = new URLSearchParams(globalObject.location?.search || "")
+        .get("commission_id");
+      if (/^[1-9][0-9]*$/.test(commissionId || "")) app.openDetail(commissionId);
+    });
     app.loadClients();
+    app.loadInquiries();
   }
 })(typeof window !== "undefined" ? window : globalThis);

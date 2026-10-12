@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendar | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/admin.css">
+  <link rel="stylesheet" href="../css/admin-glossary.css">
+  <link rel="stylesheet" href="../css/admin-calendar.css">
+</head>
+
+<body>
+  <main class="admin-page admin-calendar-page">
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Calendar</h1>
+        <p>Derived studio milestones and operational dates.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="dashboard.html" class="admin-link">Dashboard</a>
+        <a href="commissions.html" class="admin-link">Commissions</a>
+        <a href="glossary.html" class="admin-link">Glossary</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <section class="calendar-toolbar" aria-label="Calendar controls">
+      <div class="calendar-period-controls">
+        <button type="button" class="admin-text-button" id="calendar-previous">← Previous</button>
+        <button type="button" class="admin-text-button" id="calendar-today">Today</button>
+        <button type="button" class="admin-text-button" id="calendar-next">Next →</button>
+      </div>
+      <h2 id="calendar-title"></h2>
+      <div class="calendar-view-controls">
+        <label>
+          Domain
+          <select id="calendar-domain-filter">
+            <option value="all">All</option>
+            <option value="quotation">Quotation</option>
+            <option value="production">Production</option>
+            <option value="financial">Financial</option>
+            <option value="delivery">Delivery</option>
+          </select>
+        </label>
+        <button type="button" class="admin-text-button" id="calendar-month-view">Month</button>
+        <button type="button" class="admin-text-button" id="calendar-agenda-view">Agenda</button>
+        <button type="button" class="admin-help-trigger" data-glossary-key="calendar" aria-label="Learn about Calendar">i</button>
+      </div>
+    </section>
+
+    <p class="admin-notice" id="calendar-status" aria-live="polite"></p>
+    <section id="calendar-month" aria-label="Month view"></section>
+    <section id="calendar-agenda" aria-label="Agenda view" hidden></section>
+  </main>
+
+  <script src="../js/admin-glossary.js"></script>
+  <script src="../js/admin-calendar.js"></script>
+</body>
+</html>

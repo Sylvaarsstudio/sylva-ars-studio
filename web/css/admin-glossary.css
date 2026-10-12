@@ -1,0 +1,199 @@
+.admin-help-trigger {
+  display: inline-grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin-left: 0.35rem;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font: 700 0.75rem/1 Arial, Helvetica, sans-serif;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.admin-help-trigger:hover,
+.admin-help-trigger:focus-visible,
+.admin-help-trigger[aria-expanded="true"] {
+  border-color: #111;
+  outline: 2px solid transparent;
+  background: #111;
+  color: #fff;
+}
+
+.admin-help-popover {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: #fff;
+  color: #111;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.admin-help-popover[hidden] {
+  display: none;
+}
+
+.admin-help-popover:focus {
+  outline: 2px solid #111;
+  outline-offset: 2px;
+}
+
+.admin-help-close {
+  float: right;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 400 1.5rem/1 Arial, Helvetica, sans-serif;
+  cursor: pointer;
+}
+
+.admin-help-domain {
+  margin: 0 32px 6px 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-help-popover h2 {
+  margin: 0 32px 18px 0;
+  font-size: 1.35rem;
+}
+
+.admin-help-popover dl,
+.admin-glossary-entry dl {
+  margin: 0;
+}
+
+.admin-help-popover dl > div,
+.admin-glossary-entry dl > div {
+  margin-bottom: 16px;
+}
+
+.admin-help-popover dt,
+.admin-glossary-entry dt {
+  margin-bottom: 5px;
+  font-weight: 700;
+}
+
+.admin-help-popover dd,
+.admin-glossary-entry dd {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.admin-context-help-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: -32px 0 30px;
+  font-size: 0.875rem;
+}
+
+.admin-help-form-field {
+  position: relative;
+}
+
+.admin-help-form-field > label {
+  padding-right: 2rem;
+}
+
+.admin-help-form-field > .admin-help-trigger {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.admin-glossary-search {
+  max-width: 680px;
+  margin-bottom: 42px;
+}
+
+.admin-glossary-search label {
+  display: block;
+  font-weight: 700;
+}
+
+.admin-glossary-search input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  background: #fff;
+  color: #111;
+  font: inherit;
+}
+
+.admin-glossary-domain {
+  margin-bottom: 54px;
+}
+
+.admin-glossary-domain > h2 {
+  margin-bottom: 20px;
+  font-weight: 400;
+}
+
+.admin-glossary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 20px;
+}
+
+.admin-glossary-entry {
+  position: relative;
+  padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: #fff;
+}
+
+.admin-glossary-entry:focus {
+  outline: 2px solid #111;
+  outline-offset: 3px;
+}
+
+.admin-glossary-entry h3 {
+  margin: 0 30px 18px 0;
+  font-size: 1.15rem;
+}
+
+.admin-glossary-anchor {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  color: inherit;
+  text-decoration: none;
+  opacity: 0.45;
+}
+
+@media (max-width: 640px) {
+  .admin-help-popover {
+    right: 12px;
+    bottom: 12px;
+    left: 12px !important;
+    top: auto !important;
+    width: auto;
+  }
+
+  .admin-context-help-links {
+    margin-top: -18px;
+  }
+}
+
+@media print {
+  .admin-help-trigger,
+  .admin-help-popover,
+  .admin-context-help-links {
+    display: none !important;
+  }
+}

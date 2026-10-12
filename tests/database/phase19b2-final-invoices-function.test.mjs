@@ -79,6 +79,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await db?.pool.query("DROP TRIGGER IF EXISTS reject_invoice_insert ON documents");
   await db?.pool.query("DROP FUNCTION IF EXISTS reject_invoice_insert()");
+  await db?.pool.query("DELETE FROM communications");
+  await db?.pool.query("TRUNCATE commission_events RESTART IDENTITY");
   await db?.pool.query("DELETE FROM documents");
   await db?.pool.query("DELETE FROM payments");
   await db?.pool.query("DELETE FROM commissions");
@@ -342,7 +344,15 @@ test("non-final receipt snapshot behavior remains unchanged", async () => {
 test("documents endpoint data includes the final invoice", async () => {
   await createFinal();
   const documents = await listDocuments(db, { commissionId: String(commissionId) });
-  assert.equal(documents.some((document) => document.document_type === "invoice"), true);
+  const invoice = documents.find((document) => document.document_type === "invoice");
+
+  assert.ok(invoice);
+  assert.deepEqual(invoice.payment, {
+    id: null,
+    payment_type: "balance",
+    payment_date: "2026-10-09"
+  });
+  assert.equal((await invoiceRow()).payment_id, null);
 });
 
 test("historical receipt remains intact after final invoice creation", async () => {

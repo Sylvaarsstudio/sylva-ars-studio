@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prepare Contract | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/admin.css">
+  <link rel="stylesheet" href="../css/admin-glossary.css">
+</head>
+
+<body>
+  <main class="admin-page admin-contract-preparation-page">
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Prepare Contract <button type="button" class="admin-help-trigger" data-glossary-key="contract.draft" aria-label="Learn about Draft Contract">i</button></h1>
+        <p>Review a draft Commission Agreement derived from an accepted Quotation.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="/admin/documents.html" class="admin-link">Documents</a>
+        <a href="/admin/commissions.html" class="admin-link">Commissions</a>
+        <a href="/admin/glossary.html" class="admin-link">Glossary</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <p class="admin-context-help-links">
+      <span>Snapshot <button type="button" class="admin-help-trigger" data-glossary-key="snapshot" aria-label="Learn about Snapshot">i</button></span>
+      <span>Contract Version <button type="button" class="admin-help-trigger" data-glossary-key="contract_version" aria-label="Learn about Contract Version">i</button></span>
+      <span>Issued <button type="button" class="admin-help-trigger" data-glossary-key="contract.issued" aria-label="Learn about Issued Contract">i</button></span>
+      <span>Eligibility <button type="button" class="admin-help-trigger" data-glossary-key="contract_eligibility" aria-label="Learn about Contract Eligibility">i</button></span>
+    </p>
+
+    <p class="admin-notice is-error" role="status">
+      Contract terms are under review. This document cannot yet be issued.
+      <button type="button" class="admin-help-trigger" data-glossary-key="contract_issuance" aria-label="Learn about Contract Issuance">i</button>
+    </p>
+
+    <form class="admin-form" id="prepare-contract-form">
+      <label>
+        Commission
+        <select name="commission_id" required>
+          <option value="">Select an eligible commission</option>
+        </select>
+      </label>
+      <p class="admin-notice commission-form-wide" id="contract-eligibility-status">An accepted Quotation is required.</p>
+
+      <label>
+        Contract Type
+        <select name="subtype" disabled>
+          <option value="commission_agreement">Commission Agreement</option>
+        </select>
+      </label>
+
+      <label>
+        Draft Contract Date
+        <input type="date" name="contract_date" required>
+      </label>
+
+      <label>
+        Optional Message
+        <textarea name="optional_message" rows="3"></textarea>
+      </label>
+
+      <label>
+        Delivery / Pickup Notes
+        <textarea name="delivery_notes" rows="3"></textarea>
+      </label>
+
+      <div class="admin-actions">
+        <button type="submit" class="admin-button">Prepare Preview</button>
+        <a href="/admin/contract.html?preview=1" class="admin-link" id="open-contract-preview" hidden>
+          Open Draft Preview
+        </a>
+      </div>
+    </form>
+
+    <p class="admin-notice" id="contract-preparation-status" aria-live="polite"></p>
+    <section id="contract-preparation-summary" aria-live="polite"></section>
+  </main>
+
+  <script src="../js/admin-glossary.js"></script>
+  <script src="../js/admin-create-contract.js"></script>
+</body>
+
+</html>

@@ -1,4 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { getDatabase } from "@netlify/database";
+
+import { attemptAutomaticCommunicationSend } from "../shared/communication-automations.mjs";
+import { getCommunicationAutomationRule } from "../shared/communication-automation-policy.mjs";
+import { getCommunicationTemplate, renderCommunicationTemplate } from "../shared/communication-templates.mjs";
+import { createGmailEmailProvider } from "../shared/email-provider.mjs";
 
 const allowedFormTypes = new Set([
   "contact",
@@ -40,6 +46,7 @@ const optionalTextFields = [
   "organization_project",
   "collaboration_type"
 ];
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function jsonResponse(statusCode, body) {
   return Response.json(body, { status: statusCode });
@@ -89,6 +96,7 @@ function normalizePayload(data) {
     client_name: normalizeRequiredText(source.client_name),
     client_email: normalizeRequiredText(source.client_email),
     message: normalizeRequiredText(source.message),
+    request_id: normalizeOptionalText(source.request_id),
     estimated_date: normalizeOptionalText(source.estimated_date),
     occasion: normalizeOptionalText(source.occasion)
   };
@@ -129,6 +137,10 @@ function validateRequest(data) {
     return "Missing required field: message.";
   }
 
+  if (data.request_id !== null && !uuidPattern.test(data.request_id)) {
+    return "Unsupported request_id.";
+  }
+
   if (
     data.estimated_date !== null &&
     !allowedEstimatedDates.has(data.estimated_date)
@@ -143,9 +155,39 @@ function validateRequest(data) {
   return "";
 }
 
-async function insertInquiry(db, data) {
-  const inserted = await db.pool.query(
-    `INSERT INTO inquiries (
+function readEnvironmentVariable(name) {
+  return globalThis.Netlify?.env?.get?.(name) ?? process.env[name];
+}
+
+function sameInquiryIntent(existing, data) {
+  return existing.form_type === data.form_type
+    && existing.client_name === data.client_name
+    && existing.client_email === data.client_email
+    && existing.message === data.message;
+}
+
+const inquiryClientNameToken = "__SAS_INQUIRY_CLIENT_NAME__";
+
+function prepareInquiryConfirmationAutomation() {
+  const policy = getCommunicationAutomationRule("inquiry_received_confirmation");
+  const template = getCommunicationTemplate(policy?.template_key);
+  const rendered = renderCommunicationTemplate(template, {
+    client_name: inquiryClientNameToken
+  });
+  if (!policy?.enabled || policy.mode !== "auto_send" || !template || rendered.error) {
+    throw new Error("Inquiry confirmation automation policy is invalid.");
+  }
+  return { policy, template, rendered };
+}
+
+async function insertInquiry(db, data, now = () => new Date()) {
+  const prepared = prepareInquiryConfirmationAutomation();
+  const result = await db.pool.query(
+    `WITH request_lock AS MATERIALIZED (
+       SELECT pg_advisory_xact_lock(hashtext($1))
+     ),
+     canonical_inquiry AS (
+       INSERT INTO inquiries (
        source_submission_id,
        form_type,
        client_name,
@@ -163,14 +205,52 @@ async function insertInquiry(db, data) {
        organization_project,
        collaboration_type,
        message
+       )
+       SELECT
+         $1, $2, $3, $4, $5, $6, $7, $8, $9,
+         $10, $11, $12, $13, $14, $15, $16, $17
+       FROM request_lock
+       ON CONFLICT (source_submission_id) DO UPDATE
+         SET source_submission_id = EXCLUDED.source_submission_id
+       RETURNING inquiries.*, (xmax = 0) AS created
+     ),
+     existing_communication AS MATERIALIZED (
+       SELECT c.id, c.automation_source_key
+       FROM communications c
+       JOIN canonical_inquiry i
+         ON c.automation_source_key = 'inquiry-received:' || i.id::text
+     ),
+     inserted_communication AS (
+       INSERT INTO communications (
+         inquiry_id, channel, communication_type, communication_status,
+         recipient, subject, body_snapshot, ready_at,
+         template_key, template_version,
+         automation_key, automation_mode, automation_source_key
+       )
+       SELECT
+         i.id, $18, $19, 'ready', i.client_email,
+         replace($20, $22, i.client_name),
+         replace($21, $22, i.client_name),
+         $23::timestamptz, $24, $25, $26, 'auto_send',
+         'inquiry-received:' || i.id::text
+       FROM canonical_inquiry i
+       WHERE NOT EXISTS (SELECT 1 FROM existing_communication)
+       ON CONFLICT (automation_source_key)
+         WHERE automation_source_key IS NOT NULL
+       DO NOTHING
+       RETURNING id, automation_source_key
+     ),
+     canonical_communication AS (
+       SELECT id, automation_source_key FROM inserted_communication
+       UNION ALL
+       SELECT id, automation_source_key FROM existing_communication
+       LIMIT 1
      )
-     VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9,
-       $10, $11, $12, $13, $14, $15, $16, $17
-     )
-     RETURNING id, status, created_at`,
+     SELECT row_to_json(i) AS inquiry, communication.id AS communication_id
+     FROM canonical_inquiry i
+     CROSS JOIN canonical_communication communication`,
     [
-      null,
+      data.request_id,
       data.form_type,
       data.client_name,
       data.client_email,
@@ -186,14 +266,60 @@ async function insertInquiry(db, data) {
       data.reference_notes,
       data.organization_project,
       data.collaboration_type,
-      data.message
+      data.message,
+      prepared.template.channel,
+      prepared.template.communication_type,
+      prepared.rendered.subject,
+      prepared.rendered.body,
+      inquiryClientNameToken,
+      now(),
+      prepared.template.key,
+      prepared.template.version,
+      prepared.policy.key
     ]
   );
-
-  return inserted.rows[0];
+  let row = result.rows[0];
+  if (!row) {
+    const existing = (await db.pool.query(
+      "SELECT * FROM inquiries WHERE source_submission_id = $1",
+      [data.request_id]
+    )).rows[0];
+    const communication = existing
+      ? (await db.pool.query(
+          "SELECT id FROM communications WHERE automation_source_key = $1",
+          [`inquiry-received:${existing.id}`]
+        )).rows[0]
+      : null;
+    if (!existing || !communication) {
+      throw new Error("Inquiry confirmation outbox was not persisted.");
+    }
+    row = { inquiry: { ...existing, created: false }, communication_id: communication.id };
+  }
+  const inquiry = row.inquiry;
+  if (!sameInquiryIntent(inquiry, data)) return { outcome: "request_conflict" };
+  const created = Boolean(inquiry.created);
+  delete inquiry.created;
+  return {
+    outcome: "success",
+    created,
+    inquiry,
+    communication_id: row.communication_id
+  };
 }
 
-function createHandler(databaseFactory = getDatabase) {
+function createHandler(options = getDatabase) {
+  const {
+    databaseFactory = getDatabase,
+    environmentReader = readEnvironmentVariable,
+    emailProvider = null,
+    providerFetch = globalThis.fetch?.bind(globalThis),
+    now = () => new Date()
+  } = typeof options === "function" ? { databaseFactory: options } : options;
+  const sendingProvider = emailProvider || createGmailEmailProvider({
+    environmentReader,
+    fetchImplementation: providerFetch,
+    now
+  });
   return async function handler(request) {
     if (request.method !== "POST") {
       return jsonResponse(405, {
@@ -216,7 +342,14 @@ function createHandler(databaseFactory = getDatabase) {
     }
 
     try {
-      const inquiry = await insertInquiry(databaseFactory(), data);
+      data.request_id ||= randomUUID();
+      const db = databaseFactory();
+      const result = await insertInquiry(db, data, now);
+      if (result.outcome === "request_conflict") {
+        return jsonResponse(409, { success: false, message: "Request id is already in use." });
+      }
+      await attemptAutomaticCommunicationSend(db, result.communication_id, sendingProvider, now);
+      const inquiry = result.inquiry;
 
       return jsonResponse(200, {
         success: true,

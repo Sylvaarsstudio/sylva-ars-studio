@@ -8,6 +8,7 @@
   <title>Commissions | Sylva Ars Studio Admin</title>
 
   <link rel="stylesheet" href="../css/admin.css">
+  <link rel="stylesheet" href="../css/admin-glossary.css">
 </head>
 
 <body>
@@ -23,6 +24,9 @@
         <a href="dashboard.html" class="admin-link">Dashboard</a>
         <a href="clients.html" class="admin-link">Clients</a>
         <a href="inquiries.html" class="admin-link">Inquiries</a>
+        <a href="calendar.html" class="admin-link">Calendar</a>
+        <a href="communications.html" class="admin-link">Communications</a>
+        <a href="glossary.html" class="admin-link">Glossary</a>
         <a href="/admin-logout" class="admin-link">Log out</a>
       </nav>
     </header>
@@ -67,9 +71,138 @@
           <button type="button" class="admin-text-button" id="change-commission-status">Change Status</button>
         </div>
 
+        <section id="commission-next-action">
+          <div class="inquiry-detail-heading">
+            <h2>Next Action <button type="button" class="admin-help-trigger" data-glossary-key="next_action" aria-label="Learn about Next Action">i</button></h2>
+          </div>
+          <p class="admin-notice" id="commission-next-action-status" aria-live="polite"></p>
+          <div id="commission-next-action-detail"></div>
+        </section>
+
+        <section id="commission-production">
+          <div class="inquiry-detail-heading">
+            <h2>Production <button type="button" class="admin-help-trigger" data-glossary-key="production.canonical" aria-label="Learn about Canonical Production">i</button></h2>
+          </div>
+          <p class="admin-notice" id="commission-production-status" aria-live="polite"></p>
+          <div id="commission-production-detail"></div>
+        </section>
+
+        <section id="commission-timeline">
+          <div class="inquiry-detail-heading">
+            <h2>Timeline <button type="button" class="admin-help-trigger" data-glossary-key="commission_timeline" aria-label="Learn about Commission Timeline">i</button></h2>
+          </div>
+          <p class="admin-notice">Operational and contractual milestones. Activity / History remains the audit trail of recorded actions.</p>
+          <p class="admin-notice" id="commission-timeline-status" aria-live="polite"></p>
+          <ol class="commission-timeline-list" id="commission-timeline-list"></ol>
+        </section>
+
+        <section id="commission-activity">
+          <div class="inquiry-detail-heading">
+            <h2>Activity / History <button type="button" class="admin-help-trigger" data-glossary-key="activity_history" aria-label="Learn about Activity History">i</button></h2>
+          </div>
+          <p class="admin-notice" id="commission-activity-status" aria-live="polite"></p>
+          <ol class="commission-activity-list" id="commission-activity-list"></ol>
+        </section>
+
+        <section id="commission-quotations">
+          <div class="inquiry-detail-heading">
+            <h2>Quotations <button type="button" class="admin-help-trigger" data-glossary-key="quotation" aria-label="Learn about Quotation">i</button></h2>
+            <a class="admin-text-link" id="prepare-quotation" href="quotation.html">Prepare Quotation</a>
+          </div>
+          <p class="admin-notice" id="quotation-status" aria-live="polite"></p>
+          <div class="inquiry-table-wrap">
+            <table class="inquiry-table">
+              <thead><tr><th>Number</th><th>Version</th><th>Status</th><th>Price</th><th>Total</th><th>Issued</th><th>Expires</th><th>Sent</th><th>View</th></tr></thead>
+              <tbody id="quotation-list"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="commission-contract-eligibility">
+          <div class="inquiry-detail-heading">
+            <h2>Contract <button type="button" class="admin-help-trigger" data-glossary-key="contract_eligibility" aria-label="Learn about Contract Eligibility">i</button></h2>
+            <a class="admin-text-link" id="prepare-contract" href="create-contract.html" hidden>Prepare Contract</a>
+          </div>
+          <p class="admin-notice" id="contract-eligibility-status">Contract unavailable — Accepted Quotation required.</p>
+        </section>
+
+        <section id="commission-obligations">
+          <div class="inquiry-detail-heading">
+            <h2>Financial Obligations <button type="button" class="admin-help-trigger" data-glossary-key="financial_obligation" aria-label="Learn about Financial Obligation">i</button></h2>
+          </div>
+          <p class="admin-notice" id="commission-obligations-status" aria-live="polite"></p>
+          <div id="commission-obligations-detail"></div>
+        </section>
+
+        <section id="commission-delivery">
+          <div class="inquiry-detail-heading">
+            <h2>Delivery <button type="button" class="admin-help-trigger" data-glossary-key="delivery" aria-label="Learn about Delivery">i</button></h2>
+            <div>
+              <button type="button" class="admin-text-button" id="create-delivery" hidden>Create Delivery</button>
+              <button type="button" class="admin-text-button" id="edit-delivery" hidden>Edit Delivery</button>
+            </div>
+          </div>
+          <p class="admin-notice" id="commission-delivery-status" aria-live="polite"></p>
+          <div id="commission-delivery-detail"></div>
+          <div id="commission-delivery-actions"></div>
+
+          <form class="admin-form" id="delivery-create-form" hidden>
+            <label>
+              Delivery Method
+              <select name="delivery_method" required>
+                <option value="pickup">Pickup</option>
+                <option value="shipping">Shipping</option>
+              </select>
+            </label>
+            <label>Recipient Name <input type="text" name="recipient_name" required></label>
+            <div class="commission-form-wide" id="delivery-shipping-fields" hidden>
+              <label>Address Line 1 <input type="text" name="address_line1"></label>
+              <label>Address Line 2 <input type="text" name="address_line2"></label>
+              <label>City <input type="text" name="city"></label>
+              <label>State / Region <input type="text" name="state_region"></label>
+              <label>Postal Code <input type="text" name="postal_code"></label>
+              <label>Country <input type="text" name="country"></label>
+              <label>Carrier <input type="text" name="carrier"></label>
+              <label>Service Level <input type="text" name="service_level"></label>
+              <label>Tracking Number <input type="text" name="tracking_number"></label>
+            </div>
+            <label class="commission-form-wide">Notes <textarea name="notes" rows="3"></textarea></label>
+            <div class="commission-form-wide commission-form-actions">
+              <button type="submit" class="admin-button">Create Delivery</button>
+              <button type="button" class="admin-text-button" id="cancel-delivery-create">Cancel</button>
+            </div>
+          </form>
+
+          <form class="admin-form" id="delivery-edit-form" hidden>
+            <label>Recipient Name <input type="text" name="recipient_name"></label>
+            <label>Address Line 1 <input type="text" name="address_line1"></label>
+            <label>Address Line 2 <input type="text" name="address_line2"></label>
+            <label>City <input type="text" name="city"></label>
+            <label>State / Region <input type="text" name="state_region"></label>
+            <label>Postal Code <input type="text" name="postal_code"></label>
+            <label>Country <input type="text" name="country"></label>
+            <label>Carrier <input type="text" name="carrier"></label>
+            <label>Service Level <input type="text" name="service_level"></label>
+            <label>Tracking Number <input type="text" name="tracking_number"></label>
+            <label id="delivery-actual-cost-field">Actual Shipping Cost <input type="number" name="actual_shipping_cost" min="0" step="0.01"></label>
+            <label id="delivery-protection-cost-field">Protection Cost <input type="number" name="protection_cost" min="0" step="0.01"></label>
+            <label class="commission-form-wide">Notes <textarea name="notes" rows="3"></textarea></label>
+            <div class="commission-form-wide commission-form-actions">
+              <button type="submit" class="admin-button">Save Delivery</button>
+              <button type="button" class="admin-text-button" id="cancel-delivery-edit">Cancel</button>
+            </div>
+          </form>
+
+          <div id="delivery-cancel-confirmation" hidden>
+            <p>Cancel this Delivery plan? This does not cancel the Commission.</p>
+            <button type="button" class="admin-button" id="confirm-delivery-cancel">Cancel Delivery</button>
+            <button type="button" class="admin-text-button" id="keep-delivery">Keep Delivery</button>
+          </div>
+        </section>
+
         <section id="commission-payments">
           <div class="inquiry-detail-heading">
-            <h2>Payments</h2>
+            <h2>Payments <button type="button" class="admin-help-trigger" data-glossary-key="payment" aria-label="Learn about Payment">i</button></h2>
             <button type="button" class="admin-text-button" id="record-payment">Record Payment</button>
           </div>
 
@@ -150,9 +283,28 @@
           </form>
         </section>
 
+        <section id="commission-communications">
+          <div class="inquiry-detail-heading">
+            <h2>Communications <button type="button" class="admin-help-trigger" data-glossary-key="communication" aria-label="Learn about Communication">i</button></h2>
+            <div>
+              <a class="admin-text-link" id="create-communication" href="communications.html">Create Communication</a>
+              <a class="admin-text-link" id="new-communication-draft" href="communications.html">New Draft</a>
+              <a class="admin-text-link" id="record-manual-communication" href="communications.html">Record Manual Communication</a>
+            </div>
+          </div>
+          <p class="admin-notice">Communication records do not send messages automatically.</p>
+          <p class="admin-notice" id="commission-communications-status" aria-live="polite"></p>
+          <div class="inquiry-table-wrap">
+            <table class="inquiry-table">
+              <thead><tr><th>Date</th><th>Recipient</th><th>Type</th><th>Channel</th><th>Status</th><th>View</th></tr></thead>
+              <tbody id="commission-communications-list"></tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="commission-documents">
           <div class="inquiry-detail-heading">
-            <h2>Documents</h2>
+            <h2>Documents <button type="button" class="admin-help-trigger" data-glossary-key="document" aria-label="Learn about Document">i</button></h2>
           </div>
 
           <p class="admin-notice" id="commission-documents-status" aria-live="polite"></p>
@@ -279,6 +431,16 @@
             </select>
           </label>
 
+          <div class="admin-help-form-field">
+            <label>
+              Origin Inquiry Optional
+              <select name="origin_inquiry_id">
+                <option value="">None</option>
+              </select>
+            </label>
+            <button type="button" class="admin-help-trigger" data-glossary-key="provenance.origin" aria-label="Learn about Origin Inquiry">i</button>
+          </div>
+
           <label>
             Title
             <input type="text" name="title" required>
@@ -349,6 +511,7 @@
 
   </main>
 
+  <script src="../js/admin-glossary.js"></script>
   <script src="../js/admin-commissions.js"></script>
 </body>
 </html>

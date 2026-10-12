@@ -96,7 +96,7 @@ function setFormLoading(form, isLoading) {
   button.textContent = isLoading ? "Sending..." : button.dataset.defaultText;
 }
 
-function buildStructuredRequest(form) {
+function buildStructuredRequest(form, requestId = null) {
   const formData = new FormData(form);
   const request = {};
 
@@ -132,8 +132,22 @@ function buildStructuredRequest(form) {
     "client-phone",
     "phone"
   );
+  if (requestId) {
+    request.request_id = requestId;
+  }
 
   return request;
+}
+
+function createRequestId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
 }
 
 async function submitToNetlifyForms(form) {
@@ -168,6 +182,7 @@ async function submitToRequestFunction(requestData) {
 
 function initNetlifyRequestBridge() {
   const forms = document.querySelectorAll("form.contact-form");
+  const pendingRequestIds = new WeakMap();
 
   forms.forEach((form) => {
     if (!form.querySelector('input[name="form_type"]')) {
@@ -185,7 +200,9 @@ function initNetlifyRequestBridge() {
       setFormStatus(form, "Sending your request...");
 
       try {
-        const requestData = buildStructuredRequest(form);
+        const stableRequestId = pendingRequestIds.get(form) || createRequestId();
+        pendingRequestIds.set(form, stableRequestId);
+        const requestData = buildStructuredRequest(form, stableRequestId);
         const result = await submitToRequestFunction(requestData);
         const requestId = result.request_id || result.requestId;
 
@@ -206,6 +223,7 @@ function initNetlifyRequestBridge() {
         }
 
         form.reset();
+        pendingRequestIds.delete(form);
         initArtworkPrefill();
       } catch (error) {
         setFormStatus(

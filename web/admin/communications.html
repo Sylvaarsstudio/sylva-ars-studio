@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Communications | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/admin.css">
+  <link rel="stylesheet" href="../css/admin-glossary.css">
+</head>
+
+<body>
+  <main class="admin-page admin-communications-page">
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Communications</h1>
+        <p>Review persistent message drafts and externally completed communications.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="dashboard.html" class="admin-link">Dashboard</a>
+        <a href="commissions.html" class="admin-link">Commissions</a>
+        <a href="inquiries.html" class="admin-link">Inquiries</a>
+        <a href="glossary.html" class="admin-link">Glossary</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <div class="inquiry-toolbar">
+      <p class="inquiry-count"><strong id="communication-count">0</strong> communications</p>
+      <div>
+        <button type="button" class="admin-button" id="new-draft">New Draft</button>
+        <button type="button" class="admin-text-button" id="new-from-template">New from Template</button>
+        <button type="button" class="admin-text-button" id="record-manual">Record Manual Communication</button>
+      </div>
+    </div>
+
+    <section class="inquiry-filters" aria-label="Communication filters">
+      <label>Status
+        <select id="communication-status-filter">
+          <option value="">All</option><option value="draft">Draft</option><option value="ready">Ready</option>
+          <option value="queued">Queued</option><option value="sent">Sent</option><option value="delivered">Delivered</option>
+          <option value="bounced">Bounced</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option>
+        </select>
+      </label>
+      <label>Type
+        <select id="communication-type-filter"><option value="">All</option></select>
+      </label>
+      <label>Channel
+        <select id="communication-channel-filter">
+          <option value="">All</option><option value="email">Email</option><option value="manual">Manual</option>
+        </select>
+      </label>
+    </section>
+
+    <p class="admin-notice" id="communications-status" aria-live="polite"></p>
+
+    <section class="inquiry-table-wrap" id="communications-list-panel">
+      <table class="inquiry-table">
+        <thead><tr><th>Date</th><th>Recipient</th><th>Type</th><th>Channel</th><th>Status</th><th>Related</th><th>View</th></tr></thead>
+        <tbody id="communications-list"></tbody>
+      </table>
+    </section>
+
+    <section class="inquiry-detail-panel" id="communication-detail" hidden>
+      <button type="button" class="admin-text-button" id="close-communication-detail">← Back to Communications</button>
+      <div class="inquiry-detail-heading">
+        <h2>Communication <button type="button" class="admin-help-trigger" data-glossary-key="communication" aria-label="Learn about Communication">i</button></h2>
+      </div>
+      <div id="communication-detail-fields"></div>
+      <button type="button" class="admin-button" id="mark-communication-ready" hidden>Mark Ready for Sending</button>
+      <button type="button" class="admin-button" id="send-communication" hidden>Send Email</button>
+      <button type="button" class="admin-button" id="check-send-status" hidden>Check Send Status</button>
+      <button type="button" class="admin-button" id="mark-reconciled-sent" hidden>Mark as Sent</button>
+      <button type="button" class="admin-button" id="mark-reconciled-failed" hidden>Mark as Failed</button>
+      <p class="admin-notice">Reconciliation protects against duplicate sends when provider acceptance is uncertain. <button type="button" class="admin-help-trigger" data-glossary-key="reconciliation" aria-label="Learn about Reconciliation">i</button></p>
+      <section id="send-communication-confirmation" hidden aria-labelledby="send-communication-title">
+        <h3 id="send-communication-title">Confirm Send <button type="button" class="admin-help-trigger" data-glossary-key="send_communication" aria-label="Learn about Send Communication">i</button></h3>
+        <p><strong>Recipient:</strong> <span id="send-communication-recipient"></span></p>
+        <p><strong>Subject:</strong> <span id="send-communication-subject"></span></p>
+        <p class="admin-notice">This will send the reviewed snapshot exactly as shown.</p>
+        <button type="button" class="admin-text-button" id="cancel-send-communication">Cancel</button>
+        <button type="button" class="admin-button" id="confirm-send-communication">Confirm Send Email</button>
+      </section>
+      <form class="admin-form" id="draft-edit-form" hidden>
+        <label>Type <select name="communication_type" required></select></label>
+        <label>Recipient <input type="text" name="recipient" required></label>
+        <label>Subject <input type="text" name="subject"></label>
+        <label>Body Snapshot <textarea name="body_snapshot" rows="10" required></textarea></label>
+        <button type="submit" class="admin-button">Save Draft</button>
+      </form>
+    </section>
+
+    <section class="inquiry-detail-panel" id="communication-template-create" hidden>
+      <button type="button" class="admin-text-button" id="cancel-template-create">← Back to Communications</button>
+      <h2>New from Template <button type="button" class="admin-help-trigger" data-glossary-key="communication_template" aria-label="Learn about Communication Template">i</button></h2>
+      <p class="admin-notice">Preview uses canonical records and does not persist or send anything.</p>
+      <form class="admin-form" id="communication-template-form">
+        <label>Template <select name="template_key" required></select></label>
+        <label>Commission ID <input type="number" name="commission_id" min="1"></label>
+        <label>Inquiry ID <input type="text" name="inquiry_id"></label>
+        <label>Quotation ID <input type="number" name="quotation_id" min="1"></label>
+        <label>Document ID <input type="number" name="document_id" min="1"></label>
+        <div>
+          <button type="button" class="admin-text-button" id="preview-template">Preview</button>
+          <button type="submit" class="admin-button" id="generate-template-draft" disabled>Generate Draft</button>
+        </div>
+      </form>
+      <p class="admin-notice" id="template-preview-status" aria-live="polite"></p>
+      <section id="template-preview" hidden></section>
+    </section>
+
+    <section class="inquiry-detail-panel" id="communication-create" hidden>
+      <button type="button" class="admin-text-button" id="cancel-communication-create">← Back to Communications</button>
+      <h2 id="communication-create-title">New Draft</h2>
+      <p class="admin-notice" id="communication-create-help"></p>
+      <form class="admin-form" id="communication-create-form">
+        <label id="communication-channel-field">Channel
+          <select name="channel" required><option value="email">Email</option><option value="manual">Manual</option></select>
+        </label>
+        <label>Type <select name="communication_type" required></select></label>
+        <label>Recipient <input type="text" name="recipient" required></label>
+        <label>Subject <input type="text" name="subject"></label>
+        <label>Body Snapshot <textarea name="body_snapshot" rows="10" required></textarea></label>
+        <label>Commission ID <input type="number" name="commission_id" min="1"></label>
+        <label>Client ID <input type="number" name="client_id" min="1"></label>
+        <label>Inquiry ID <input type="text" name="inquiry_id"></label>
+        <label>Quotation ID <input type="number" name="quotation_id" min="1"></label>
+        <label>Document ID <input type="number" name="document_id" min="1"></label>
+        <button type="submit" class="admin-button" id="communication-create-submit">Save Draft</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="../js/admin-glossary.js"></script>
+  <script src="../js/admin-communications.js"></script>
+</body>
+</html>

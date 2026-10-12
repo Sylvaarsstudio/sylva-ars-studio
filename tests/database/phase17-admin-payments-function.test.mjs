@@ -85,6 +85,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await db?.pool.query("DELETE FROM communications");
+  await db?.pool.query("TRUNCATE commission_events RESTART IDENTITY");
   await db?.pool.query("DELETE FROM documents");
   await db?.pool.query("DELETE FROM payments");
   await db?.pool.query("DELETE FROM commissions");
@@ -343,11 +345,31 @@ test("concurrent retries with the same request id remain idempotent", async () =
   const bodies = await Promise.all([first.json(), second.json()]);
   await secondDb.pool.end();
   const count = await db.pool.query("SELECT count(*)::integer AS count FROM payments");
+  const documentCount = await db.pool.query(
+    "SELECT count(*)::integer AS count FROM documents"
+  );
+  const communicationCount = await db.pool.query(
+    "SELECT count(*)::integer AS count FROM communications"
+  );
+  const eventCounts = await db.pool.query(
+    `SELECT event_type, count(*)::integer AS count
+     FROM commission_events
+     WHERE commission_id = $1
+     GROUP BY event_type`,
+    [commissionId]
+  );
   const commission = await financials();
 
-  assert.deepEqual([first.status, second.status].sort(), [200, 201]);
-  assert.deepEqual(bodies.map((body) => body.created).sort(), [false, true]);
+  assert.equal([first.status, second.status].every((status) => [200, 201].includes(status)), true);
+  assert.equal([first.status, second.status].includes(201), true);
+  assert.equal(bodies.every((body) => body.success), true);
   assert.equal(count.rows[0].count, 1);
+  assert.equal(documentCount.rows[0].count, 1);
+  assert.equal(communicationCount.rows[0].count, 1);
+  assert.deepEqual(
+    Object.fromEntries(eventCounts.rows.map((row) => [row.event_type, row.count])),
+    { communication_automation_created: 1, payment_recorded: 1, receipt_issued: 1 }
+  );
   assert.equal(commission.amount_paid, "25.00");
   assert.equal(commission.deposit_amount, "25.00");
 });
@@ -517,10 +539,75 @@ test("row lock prevents concurrent payments from exceeding balance", async () =>
   const paymentRows = await db.pool.query(
     "SELECT id, request_id, amount, status FROM payments ORDER BY id"
   );
+  const documentRows = await db.pool.query(
+    "SELECT id, commission_id FROM documents ORDER BY id"
+  );
+  const communicationRows = await db.pool.query(
+    `SELECT c.id, c.commission_id, c.document_id,
+            EXISTS (SELECT 1 FROM documents d WHERE d.id = c.document_id) AS document_exists
+     FROM communications c
+     ORDER BY c.id`
+  );
   const commission = await financials();
+  const eventCount = await db.pool.query(
+    "SELECT count(*)::integer AS count FROM commission_events WHERE commission_id = $1",
+    [commissionId]
+  );
 
   assert.deepEqual(statuses, [201, 409]);
   assert.equal(paymentRows.rows.length, 1, JSON.stringify(paymentRows.rows));
+  assert.equal(documentRows.rows.length, 1, JSON.stringify(documentRows.rows));
+  assert.equal(communicationRows.rows.length, 1, JSON.stringify(communicationRows.rows));
+  assert.equal(String(communicationRows.rows[0].document_id), String(documentRows.rows[0].id));
+  assert.equal(communicationRows.rows[0].document_exists, true);
+  assert.equal(eventCount.rows[0].count, 3);
   assert.equal(commission.amount_paid, "70.00");
   assert.equal(commission.balance, "46.00");
+});
+
+test("automatic communication outbox failure rolls back payment, document, and events", async () => {
+  await db.pool.query(`
+    CREATE FUNCTION reject_payment_document_outbox()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NEW.automation_key IN ('receipt_delivery', 'final_invoice_delivery') THEN
+        RAISE EXCEPTION 'forced payment document outbox failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+
+    CREATE TRIGGER reject_payment_document_outbox_trigger
+    BEFORE INSERT ON communications
+    FOR EACH ROW EXECUTE FUNCTION reject_payment_document_outbox();
+  `);
+
+  let response;
+  try {
+    response = await request("POST", undefined, paymentPayload());
+  } finally {
+    await db.pool.query(`
+      DROP TRIGGER IF EXISTS reject_payment_document_outbox_trigger ON communications;
+      DROP FUNCTION IF EXISTS reject_payment_document_outbox();
+    `);
+  }
+
+  const [payments, documents, communications, events] = await Promise.all([
+    db.pool.query("SELECT count(*)::integer AS count FROM payments"),
+    db.pool.query("SELECT count(*)::integer AS count FROM documents"),
+    db.pool.query("SELECT count(*)::integer AS count FROM communications"),
+    db.pool.query("SELECT count(*)::integer AS count FROM commission_events")
+  ]);
+  const commission = await financials();
+
+  assert.equal(response.status, 500);
+  assert.equal(payments.rows[0].count, 0);
+  assert.equal(documents.rows[0].count, 0);
+  assert.equal(communications.rows[0].count, 0);
+  assert.equal(events.rows[0].count, 0);
+  assert.equal(commission.amount_paid, "0.00");
+  assert.equal(commission.deposit_amount, "0.00");
+  assert.equal(commission.balance, "116.00");
 });

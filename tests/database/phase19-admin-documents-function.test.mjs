@@ -67,8 +67,10 @@ before(async () => {
        (commission_id, document_type, document_number, version, file_location, created_at,
         payment_id, receipt_snapshot, document_snapshot)
      VALUES
-       ($1, 'contract', 'SAS-CON-2026-0001', 1, '/documents/contract.pdf', '2026-10-08T12:00:00Z', NULL, NULL, NULL),
-       ($1, 'invoice', 'SAS-INV-2026-0001', 2, '/documents/invoice.pdf', '2026-10-09T12:00:00Z', NULL, NULL, '{"type":"invoice"}'::jsonb),
+       ($1, 'contract', 'SAS-CON-2026-0001', 1, '/documents/contract.pdf', '2026-10-08T12:00:00Z', NULL, NULL,
+        '{"contract":{"subtype":"commission_agreement"}}'::jsonb),
+       ($1, 'invoice', 'SAS-INV-2026-0001', 2, '/documents/invoice.pdf', '2026-10-09T12:00:00Z', NULL, NULL,
+        '{"payments":[{"payment_type":"deposit","payment_date":"2026-10-01","receipt_number":"SAS-REC-2026-0001"},{"payment_type":"balance","payment_date":"2026-10-09","receipt_number":null}]}'::jsonb),
        ($2, 'coa', 'SAS-COA-2026-0001', 1, '/documents/coa.pdf', '2026-10-09T12:00:00Z', NULL, NULL, NULL),
        ($1, 'receipt', 'SAS-REC-2026-0001', 1, '/admin/receipts/1.html', '2026-10-10T12:00:00Z', $3, '{}'::jsonb, NULL)`,
     [firstCommissionId, secondCommissionId, paymentId]
@@ -153,14 +155,33 @@ test("receipt includes its payment association", async () => {
   assert.equal(String(body.documents[0].payment.payment_date).slice(0, 10), "2026-10-09");
 });
 
-test("document without payment returns payment null", async () => {
-  const body = await (await request("?document_type=invoice")).json();
+test("contract exposes subtype metadata without its snapshot", async () => {
+  const body = await (await request("?document_type=contract")).json();
+  assert.equal(body.documents[0].contract_subtype, "commission_agreement");
   assert.equal(body.documents[0].payment, null);
+  assert.equal("document_snapshot" in body.documents[0], false);
+});
+
+test("final invoice derives its payment association from the snapshot", async () => {
+  const body = await (await request("?document_type=invoice")).json();
+  assert.deepEqual(body.documents[0].payment, {
+    id: null,
+    payment_type: "balance",
+    payment_date: "2026-10-09"
+  });
+});
+
+test("final invoice keeps its database payment_id NULL", async () => {
+  const result = await db.pool.query(
+    "SELECT payment_id FROM documents WHERE document_type = 'invoice'"
+  );
+  assert.equal(result.rows[0].payment_id, null);
 });
 
 test("response never exposes receipt_snapshot", async () => {
   const body = await (await request()).json();
   assert.equal(JSON.stringify(body).includes("receipt_snapshot"), false);
+  assert.equal(JSON.stringify(body).includes("document_snapshot"), false);
 });
 
 test("GET does not modify data", async () => {

@@ -13,7 +13,8 @@ const {
 const snapshot = {
   receipt: {
     number: "SAS-REC-2026-0001",
-    issued_at: "2026-10-09T15:00:00.000Z"
+    receipt_date: "2026-10-09",
+    issued_at: "2026-10-10T01:35:00.000Z"
   },
   payment: {
     id: "50",
@@ -125,6 +126,13 @@ test("receipt renders number client commission and financial data", () => {
   assert.match(markup, /Sales Tax Portion[\s\S]*\$30\.00/);
   assert.match(markup, /Commission Total[\s\S]*\$590\.00/);
   assert.match(markup, /Balance After Payment[\s\S]*\$0\.00/);
+});
+
+test("receipt renders the persisted commercial date instead of the UTC issue date", () => {
+  const markup = renderReceiptMarkup(snapshot);
+
+  assert.match(markup, /October 9, 2026/);
+  assert.doesNotMatch(markup, /October 10, 2026/);
 });
 
 test("payment method uses its friendly label", () => {

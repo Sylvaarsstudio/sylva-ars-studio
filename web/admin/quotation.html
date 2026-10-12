@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quotation | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/admin.css">
+  <link rel="stylesheet" href="../css/admin-glossary.css">
+</head>
+<body>
+  <main class="admin-page admin-commissions-page">
+    <header class="admin-header">
+      <div><h1>Quotation <button type="button" class="admin-help-trigger" data-glossary-key="quotation" aria-label="Learn about Quotation">i</button></h1><p>Prepare and issue an immutable commercial quotation.</p></div>
+      <nav class="admin-header-actions"><a href="commissions.html" class="admin-link">Commissions</a><a href="documents.html" class="admin-link">Documents</a><a href="glossary.html" class="admin-link">Glossary</a><a href="/admin-logout" class="admin-link">Log out</a></nav>
+    </header>
+
+    <p class="admin-notice" id="quotation-page-status" aria-live="polite"></p>
+    <section class="inquiry-detail-panel" id="quotation-panel" hidden>
+      <div id="quotation-summary"></div>
+      <form class="admin-form" id="quotation-form">
+        <label>Artwork Price <input type="number" name="price" min="0" step="0.01" required></label>
+        <div class="admin-help-form-field"><label>Sales Tax Rate <select name="sales_tax_rate" required><option value="0.00">Outside Pennsylvania — 0%</option><option value="0.06">Pennsylvania — 6%</option><option value="0.07">Allegheny County — 7%</option><option value="0.08">Philadelphia — 8%</option></select></label><button type="button" class="admin-help-trigger" data-glossary-key="sales_tax_rate" aria-label="Learn about Sales Tax Rate">i</button></div>
+        <div class="admin-help-form-field"><label>Shipping Charge <input type="number" name="shipping_charge" min="0" step="0.01" required></label><button type="button" class="admin-help-trigger" data-glossary-key="shipping_charge" aria-label="Learn about Shipping Charge">i</button></div>
+        <section class="commission-form-wide" id="shipping-estimate-section">
+          <h2>Shipping Estimate <button type="button" class="admin-help-trigger" data-glossary-key="shipping_estimate" aria-label="Learn about Shipping Estimate">i</button></h2>
+          <p>A rate estimate remains separate from the Shipping Charge until you explicitly apply it.</p>
+          <div class="admin-form">
+            <label>Recipient Name <input type="text" name="shipping_recipient_name"></label>
+            <label>Address Line 1 <input type="text" name="shipping_address_line1" required></label>
+            <label>Address Line 2 <input type="text" name="shipping_address_line2"></label>
+            <label>City <input type="text" name="shipping_city" required></label>
+            <label>State / Region <input type="text" name="shipping_state_region" required></label>
+            <label>Postal Code <input type="text" name="shipping_postal_code" required></label>
+            <label>Country <input type="text" name="shipping_country" required></label>
+            <label>Parcel Length <input type="number" name="parcel_length" min="0.01" step="0.01" required></label>
+            <label>Parcel Width <input type="number" name="parcel_width" min="0.01" step="0.01" required></label>
+            <label>Parcel Height <input type="number" name="parcel_height" min="0.01" step="0.01" required></label>
+            <label>Dimension Unit <select name="dimension_unit"><option value="in">in</option></select></label>
+            <label>Parcel Weight <input type="number" name="parcel_weight" min="0.01" step="0.01" required></label>
+            <label>Weight Unit <select name="weight_unit"><option value="lb">lb</option></select></label>
+          </div>
+          <div class="commission-form-actions">
+            <button type="button" class="admin-text-button" id="get-shipping-estimate">Get Estimate</button>
+          </div>
+          <p class="admin-notice" id="shipping-estimate-status" aria-live="polite"></p>
+          <div id="shipping-estimate-results"></div>
+        </section>
+        <label>Estimated Completion <input type="date" name="estimated_completion"></label>
+        <div class="admin-help-form-field commission-form-wide"><label>Special Terms <textarea name="special_terms" rows="5"></textarea></label><button type="button" class="admin-help-trigger" data-glossary-key="special_terms" aria-label="Learn about Special Terms">i</button></div>
+        <div class="commission-form-wide commission-form-summary">
+          <p>Estimated Sales Tax: <strong id="quotation-tax-preview">$0.00</strong></p>
+          <p>Required Deposit (50%): <strong id="quotation-deposit-preview">$0.00</strong> <button type="button" class="admin-help-trigger" data-glossary-key="required_deposit" aria-label="Learn about Required Deposit">i</button></p>
+          <p>Total: <strong id="quotation-total-preview">$0.00</strong></p>
+        </div>
+        <div class="commission-form-wide commission-form-actions"><button type="submit" class="admin-button">Save Draft</button></div>
+      </form>
+      <div class="commission-detail-actions" id="quotation-actions">
+        <button type="button" class="admin-button" id="issue-quotation">Issue</button>
+        <button type="button" class="admin-button" id="mark-quotation-sent">Mark Sent</button>
+        <button type="button" class="admin-button" id="record-quotation-acceptance">Record Acceptance</button>
+        <button type="button" class="admin-text-button" id="new-quotation-version">Create New Version</button>
+        <button type="button" class="admin-text-button" id="withdraw-quotation">Withdraw</button>
+      </div>
+      <section class="inquiry-detail-panel" id="quotation-acceptance-panel" hidden>
+        <h2>Record Quotation Acceptance <button type="button" class="admin-help-trigger" data-glossary-key="acceptance" aria-label="Learn about Acceptance">i</button></h2>
+        <p>This records the client's explicit acceptance received through a written channel. The record is permanent and cannot be edited or deleted.</p>
+        <div id="quotation-acceptance-summary"></div>
+        <form class="admin-form" id="quotation-acceptance-form">
+          <label>Client Name <input type="text" name="client_name_entered" required></label>
+          <label>Client Email <input type="email" name="client_email" required></label>
+          <label class="commission-form-wide"><input type="checkbox" name="accepted_by_client_confirmation" required> I confirm that the client explicitly accepted this quotation through a written channel and that I am recording that acceptance on the client's behalf.</label>
+          <div class="commission-form-wide commission-form-actions"><button type="submit" class="admin-button">Confirm Acceptance</button><button type="button" class="admin-text-button" id="cancel-quotation-acceptance">Cancel</button></div>
+        </form>
+      </section>
+      <section id="quotation-acceptance-record" hidden></section>
+      <section id="quotation-contract-action" hidden>
+        <p class="admin-notice" id="quotation-contract-status"></p>
+        <a class="admin-link" id="quotation-prepare-contract" href="create-contract.html">Prepare Contract</a>
+        <button type="button" class="admin-help-trigger" data-glossary-key="contract_source_quotation" aria-label="Learn about Contract Source Quotation">i</button>
+      </section>
+      <section id="quotation-preview" hidden></section>
+    </section>
+  </main>
+  <script src="../js/admin-glossary.js"></script>
+  <script src="../js/admin-quotation.js"></script>
+</body>
+</html>

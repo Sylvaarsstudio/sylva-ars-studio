@@ -91,6 +91,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await db?.pool.query("DROP TRIGGER IF EXISTS reject_receipt_insert ON documents");
   await db?.pool.query("DROP FUNCTION IF EXISTS reject_receipt_insert()");
+  await db?.pool.query("DELETE FROM communications");
+  await db?.pool.query("TRUNCATE commission_events RESTART IDENTITY");
   await db?.pool.query("DELETE FROM documents");
   await db?.pool.query("DELETE FROM payments");
   await db?.pool.query("DELETE FROM commissions");
@@ -208,6 +210,28 @@ test("payment stores the exact balance after payment", async () => {
 test("snapshot stores the exact balance after payment", async () => {
   await createPayment();
   assert.equal((await receiptRow()).receipt_snapshot.payment.balance_after_payment, "91.00");
+});
+
+test("receipt snapshot uses the payment date as its commercial date", async () => {
+  await createPayment({ payment_date: "2026-10-09" });
+  const snapshot = (await receiptRow()).receipt_snapshot;
+
+  assert.equal(snapshot.receipt.receipt_date, "2026-10-09");
+  assert.equal(snapshot.payment.payment_date, "2026-10-09");
+});
+
+test("receipt date fallback uses the America/New_York calendar date", async () => {
+  await createPayment({ payment_date: null });
+  const snapshot = (await receiptRow()).receipt_snapshot;
+  const expectedDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(snapshot.receipt.issued_at));
+
+  assert.equal(snapshot.receipt.receipt_date, expectedDate);
+  assert.equal(snapshot.payment.payment_date, null);
 });
 
 test("snapshot contains client data", async () => {
