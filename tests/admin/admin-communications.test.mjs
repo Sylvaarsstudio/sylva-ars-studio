@@ -87,6 +87,7 @@ const sample = {
 
 test("Communications page exposes explicit reviewed-email sending without Queue or Retry controls", () => {
   const html = readFileSync(new URL("../../web/admin/communications.html", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../web/css/admin.css", import.meta.url), "utf8");
   assert.match(html, /id="communication-status-filter"/);
   assert.match(html, /id="communication-type-filter"/);
   assert.match(html, /id="communication-channel-filter"/);
@@ -101,9 +102,19 @@ test("Communications page exposes explicit reviewed-email sending without Queue 
   assert.match(html, /id="check-send-status"[^>]*>Check Send Status</);
   assert.match(html, /id="mark-reconciled-sent"[^>]*>Mark as Sent</);
   assert.match(html, /id="mark-reconciled-failed"[^>]*>Mark as Failed</);
+  for (const id of [
+    "mark-communication-ready", "send-communication", "check-send-status",
+    "mark-reconciled-sent", "mark-reconciled-failed"
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*\\shidden(?:\\s|>)`));
+  }
   assert.match(html, /Record Manual Communication/);
   assert.doesNotMatch(html, /<button[^>]*>\s*(Queue|Retry)\s*<\/button>/i);
   assert.match(html, /data-glossary-key="communication"/);
+  assert.match(
+    css,
+    /\.admin-communications-page #communication-detail \.admin-button\[hidden\]\s*\{\s*display:\s*none;\s*\}/
+  );
 });
 
 test("list and detail render safe persistent communication data and escaped body content", () => {
@@ -177,6 +188,93 @@ test("communication actions are state- and provider-aware", () => {
     assert.equal(actions.reconcile, false);
     assert.equal(actions.markSent, false);
     assert.equal(actions.markFailed, false);
+  }
+});
+
+test("Communication Detail renders only the actions allowed by status and provider capability", async () => {
+  const actionSelectors = [
+    "#mark-communication-ready",
+    "#send-communication",
+    "#check-send-status",
+    "#mark-reconciled-sent",
+    "#mark-reconciled-failed"
+  ];
+  const cases = [
+    {
+      name: "ready with provider missing",
+      communication: {
+        ...sample, communication_status: "ready", automation_mode: "auto_send"
+      },
+      providerConfigured: false,
+      visible: [],
+      message: "Automatic send pending provider configuration"
+    },
+    {
+      name: "ready with provider configured",
+      communication: { ...sample, communication_status: "ready" },
+      providerConfigured: true,
+      visible: ["#send-communication"]
+    },
+    {
+      name: "recent queued",
+      communication: {
+        ...sample, communication_status: "queued", queued_stale: false,
+        reconciliation_required: false
+      },
+      providerConfigured: true,
+      visible: [],
+      message: "Sending / Processing"
+    },
+    {
+      name: "stale queued",
+      communication: {
+        ...sample, communication_status: "queued", queued_stale: true,
+        reconciliation_required: true, reconciliation_status: null
+      },
+      providerConfigured: true,
+      visible: ["#check-send-status"]
+    },
+    {
+      name: "inconclusive queued",
+      communication: {
+        ...sample, communication_status: "queued", queued_stale: true,
+        reconciliation_required: true, reconciliation_status: "inconclusive"
+      },
+      providerConfigured: true,
+      visible: ["#mark-reconciled-sent", "#mark-reconciled-failed"]
+    },
+    {
+      name: "sent",
+      communication: { ...sample, communication_status: "sent" },
+      providerConfigured: true,
+      visible: []
+    },
+    {
+      name: "failed",
+      communication: { ...sample, communication_status: "failed" },
+      providerConfigured: true,
+      visible: []
+    },
+    {
+      name: "manual sent",
+      communication: { ...sample, channel: "manual", communication_status: "sent" },
+      providerConfigured: true,
+      visible: []
+    }
+  ];
+
+  for (const scenario of cases) {
+    const fixture = documentFixture();
+    const app = createApp(fixture, async () => response({
+      communication: scenario.communication,
+      email_provider_configured: scenario.providerConfigured
+    }));
+    await app.openDetail(scenario.communication.id);
+    const visible = actionSelectors.filter((selector) => fixture.elements[selector].hidden === false);
+    assert.deepEqual(visible, scenario.visible, scenario.name);
+    if (scenario.message) {
+      assert.equal(fixture.elements["#communications-status"].textContent, scenario.message, scenario.name);
+    }
   }
 });
 
