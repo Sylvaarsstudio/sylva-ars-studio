@@ -303,6 +303,10 @@ body {
   cursor: pointer;
 }
 
+.admin-communications-page #communication-detail .admin-button[hidden] {
+  display: none;
+}
+
 .admin-button:hover {
   background: black;
   color: white;
