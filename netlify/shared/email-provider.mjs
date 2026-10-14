@@ -147,6 +147,49 @@ async function safeJson(response) {
   }
 }
 
+function sanitizeDiagnosticValue(value, sensitiveValues = []) {
+  if (typeof value !== "string") return null;
+  let sanitized = value;
+  for (const sensitiveValue of sensitiveValues) {
+    if (typeof sensitiveValue === "string" && sensitiveValue) {
+      sanitized = sanitized.split(sensitiveValue).join("[redacted]");
+    }
+  }
+  sanitized = sanitized
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+    .replace(/Bearer\s+[^\s]+/gi, "Bearer [redacted]")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return sanitized ? sanitized.slice(0, 240) : null;
+}
+
+function googleErrorDetails(body, fallbackError, sensitiveValues = []) {
+  const nestedError = body?.error && typeof body.error === "object" ? body.error : null;
+  const rawError = typeof body?.error === "string"
+    ? body.error
+    : nestedError?.errors?.[0]?.reason || nestedError?.status || fallbackError;
+  const googleError = typeof rawError === "string"
+    ? rawError.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 80)
+    : fallbackError;
+  const rawMessage = typeof body?.error_description === "string"
+    ? body.error_description
+    : nestedError?.message;
+  return {
+    google_error: googleError || fallbackError,
+    message: sanitizeDiagnosticValue(rawMessage, sensitiveValues)
+  };
+}
+
+function logGmailProviderError(logger, details) {
+  if (typeof logger !== "function") return;
+  try {
+    logger("gmail_provider_error", details);
+  } catch {
+    // Diagnostics must never alter provider behavior.
+  }
+}
+
 function tokenErrorForStatus(status) {
   if (status === 400 || status === 401) return "provider_authentication_failed";
   if (status === 429) return "provider_rate_limit";
@@ -166,7 +209,8 @@ function createGmailEmailProvider({
   environmentReader,
   fetchImplementation = globalThis.fetch?.bind(globalThis),
   timeoutMs = 9000,
-  now = () => new Date()
+  now = () => new Date(),
+  logger = (...args) => console.error(...args)
 } = {}) {
   return Object.freeze({
     get configured() {
@@ -180,40 +224,97 @@ function createGmailEmailProvider({
         from: configuration.GMAIL_SENDER_EMAIL,
         ...message
       });
-      const tokenResponse = await fetchWithTimeout(fetchImplementation, GMAIL_TOKEN_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: configuration.GMAIL_CLIENT_ID,
-          client_secret: configuration.GMAIL_CLIENT_SECRET,
-          refresh_token: configuration.GMAIL_REFRESH_TOKEN,
-          grant_type: "refresh_token"
-        }).toString()
-      }, timeoutMs);
+      const configurationValues = Object.values(configuration);
+      let tokenResponse;
+      try {
+        tokenResponse = await fetchWithTimeout(fetchImplementation, GMAIL_TOKEN_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: configuration.GMAIL_CLIENT_ID,
+            client_secret: configuration.GMAIL_CLIENT_SECRET,
+            refresh_token: configuration.GMAIL_REFRESH_TOKEN,
+            grant_type: "refresh_token"
+          }).toString()
+        }, timeoutMs);
+      } catch (error) {
+        logGmailProviderError(logger, {
+          stage: "token_exchange",
+          status: null,
+          google_error: error?.code || "request_failed",
+          message: null
+        });
+        throw error;
+      }
       if (!tokenResponse.ok) {
+        const tokenErrorBody = await safeJson(tokenResponse);
+        logGmailProviderError(logger, {
+          stage: "token_exchange",
+          status: tokenResponse.status,
+          ...googleErrorDetails(tokenErrorBody, `http_${tokenResponse.status}`, configurationValues)
+        });
         throw new EmailProviderError(tokenErrorForStatus(tokenResponse.status));
       }
       const tokenBody = await safeJson(tokenResponse);
       if (typeof tokenBody?.access_token !== "string"
         || !tokenBody.access_token.trim()
         || /[\r\n]/.test(tokenBody.access_token)) {
+        logGmailProviderError(logger, {
+          stage: "token_exchange",
+          status: tokenResponse.status,
+          google_error: "malformed_token_response",
+          message: null
+        });
         throw new EmailProviderError("provider_authentication_failed");
       }
       const accessToken = tokenBody.access_token.trim();
 
-      const sendResponse = await fetchWithTimeout(fetchImplementation, GMAIL_SEND_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ raw: encodeBase64Url(mime) })
-      }, timeoutMs);
+      let sendResponse;
+      try {
+        sendResponse = await fetchWithTimeout(fetchImplementation, GMAIL_SEND_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ raw: encodeBase64Url(mime) })
+        }, timeoutMs);
+      } catch (error) {
+        logGmailProviderError(logger, {
+          stage: "gmail_send",
+          status: null,
+          google_error: error?.code || "request_failed",
+          message: null
+        });
+        throw error;
+      }
       if (!sendResponse.ok) {
+        const sendErrorBody = await safeJson(sendResponse);
+        logGmailProviderError(logger, {
+          stage: "gmail_send",
+          status: sendResponse.status,
+          ...googleErrorDetails(
+            sendErrorBody,
+            `http_${sendResponse.status}`,
+            [
+              ...configurationValues,
+              accessToken,
+              message?.to,
+              message?.subject,
+              message?.text
+            ]
+          )
+        });
         throw new EmailProviderError(gmailErrorForStatus(sendResponse.status));
       }
       const sendBody = await safeJson(sendResponse);
       if (typeof sendBody?.id !== "string" || !sendBody.id.trim()) {
+        logGmailProviderError(logger, {
+          stage: "gmail_send",
+          status: sendResponse.status,
+          google_error: "malformed_send_response",
+          message: null
+        });
         throw new EmailProviderError("send_error");
       }
       return {
