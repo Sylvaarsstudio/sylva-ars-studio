@@ -307,6 +307,11 @@ body {
   display: none;
 }
 
+.admin-inquiries-page #convert-inquiry-client[hidden],
+.admin-inquiries-page #create-inquiry-quotation[hidden] {
+  display: none;
+}
+
 .admin-button:hover {
   background: black;
   color: white;

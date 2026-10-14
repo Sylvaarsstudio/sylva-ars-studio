@@ -21,7 +21,9 @@ const sessionSecret = "local-session-secret";
 
 let database;
 let db;
+let independentDb;
 let handler;
+let independentHandler;
 let sessionCookie;
 let seeded;
 
@@ -31,8 +33,18 @@ before(async () => {
   await database.applyMigrations("./netlify/database/migrations");
 
   db = getDatabase({ connectionString });
+  independentDb = getDatabase({ connectionString });
   handler = createHandler({
     databaseFactory: () => db,
+    environmentReader(name) {
+      return {
+        ADMIN_PASSWORD: adminPassword,
+        ADMIN_SESSION_SECRET: sessionSecret
+      }[name];
+    }
+  });
+  independentHandler = createHandler({
+    databaseFactory: () => independentDb,
     environmentReader(name) {
       return {
         ADMIN_PASSWORD: adminPassword,
@@ -85,6 +97,7 @@ afterEach(async () => {
 });
 
 after(async () => {
+  await independentDb?.pool.end();
   await db?.pool.end();
   await database?.stop();
 });
@@ -274,6 +287,7 @@ test("phase 9 converts an accepted inquiry to a client", async () => {
 
   assert.equal(response.status, 200);
   assert.deepEqual(Object.keys(body).sort(), [
+    "client",
     "client_id",
     "created",
     "inquiry_id",
@@ -287,6 +301,14 @@ test("phase 9 converts an accepted inquiry to a client", async () => {
   assert.equal(stored.rows[0].email, "contact@example.invalid");
   assert.equal(stored.rows[0].phone, "555-0100");
   assert.equal(String(stored.rows[0].id), String(body.client_id));
+  assert.equal(String(body.client.id), String(body.client_id));
+  assert.equal(
+    String((await db.pool.query(
+      "SELECT client_id FROM inquiries WHERE id = $1",
+      [id]
+    )).rows[0].client_id),
+    String(body.client_id)
+  );
 });
 
 for (const status of ["new", "reviewing", "replied", "declined", "closed"]) {
@@ -298,10 +320,12 @@ for (const status of ["new", "reviewing", "replied", "declined", "closed"]) {
     );
 
     const response = await request("POST", `/${id}/convert-client`);
+    const body = await response.json();
 
-    assert.equal(response.status, 400);
+    assert.equal(response.status, 409);
+    assert.equal(body.code, "inquiry_not_convertible");
     assert.equal(
-      (await response.json()).message,
+      body.message,
       "Only accepted inquiries can be converted to clients."
     );
     assert.equal(
@@ -316,9 +340,11 @@ test("phase 9 returns 404 when converting an unknown inquiry", async () => {
     "POST",
     "/00000000-0000-4000-8000-000000000001/convert-client"
   );
+  const body = await response.json();
 
   assert.equal(response.status, 404);
-  assert.equal((await response.json()).message, "Inquiry not found.");
+  assert.equal(body.code, "inquiry_not_found");
+  assert.equal(body.message, "Inquiry not found.");
 });
 
 test("phase 9 rejects an invalid conversion UUID", async () => {
@@ -371,6 +397,37 @@ test("phase 9 repeated conversion does not create a duplicate client", async () 
     Number((await db.pool.query("SELECT count(*) FROM clients")).rows[0].count),
     1
   );
+});
+
+test("phase 9 concurrent conversion attempts create and link exactly one client", async () => {
+  const id = seeded.contact;
+  assert.notEqual(independentDb, db);
+  assert.notEqual(independentDb.pool, db.pool);
+  await db.pool.query(
+    "UPDATE inquiries SET status = 'accepted' WHERE id = $1",
+    [id]
+  );
+
+  const independentRequest = () => independentHandler(new Request(
+    `${apiUrl}/${id}/convert-client`,
+    { method: "POST", headers: { Cookie: sessionCookie } }
+  ));
+  const [first, second] = await Promise.all([
+    request("POST", `/${id}/convert-client`),
+    independentRequest()
+  ]);
+  const [firstBody, secondBody] = await Promise.all([first.json(), second.json()]);
+  const counts = await db.pool.query(
+    `SELECT
+       (SELECT count(*)::integer FROM clients) AS clients,
+       (SELECT count(*)::integer FROM inquiries WHERE id = $1 AND client_id IS NOT NULL) AS linked_inquiries`,
+    [id]
+  );
+
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(String(firstBody.client_id), String(secondBody.client_id));
+  assert.deepEqual(counts.rows[0], { clients: 1, linked_inquiries: 1 });
 });
 
 test("phase 9 preserves NULL phone and creates no related records", async () => {

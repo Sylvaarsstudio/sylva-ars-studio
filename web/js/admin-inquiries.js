@@ -18,6 +18,7 @@
     "organization_project",
     "collaboration_type",
     "message",
+    "client_id",
     "status",
     "created_at",
     "updated_at"
@@ -40,6 +41,7 @@
     organization_project: "Organization / Project",
     collaboration_type: "Collaboration Type",
     message: "Message",
+    client_id: "Client ID",
     status: "Status",
     created_at: "Created",
     updated_at: "Updated"
@@ -197,7 +199,16 @@
     }
 
     function updateConversionAction() {
-      elements.convertClient.hidden = selectedInquiry?.status !== "accepted";
+      const clientId = selectedInquiry?.client_id;
+      const accepted = selectedInquiry?.status === "accepted";
+      elements.convertClient.hidden = !accepted || Boolean(clientId);
+
+      if (elements.createQuotation) {
+        elements.createQuotation.hidden = !accepted || !clientId;
+        if (accepted && clientId) {
+          elements.createQuotation.href = `quotation.html?client_id=${encodeURIComponent(clientId)}&inquiry_id=${encodeURIComponent(selectedInquiryId)}`;
+        }
+      }
     }
 
     async function loadList() {
@@ -294,6 +305,7 @@
 
       elements.detailStatus.textContent = "Converting inquiry…";
       elements.detailStatus.classList?.remove("is-error");
+      elements.convertClient.disabled = true;
 
       try {
         const body = await fetchJson(
@@ -301,17 +313,23 @@
           `${API_PATH}/${encodeURIComponent(selectedInquiryId)}/convert-client`,
           { method: "POST" }
         );
-        elements.detailStatus.textContent = body.created
-          ? "Client created."
-          : "Existing client linked/found.";
-        if (elements.createQuotation && body.client?.id) {
-          elements.createQuotation.href = `quotation.html?client_id=${encodeURIComponent(body.client.id)}&inquiry_id=${encodeURIComponent(selectedInquiryId)}`;
-          elements.createQuotation.hidden = false;
+        const clientId = body.client?.id || body.client_id;
+
+        if (!clientId) {
+          throw new Error("Client conversion succeeded without a Client ID.");
         }
+
+        selectedInquiry = { ...selectedInquiry, client_id: clientId };
+        updateConversionAction();
+        elements.detailStatus.textContent = body.created
+          ? "Client created. Continue with a quotation."
+          : "Inquiry is linked to the existing client. Continue with a quotation.";
         return body;
       } catch (error) {
         showError(elements.detailStatus, error);
         return null;
+      } finally {
+        elements.convertClient.disabled = false;
       }
     }
 
