@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
@@ -55,6 +56,7 @@ function createDocument() {
     "#inquiry-status-form": createElement(),
     "#inquiry-status": createElement("new"),
     "#convert-inquiry-client": createElement(),
+    "#create-inquiry-quotation": createElement(),
     "#close-inquiry-detail": createElement()
   };
 
@@ -219,6 +221,31 @@ test("admin inquiry conversion button is hidden unless status is accepted", asyn
   );
 });
 
+test("admin inquiry detail restores canonical quotation navigation after conversion", async () => {
+  const documentObject = createDocument();
+  const convertedInquiry = { ...sampleInquiry, status: "accepted", client_id: "19" };
+  const app = createApp(
+    documentObject,
+    async () => jsonResponse({ success: true, inquiry: convertedInquiry })
+  );
+
+  await app.openDetail(convertedInquiry.id);
+
+  assert.equal(documentObject.elements["#convert-inquiry-client"].hidden, true);
+  assert.equal(documentObject.elements["#create-inquiry-quotation"].hidden, false);
+  assert.equal(
+    documentObject.elements["#create-inquiry-quotation"].href,
+    `quotation.html?client_id=19&inquiry_id=${convertedInquiry.id}`
+  );
+});
+
+test("admin inquiry hidden conversion controls remain visually hidden", async () => {
+  const css = await readFile(new URL("../../web/css/admin.css", import.meta.url), "utf8");
+
+  assert.match(css, /\.admin-inquiries-page #convert-inquiry-client\[hidden\]/);
+  assert.match(css, /\.admin-inquiries-page #create-inquiry-quotation\[hidden\]/);
+});
+
 test("admin inquiry conversion click calls the protected endpoint", async () => {
   const documentObject = createDocument();
   const acceptedInquiry = { ...sampleInquiry, status: "accepted" };
@@ -251,11 +278,19 @@ test("admin inquiry conversion click calls the protected endpoint", async () => 
     conversionCall.url,
     `/admin/api/inquiries/${acceptedInquiry.id}/convert-client`
   );
+  assert.equal(conversionCall.options.method, "POST");
+  assert.equal(
+    documentObject.elements["#create-inquiry-quotation"].href,
+    `quotation.html?client_id=1&inquiry_id=${acceptedInquiry.id}`
+  );
+  assert.equal(documentObject.elements["#create-inquiry-quotation"].hidden, false);
+  assert.equal(documentObject.elements["#convert-inquiry-client"].hidden, true);
+  assert.equal(documentObject.elements["#convert-inquiry-client"].disabled, false);
 });
 
 for (const [created, message] of [
-  [true, "Client created."],
-  [false, "Existing client linked/found."]
+  [true, "Client created. Continue with a quotation."],
+  [false, "Inquiry is linked to the existing client. Continue with a quotation."]
 ]) {
   test(`admin inquiry conversion reports created=${created}`, async () => {
     const documentObject = createDocument();
@@ -277,6 +312,32 @@ for (const [created, message] of [
     );
   });
 }
+
+test("admin inquiry conversion disables the action while the request is pending", async () => {
+  const documentObject = createDocument();
+  const acceptedInquiry = { ...sampleInquiry, status: "accepted" };
+  let resolveConversion;
+  const conversionPending = new Promise((resolve) => { resolveConversion = resolve; });
+  const app = createApp(
+    documentObject,
+    async (url, options = {}) => options.method === "POST"
+      ? conversionPending
+      : jsonResponse({ success: true, inquiry: acceptedInquiry }),
+    () => true
+  );
+
+  await app.openDetail(acceptedInquiry.id);
+  const request = app.convertToClient();
+  assert.equal(documentObject.elements["#convert-inquiry-client"].disabled, true);
+  resolveConversion(jsonResponse({
+    success: true,
+    client_id: "7",
+    client: { id: "7" },
+    created: true
+  }));
+  await request;
+  assert.equal(documentObject.elements["#convert-inquiry-client"].disabled, false);
+});
 
 test("admin inquiry conversion displays API errors clearly", async () => {
   const documentObject = createDocument();

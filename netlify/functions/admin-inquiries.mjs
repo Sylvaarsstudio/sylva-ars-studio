@@ -116,6 +116,7 @@ async function getInquiry(db, id) {
        organization_project,
        collaboration_type,
        message,
+       client_id,
        status,
        created_at,
        updated_at
@@ -145,7 +146,7 @@ async function convertInquiryToClient(db, id) {
   try {
     await connection.query("BEGIN");
     const inquiryResult = await connection.query(
-      `SELECT id, status, client_name, client_email, client_phone
+      `SELECT id, status, client_name, client_email, client_phone, client_id
        FROM inquiries
        WHERE id = $1
        FOR UPDATE`,
@@ -158,13 +159,40 @@ async function convertInquiryToClient(db, id) {
       return { outcome: "not_found" };
     }
 
+    if (inquiry.client_id) {
+      const linkedResult = await connection.query(
+        `SELECT
+           id, full_name, email, phone, address_line_1, address_line_2,
+           city, state, postal_code, country, created_at
+         FROM clients
+         WHERE id = $1`,
+        [inquiry.client_id]
+      );
+      const linkedClient = linkedResult.rows[0];
+
+      if (!linkedClient) {
+        throw Object.assign(new Error("Converted Inquiry has no linked Client."), {
+          code: "inquiry_client_link_invalid"
+        });
+      }
+
+      await connection.query("COMMIT");
+      return {
+        client: linkedClient,
+        created: false,
+        outcome: "success"
+      };
+    }
+
     if (inquiry.status !== "accepted") {
       await connection.query("ROLLBACK");
       return { outcome: "not_accepted" };
     }
 
     const existingResult = await connection.query(
-      `SELECT id
+      `SELECT
+         id, full_name, email, phone, address_line_1, address_line_2,
+         city, state, postal_code, country, created_at
        FROM clients
        WHERE lower(btrim(email)) = lower(btrim($1))
        LIMIT 1`,
@@ -172,28 +200,28 @@ async function convertInquiryToClient(db, id) {
     );
     const existingClient = existingResult.rows[0];
 
-    if (existingClient) {
-      await connection.query("COMMIT");
-      return {
-        clientId: existingClient.id,
-        created: false,
-        outcome: "success"
-      };
-    }
+    let client = existingClient;
+    let created = false;
 
-    const insertedResult = await connection.query(
-      `INSERT INTO clients (full_name, email, phone)
-       VALUES (btrim($1), btrim($2), NULLIF(btrim($3), ''))
-       ON CONFLICT (lower(email)) DO NOTHING
-       RETURNING id`,
-      [inquiry.client_name, inquiry.client_email, inquiry.client_phone]
-    );
-    let client = insertedResult.rows[0];
-    let created = Boolean(client);
+    if (!client) {
+      const insertedResult = await connection.query(
+        `INSERT INTO clients (full_name, email, phone)
+         VALUES (btrim($1), lower(btrim($2)), NULLIF(btrim($3), ''))
+         ON CONFLICT (lower(email)) DO NOTHING
+         RETURNING
+           id, full_name, email, phone, address_line_1, address_line_2,
+           city, state, postal_code, country, created_at`,
+        [inquiry.client_name, inquiry.client_email, inquiry.client_phone]
+      );
+      client = insertedResult.rows[0];
+      created = Boolean(client);
+    }
 
     if (!client) {
       const concurrentResult = await connection.query(
-        `SELECT id
+        `SELECT
+           id, full_name, email, phone, address_line_1, address_line_2,
+           city, state, postal_code, country, created_at
          FROM clients
          WHERE lower(btrim(email)) = lower(btrim($1))
          LIMIT 1`,
@@ -207,9 +235,16 @@ async function convertInquiryToClient(db, id) {
       throw new Error("Client conversion did not return a client id.");
     }
 
+    await connection.query(
+      `UPDATE inquiries
+       SET client_id = $1, updated_at = NOW()
+       WHERE id = $2 AND client_id IS NULL`,
+      [client.id, inquiry.id]
+    );
+
     await connection.query("COMMIT");
     return {
-      clientId: client.id,
+      client,
       created,
       outcome: "success"
     };
@@ -331,13 +366,15 @@ function createHandler({
         if (result.outcome === "not_found") {
           return jsonResponse(404, {
             success: false,
+            code: "inquiry_not_found",
             message: "Inquiry not found."
           });
         }
 
         if (result.outcome === "not_accepted") {
-          return jsonResponse(400, {
+          return jsonResponse(409, {
             success: false,
+            code: "inquiry_not_convertible",
             message: "Only accepted inquiries can be converted to clients."
           });
         }
@@ -345,13 +382,15 @@ function createHandler({
         return jsonResponse(200, {
           success: true,
           inquiry_id: inquiryId,
-          client_id: result.clientId,
+          client_id: result.client.id,
+          client: result.client,
           created: result.created
         });
       } catch (error) {
         logFailure("convert_client", error, { inquiry_id: inquiryId });
         return jsonResponse(500, {
           success: false,
+          code: "client_conversion_failed",
           message: "Unable to convert inquiry to client."
         });
       }
