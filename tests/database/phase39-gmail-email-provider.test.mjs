@@ -131,15 +131,28 @@ test("OAuth refresh and Gmail send use the exact REST contract and normalize suc
 
 test("OAuth errors and token timeouts are normalized without leaking Google responses", async (context) => {
   await context.test("invalid_grant", async () => {
+    const logs = [];
     const provider = createGmailEmailProvider({
       environmentReader: environmentReader(),
-      fetchImplementation: async () => jsonResponse({ error: "invalid_grant", error_description: "sensitive" }, 400)
+      fetchImplementation: async () => jsonResponse({
+        error: "invalid_grant",
+        error_description: `Rejected ${gmailValues.GMAIL_REFRESH_TOKEN}`
+      }, 400),
+      logger: (...entry) => logs.push(entry)
     });
     await assert.rejects(provider.sendEmail(message()), (error) => {
       assert.equal(error.code, "provider_authentication_failed");
-      assert.equal(error.message.includes("sensitive"), false);
+      assert.equal(error.message.includes(gmailValues.GMAIL_REFRESH_TOKEN), false);
       return true;
     });
+    assert.deepEqual(logs, [["gmail_provider_error", {
+      stage: "token_exchange",
+      status: 400,
+      google_error: "invalid_grant",
+      message: "Rejected [redacted]"
+    }]]);
+    assert.equal(JSON.stringify(logs).includes(gmailValues.GMAIL_REFRESH_TOKEN), false);
+    assert.equal(JSON.stringify(logs).includes(gmailValues.GMAIL_CLIENT_SECRET), false);
   });
 
   await context.test("timeout", async () => {
@@ -156,6 +169,7 @@ test("OAuth errors and token timeouts are normalized without leaking Google resp
 
 for (const [status, expected] of [
   [401, "provider_authentication_failed"],
+  [403, "provider_rejected"],
   [429, "provider_rate_limit"],
   [503, "provider_unavailable"],
   [400, "provider_rejected"]
@@ -178,6 +192,75 @@ for (const [status, expected] of [
     });
   });
 }
+
+test("valid OAuth plus Gmail send-as rejection is distinct and safely diagnosed", async () => {
+  let call = 0;
+  const logs = [];
+  const provider = createGmailEmailProvider({
+    environmentReader: environmentReader(),
+    logger: (...entry) => logs.push(entry),
+    fetchImplementation: async () => {
+      call += 1;
+      return call === 1
+        ? jsonResponse({ access_token: "ephemeral-access-token" })
+        : jsonResponse({
+            error: {
+              code: 403,
+              message: `From studio@example.com to ${message().to} is not authorized. ${message().text}`,
+              errors: [{ reason: "forbidden" }]
+            }
+          }, 403);
+    }
+  });
+
+  await assert.rejects(
+    provider.sendEmail(message()),
+    (error) => error.code === "provider_rejected"
+  );
+  assert.deepEqual(logs, [["gmail_provider_error", {
+    stage: "gmail_send",
+    status: 403,
+    google_error: "forbidden",
+    message: "From [redacted] to [redacted] is not authorized. [redacted]"
+  }]]);
+  const serialized = JSON.stringify(logs);
+  for (const forbidden of [
+    gmailValues.GMAIL_CLIENT_ID,
+    gmailValues.GMAIL_CLIENT_SECRET,
+    gmailValues.GMAIL_REFRESH_TOKEN,
+    "ephemeral-access-token",
+    "studio@example.com",
+    message().to,
+    message().text
+  ]) assert.equal(serialized.includes(forbidden), false);
+});
+
+test("Gmail API 401 is diagnosed at gmail_send while remaining authentication failure", async () => {
+  let call = 0;
+  const logs = [];
+  const provider = createGmailEmailProvider({
+    environmentReader: environmentReader(),
+    logger: (...entry) => logs.push(entry),
+    fetchImplementation: async () => (++call === 1
+      ? jsonResponse({ access_token: "ephemeral-access-token" })
+      : jsonResponse({ error: {
+          code: 401,
+          message: "Invalid Credentials",
+          errors: [{ reason: "authError" }]
+        } }, 401))
+  });
+
+  await assert.rejects(
+    provider.sendEmail(message()),
+    (error) => error.code === "provider_authentication_failed"
+  );
+  assert.deepEqual(logs, [["gmail_provider_error", {
+    stage: "gmail_send",
+    status: 401,
+    google_error: "authError",
+    message: "Invalid Credentials"
+  }]]);
+});
 
 test("network failures, Gmail timeout, and malformed success are safely normalized", async (context) => {
   await context.test("network", async () => {
