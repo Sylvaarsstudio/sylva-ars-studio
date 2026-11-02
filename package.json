@@ -7,7 +7,8 @@
     "test:studio-notes": "node --test tests/studio-notes/*.test.js"
   },
   "dependencies": {
-    "@netlify/database": "^2.0.1"
+    "@netlify/database": "^2.0.1",
+    "jose": "^6.2.15"
   },
   "devDependencies": {
     "@netlify/database-dev": "^1.0.1",

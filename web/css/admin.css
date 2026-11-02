@@ -1041,3 +1041,23 @@ body {
     content: none;
   }
 }
+.admin-identity-badge {
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(50, 62, 48, 0.28);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.admin-viewer-notice {
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border-left: 4px solid #75663f;
+  background: #f4f0e5;
+  color: #3e392d;
+}
+
+.admin-role-viewer .admin-write-control {
+  display: none !important;
+}

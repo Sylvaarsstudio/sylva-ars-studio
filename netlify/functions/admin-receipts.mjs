@@ -1,6 +1,6 @@
 import { getDatabase } from "@netlify/database";
 
-import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { authorizeAdminRequest } from "../shared/admin-authorization.mjs";
 
 const API_PATH_PATTERN = /^\/admin\/api\/receipts\/([^/]+)\/?$/;
 const receiptIdPattern = /^[1-9][0-9]*$/;
@@ -61,22 +61,8 @@ function createHandler({
   environmentReader = readEnvironmentVariable
 } = {}) {
   return async function handler(request) {
-    const adminPassword = environmentReader("ADMIN_PASSWORD");
-    const sessionSecret = environmentReader("ADMIN_SESSION_SECRET") || adminPassword;
-
-    if (!adminPassword) {
-      return jsonResponse(500, {
-        success: false,
-        message: "Admin authentication is not configured."
-      });
-    }
-
-    if (!(await hasValidAdminSession(request, adminPassword, sessionSecret))) {
-      return jsonResponse(401, {
-        success: false,
-        message: "Unauthorized."
-      });
-    }
+    const authorization = await authorizeAdminRequest(request, { databaseFactory, environmentReader });
+    if (!authorization.ok) return authorization.response;
 
     const receiptId = getReceiptId(new URL(request.url).pathname);
 

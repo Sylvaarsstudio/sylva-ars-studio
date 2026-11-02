@@ -1,6 +1,6 @@
 import { getDatabase } from "@netlify/database";
 
-import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { authorizeAdminRequest } from "../shared/admin-authorization.mjs";
 
 const API_PATH = "/admin/api/documents";
 const positiveIntegerPattern = /^[1-9][0-9]*$/;
@@ -158,22 +158,8 @@ function createHandler({
   environmentReader = readEnvironmentVariable
 } = {}) {
   return async function handler(request) {
-    const adminPassword = environmentReader("ADMIN_PASSWORD");
-    const sessionSecret = environmentReader("ADMIN_SESSION_SECRET") || adminPassword;
-
-    if (!adminPassword) {
-      return jsonResponse(500, {
-        success: false,
-        message: "Admin authentication is not configured."
-      });
-    }
-
-    if (!(await hasValidAdminSession(request, adminPassword, sessionSecret))) {
-      return jsonResponse(401, {
-        success: false,
-        message: "Unauthorized."
-      });
-    }
+    const authorization = await authorizeAdminRequest(request, { databaseFactory, environmentReader });
+    if (!authorization.ok) return authorization.response;
 
     const url = new URL(request.url);
     const normalizedPath = url.pathname.replace(/\/+$/, "") || "/";

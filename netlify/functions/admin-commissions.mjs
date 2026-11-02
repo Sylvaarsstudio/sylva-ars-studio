@@ -1,6 +1,6 @@
 import { getDatabase } from "@netlify/database";
 
-import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { authorizeAdminRequest } from "../shared/admin-authorization.mjs";
 import {
   createCommissionDelivery,
   enterCommissionStorage,
@@ -813,7 +813,7 @@ async function updateCommission(db, id, data) {
   return result.rows[0] || null;
 }
 
-async function updateCommissionStatus(db, id, status) {
+async function updateCommissionStatus(db, id, status, actorId = null) {
   const connection = await db.pool.connect();
 
   try {
@@ -869,6 +869,7 @@ async function updateCommissionStatus(db, id, status) {
       commissionId: id,
       eventType: "commission_status_changed",
       actorType: "admin",
+      actorId,
       sourceType: "commission",
       sourceId: id,
       payload: {
@@ -924,23 +925,11 @@ function createHandler({
   now = () => new Date()
 } = {}) {
   return async function handler(request) {
-    const adminPassword = environmentReader("ADMIN_PASSWORD");
-    const sessionSecret = environmentReader("ADMIN_SESSION_SECRET") || adminPassword;
-
-    if (!adminPassword) {
-      logFailure("authenticate", new Error("Missing admin configuration."));
-      return jsonResponse(500, {
-        success: false,
-        message: "Admin authentication is not configured."
-      });
-    }
-
-    if (!(await hasValidAdminSession(request, adminPassword, sessionSecret))) {
-      return jsonResponse(401, {
-        success: false,
-        message: "Unauthorized."
-      });
-    }
+    const authorization = await authorizeAdminRequest(request, { databaseFactory, environmentReader });
+    if (!authorization.ok) return authorization.response;
+    const actorId = authorization.identity.id === null
+      ? null
+      : String(authorization.identity.id);
 
     const pathname = new URL(request.url).pathname;
     const deliveryStorageAction = getCommissionDeliveryStorageAction(pathname);
@@ -1297,7 +1286,8 @@ function createHandler({
         const result = await updateCommissionStatus(
           databaseFactory(),
           statusCommissionId,
-          normalized.status
+          normalized.status,
+          actorId
         );
 
         if (result.outcome === "not_found") {
