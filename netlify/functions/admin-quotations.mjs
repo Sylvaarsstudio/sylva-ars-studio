@@ -1,6 +1,6 @@
 import { getDatabase } from "@netlify/database";
 
-import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { authorizeAdminRequest } from "../shared/admin-authorization.mjs";
 import { appendCommissionEvent } from "../shared/commission-events.mjs";
 import { hashQuotationSnapshot } from "../shared/quotation-snapshot.mjs";
 import { isQuotationExpired } from "../shared/quotation-state.mjs";
@@ -355,7 +355,13 @@ async function listQuotations(db, { commissionId = null, clientId = null, status
   }));
 }
 
-async function createPreCommissionDraft(db, clientId, data, now = () => new Date()) {
+async function createPreCommissionDraft(
+  db,
+  clientId,
+  data,
+  now = () => new Date(),
+  actorId = null
+) {
   const connection = await db.pool.connect();
   try {
     await connection.query("BEGIN");
@@ -456,7 +462,13 @@ async function createPreCommissionDraft(db, clientId, data, now = () => new Date
   }
 }
 
-async function createDraft(db, commissionId, requestId = null, now = () => new Date()) {
+async function createDraft(
+  db,
+  commissionId,
+  requestId = null,
+  now = () => new Date(),
+  actorId = null
+) {
   const connection = await db.pool.connect();
   try {
     await connection.query("BEGIN");
@@ -567,6 +579,7 @@ async function createDraft(db, commissionId, requestId = null, now = () => new D
         eventType: "quotation_created",
         occurredAt: now(),
         actorType: "admin",
+        actorId,
         sourceType: "quotation",
         sourceId: quotation.id,
         requestId,
@@ -613,7 +626,7 @@ async function updateDraft(db, id, changes) {
   return { outcome: "success", quotation: await getQuotation(db.pool, id) };
 }
 
-async function issueQuotation(db, id, now = () => new Date()) {
+async function issueQuotation(db, id, now = () => new Date(), actorId = null) {
   const connection = await db.pool.connect();
   try {
     await connection.query("BEGIN");
@@ -650,6 +663,7 @@ async function issueQuotation(db, id, now = () => new Date()) {
           eventType: "quotation_superseded",
           occurredAt: issuedAt,
           actorType: "admin",
+          actorId,
           sourceType: "quotation",
           sourceId: previous.id,
           payload: {
@@ -681,6 +695,7 @@ async function issueQuotation(db, id, now = () => new Date()) {
         eventType: "quotation_issued",
         occurredAt: issuedAt,
         actorType: "admin",
+        actorId,
         sourceType: "quotation",
         sourceId: quotation.id,
         payload: {
@@ -699,7 +714,7 @@ async function issueQuotation(db, id, now = () => new Date()) {
   }
 }
 
-async function transitionQuotation(db, id, action, now = () => new Date()) {
+async function transitionQuotation(db, id, action, now = () => new Date(), actorId = null) {
   const rules = {
     "mark-sent": { from: ["issued"], to: "sent", timestamp: "sent_at" },
     withdraw: { from: ["issued", "sent"], to: "withdrawn", timestamp: null }
@@ -730,6 +745,7 @@ async function transitionQuotation(db, id, action, now = () => new Date()) {
       eventType: action === "mark-sent" ? "quotation_sent" : "quotation_withdrawn",
       occurredAt: rule.timestamp ? updated.sent_at : now(),
       actorType: "admin",
+      actorId,
       sourceType: "quotation",
       sourceId: quotation.id,
       payload: {
@@ -744,7 +760,7 @@ async function transitionQuotation(db, id, action, now = () => new Date()) {
   } finally { connection.release(); }
 }
 
-async function createNewVersion(db, id) {
+async function createNewVersion(db, id, actorId = null) {
   const connection = await db.pool.connect();
   try {
     await connection.query("BEGIN");
@@ -800,6 +816,7 @@ async function createNewVersion(db, id) {
         commissionId: previous.commission_id,
         eventType: "quotation_created",
         actorType: "admin",
+        actorId,
         sourceType: "quotation",
         sourceId: quotation.id,
         payload: {
@@ -831,12 +848,11 @@ function createHandler({
   now = () => new Date()
 } = {}) {
   return async function handler(request) {
-    const adminPassword = environmentReader("ADMIN_PASSWORD");
-    const sessionSecret = environmentReader("ADMIN_SESSION_SECRET") || adminPassword;
-    if (!adminPassword) return jsonResponse(500, { success: false, message: "Admin authentication is not configured." });
-    if (!(await hasValidAdminSession(request, adminPassword, sessionSecret))) {
-      return jsonResponse(401, { success: false, message: "Unauthorized." });
-    }
+    const authorization = await authorizeAdminRequest(request, { databaseFactory, environmentReader });
+    if (!authorization.ok) return authorization.response;
+    const actorId = authorization.identity.id === null
+      ? null
+      : String(authorization.identity.id);
     const route = parseRoute(new URL(request.url).pathname);
     if (!route) return jsonResponse(404, { success: false, message: "Admin endpoint not found." });
     if (route.id !== null && !idPattern.test(route.id)) return jsonResponse(400, { success: false, message: "Invalid id." });
@@ -859,7 +875,13 @@ function createHandler({
           const body = await request.json().catch(() => null);
           const normalized = normalizeDraft(body, { creation: true });
           if (normalized.error) return jsonResponse(400, { success: false, message: normalized.error });
-          const result = await createPreCommissionDraft(db, route.id, normalized.value, now);
+          const result = await createPreCommissionDraft(
+            db,
+            route.id,
+            normalized.value,
+            now,
+            actorId
+          );
           if (result.outcome === "client_not_found") return jsonResponse(404, { success: false, message: "Client not found." });
           if (result.outcome === "inquiry_not_found") return jsonResponse(404, { success: false, message: "Inquiry not found." });
           if (result.outcome === "inquiry_client_mismatch") return jsonResponse(409, { success: false, message: "Inquiry does not match the selected Client." });
@@ -901,10 +923,10 @@ function createHandler({
       }
       if (request.method !== "POST") return jsonResponse(405, { success: false, message: "Method not allowed. Use POST." });
       const result = route.kind === "issue"
-        ? await issueQuotation(db, route.id, now)
+        ? await issueQuotation(db, route.id, now, actorId)
         : route.kind === "new-version"
-          ? await createNewVersion(db, route.id)
-          : await transitionQuotation(db, route.id, route.kind, now);
+          ? await createNewVersion(db, route.id, actorId)
+          : await transitionQuotation(db, route.id, route.kind, now, actorId);
       if (result.outcome === "not_found") return jsonResponse(404, { success: false, message: "Quotation not found." });
       if (result.outcome !== "success") {
         const code = result.current_status === "accepted"

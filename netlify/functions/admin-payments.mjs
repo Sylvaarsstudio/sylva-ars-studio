@@ -1,7 +1,7 @@
 import { getDatabase } from "@netlify/database";
 import businessInformation from "../../web/js/business-info.js";
 
-import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { authorizeAdminRequest } from "../shared/admin-authorization.mjs";
 import { attemptAutomaticCommunicationSend } from "../shared/communication-automations.mjs";
 import { getCommunicationTemplate, renderCommunicationTemplate } from "../shared/communication-templates.mjs";
 import { createGmailEmailProvider } from "../shared/email-provider.mjs";
@@ -1150,23 +1150,8 @@ function createHandler({
     now
   });
   return async function handler(request) {
-    const adminPassword = environmentReader("ADMIN_PASSWORD");
-    const sessionSecret = environmentReader("ADMIN_SESSION_SECRET") || adminPassword;
-
-    if (!adminPassword) {
-      logFailure("authenticate", new Error("Missing admin configuration."));
-      return jsonResponse(500, {
-        success: false,
-        message: "Admin authentication is not configured."
-      });
-    }
-
-    if (!(await hasValidAdminSession(request, adminPassword, sessionSecret))) {
-      return jsonResponse(401, {
-        success: false,
-        message: "Unauthorized."
-      });
-    }
+    const authorization = await authorizeAdminRequest(request, { databaseFactory, environmentReader });
+    if (!authorization.ok) return authorization.response;
 
     const commissionId = getCommissionId(new URL(request.url).pathname);
 

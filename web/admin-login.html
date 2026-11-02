@@ -14,31 +14,34 @@
 
   <main class="admin-login-page">
 
-    <form class="admin-login-card" method="POST" action="/admin-login">
+    <section class="admin-login-card">
       <img src="images/logo.png" alt="Sylva Ars Studio Logo" class="admin-login-logo">
 
       <h1>Studio Admin</h1>
       <p>Internal access for Sylva Ars Studio operations.</p>
 
-      <input type="hidden" name="redirect" id="redirect-to" value="/admin/dashboard.html">
-
-      <label>
-        Password
-        <input type="password" name="password" autocomplete="current-password" required>
-      </label>
-
       <p class="login-error" id="login-error">
-        Incorrect password. Please try again.
+        Sign-in could not be completed. Please try again or contact the administrator.
       </p>
 
-      <button type="submit" class="admin-button">
-        Enter Admin
-      </button>
+      <a href="/admin-login" class="admin-button" id="google-admin-login">
+        Continue with Google Workspace
+      </a>
+
+      <form method="POST" action="/admin-login" id="legacy-login" hidden>
+        <p><strong>Temporary migration access</strong></p>
+        <input type="hidden" name="redirect" id="redirect-to" value="/admin/dashboard.html">
+        <label>
+          Legacy password
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="admin-text-button">Use temporary access</button>
+      </form>
 
       <a href="index.html" class="admin-link">
         Back to Website
       </a>
-    </form>
+    </section>
 
   </main>
 
@@ -46,13 +49,19 @@
     const params = new URLSearchParams(window.location.search);
     const redirect = params.get("redirect");
     const error = params.get("error");
+    const legacy = params.get("legacy");
 
     if (redirect && redirect.startsWith("/admin/")) {
       document.querySelector("#redirect-to").value = redirect;
+      document.querySelector("#google-admin-login").href = `/admin-login?redirect=${encodeURIComponent(redirect)}`;
     }
 
     if (error) {
       document.querySelector("#login-error").classList.add("is-visible");
+    }
+
+    if (legacy === "1") {
+      document.querySelector("#legacy-login").hidden = false;
     }
   </script>
 

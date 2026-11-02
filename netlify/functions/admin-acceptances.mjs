@@ -1,6 +1,6 @@
 import { getDatabase } from "@netlify/database";
 
-import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { authorizeAdminRequest } from "../shared/admin-authorization.mjs";
 import { attemptAutomaticCommunicationSend } from "../shared/communication-automations.mjs";
 import { getCommunicationAutomationRule } from "../shared/communication-automation-policy.mjs";
 import { getCommunicationTemplate, renderCommunicationTemplate } from "../shared/communication-templates.mjs";
@@ -403,12 +403,8 @@ function createHandler({
     now
   });
   return async function handler(request) {
-    const adminPassword = environmentReader("ADMIN_PASSWORD");
-    const sessionSecret = environmentReader("ADMIN_SESSION_SECRET") || adminPassword;
-    if (!adminPassword) return jsonResponse(500, { success: false, message: "Admin authentication is not configured." });
-    if (!(await hasValidAdminSession(request, adminPassword, sessionSecret))) {
-      return jsonResponse(401, { success: false, message: "Unauthorized." });
-    }
+    const authorization = await authorizeAdminRequest(request, { databaseFactory, environmentReader });
+    if (!authorization.ok) return authorization.response;
     const route = parseRoute(new URL(request.url).pathname);
     if (!route) return jsonResponse(404, { success: false, message: "Admin endpoint not found." });
     if (!idPattern.test(route.id)) return jsonResponse(400, { success: false, message: "Invalid id." });

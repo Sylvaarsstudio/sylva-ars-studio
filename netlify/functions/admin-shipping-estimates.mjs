@@ -1,4 +1,6 @@
-import { hasValidAdminSession } from "../shared/admin-session.mjs";
+import { getDatabase } from "@netlify/database";
+
+import { authorizeAdminRequest } from "../shared/admin-authorization.mjs";
 import {
   createEasyPostRateProvider,
   ShippingRateProviderError
@@ -48,28 +50,15 @@ function providerErrorResponse(code) {
 }
 
 function createHandler({
+  databaseFactory = getDatabase,
   environmentReader = readEnvironmentVariable,
   rateProvider = null,
   fetchImplementation = globalThis.fetch,
   providerTimeoutMs
 } = {}) {
   return async function handler(request) {
-    const adminPassword = environmentReader("ADMIN_PASSWORD");
-    const sessionSecret = environmentReader("ADMIN_SESSION_SECRET") || adminPassword;
-    if (!adminPassword) {
-      return jsonResponse(500, {
-        success: false,
-        code: "admin_auth_not_configured",
-        message: "Admin authentication is not configured."
-      });
-    }
-    if (!(await hasValidAdminSession(request, adminPassword, sessionSecret))) {
-      return jsonResponse(401, {
-        success: false,
-        code: "unauthorized",
-        message: "Unauthorized."
-      });
-    }
+    const authorization = await authorizeAdminRequest(request, { databaseFactory, environmentReader });
+    if (!authorization.ok) return authorization.response;
     if (new URL(request.url).pathname !== ENDPOINT_PATH) {
       return jsonResponse(404, {
         success: false,
