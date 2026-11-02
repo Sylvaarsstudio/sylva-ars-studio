@@ -358,6 +358,15 @@ test("commission status event is attributed to the current individual admin", as
   await db.pool.query("DELETE FROM clients WHERE id = $1", [client.id]);
 });
 
+test("session identity endpoint exposes a Netlify-statically-discoverable path", async () => {
+  const source = await readFile("netlify/functions/admin-session-info.mjs", "utf8");
+  assert.match(
+    source,
+    /export const config = \{ path: "\/admin\/api\/session" \};/,
+    "Netlify requires the custom function path to be a string literal during bundling"
+  );
+});
+
 test("Google OIDC uses PKCE, consumes state once, provisions configured owner, and never stores tokens", async () => {
   await db.pool.query("DELETE FROM admin_users");
   let exchanges = 0;
