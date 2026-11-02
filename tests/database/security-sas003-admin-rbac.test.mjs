@@ -598,11 +598,12 @@ test("OIDC diagnostics log only categorical fields and never exception messages,
   }
 });
 
-test("MFA policy accepts multifactor/passkey evidence and rejects password-only or SMS-only", () => {
+test("MFA policy requires Google's explicit multifactor evidence", () => {
   assert.equal(hasMfaEvidence(["pwd", "mfa"]), true);
-  assert.equal(hasMfaEvidence(["hwk"]), true);
-  assert.equal(hasMfaEvidence(["swk"]), true);
-  assert.equal(hasMfaEvidence(["pwd", "otp"]), true);
+  assert.equal(hasMfaEvidence(["mfa", "pwd", "swk"]), true);
+  assert.equal(hasMfaEvidence(["hwk"]), false);
+  assert.equal(hasMfaEvidence(["swk"]), false);
+  assert.equal(hasMfaEvidence(["pwd", "otp"]), false);
   assert.equal(hasMfaEvidence(["pwd"]), false);
   assert.equal(hasMfaEvidence(["sms"]), false);
   assert.equal(hasMfaEvidence(undefined), false);

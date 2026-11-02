@@ -118,10 +118,7 @@ async function timingSafeTextEqual(left, right) {
 function hasMfaEvidence(amr) {
   if (!Array.isArray(amr)) return false;
   const methods = new Set(amr.filter((value) => typeof value === "string"));
-  if (["mfa", "hwk", "swk"].some((method) => methods.has(method))) return true;
-  const knowledge = methods.has("pwd") || methods.has("pin");
-  const secondFactor = ["otp", "sms", "tel", "face", "fpt"].some((method) => methods.has(method));
-  return knowledge && secondFactor;
+  return methods.has("mfa");
 }
 
 async function verifyGoogleIdToken(idToken, {
