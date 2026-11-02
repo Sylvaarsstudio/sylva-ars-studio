@@ -408,7 +408,7 @@ test("Google OIDC uses PKCE, consumes state once, provisions configured owner, a
   assert.equal(authorization.searchParams.get("scope"), "openid email profile");
   assert.equal(authorization.searchParams.get("code_challenge_method"), "S256");
   assert.equal(authorization.searchParams.has("code_challenge"), true);
-  assert.equal(authorization.searchParams.get("max_age"), "600");
+  assert.equal(authorization.searchParams.has("max_age"), false);
   const requestedClaims = JSON.parse(authorization.searchParams.get("claims"));
   assert.equal(requestedClaims.id_token.amr.essential, true);
   assert.equal(requestedClaims.id_token.auth_time.essential, true);
@@ -476,7 +476,7 @@ async function assertOidcDiagnostic(operation, stage, reason) {
   });
 }
 
-test("Google claim diagnostics isolate issuer, audience, nonce, domain, email, freshness, and MFA failures", async () => {
+test("Google claim diagnostics isolate issuer, audience, nonce, domain, email, time sanity, and MFA failures", async () => {
   for (const [claim, stage, reason] of [
     ["iss", "issuer_validation", "invalid_issuer"],
     ["aud", "audience_validation", "invalid_audience"]
@@ -518,10 +518,10 @@ test("Google claim diagnostics isolate issuer, audience, nonce, domain, email, f
   await assertOidcDiagnostic(
     verifyClaims({
       ...validGoogleClaims,
-      auth_time: Math.floor(fixedNow.getTime() / 1000) - 601
+      auth_time: Math.floor(fixedNow.getTime() / 1000) + 61
     }),
     "auth_time_stale",
-    "outside_freshness_window"
+    "claim_in_future"
   );
   await assertOidcDiagnostic(
     verifyClaims({ ...validGoogleClaims, amr: undefined }),
@@ -535,6 +535,16 @@ test("Google claim diagnostics isolate issuer, audience, nonce, domain, email, f
   );
 
   assert.deepEqual(await verifyClaims(validGoogleClaims), validGoogleClaims);
+
+  const establishedMfaSession = {
+    ...validGoogleClaims,
+    auth_time: Math.floor(fixedNow.getTime() / 1000) - (24 * 60 * 60)
+  };
+  assert.deepEqual(
+    await verifyClaims(establishedMfaSession),
+    establishedMfaSession,
+    "auth_time records the Google session authentication event; MFA evidence is enforced through amr"
+  );
 });
 
 test("OIDC diagnostics log only categorical fields and never exception messages, PII, tokens, or raw claims", () => {
