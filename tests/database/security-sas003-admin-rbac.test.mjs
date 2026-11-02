@@ -6,9 +6,12 @@ import { NetlifyDB } from "@netlify/database-dev";
 import { getDatabase } from "@netlify/database";
 
 import {
+  AdminOidcDiagnosticError,
   config as authConfig,
   createHandler as createAuthHandler,
-  hasMfaEvidence
+  hasMfaEvidence,
+  logAdminOidcError,
+  verifyGoogleIdToken
 } from "../../netlify/functions/admin-auth.mjs";
 import { createHandler as createClientsHandler } from "../../netlify/functions/admin-clients.mjs";
 import { createHandler as createCommissionsHandler } from "../../netlify/functions/admin-commissions.mjs";
@@ -411,6 +414,14 @@ test("Google OIDC uses PKCE, consumes state once, provisions configured owner, a
   assert.equal(requestedClaims.id_token.auth_time.essential, true);
   const flowCookie = start.headers.get("set-cookie").split(";", 1)[0];
   const callbackUrl = `https://studio.example/admin-auth/callback?code=one-time-code&state=${encodeURIComponent(authorization.searchParams.get("state"))}`;
+  const invalidState = await auth(new Request(
+    "https://studio.example/admin-auth/callback?code=must-not-be-exchanged&state=wrong-state",
+    { headers: { Cookie: flowCookie } }
+  ));
+  assert.equal(invalidState.status, 302);
+  assert.match(invalidState.headers.get("location"), /error=invalid_oidc_state/);
+  assert.equal(exchanges, 0);
+
   const callback = await auth(new Request(callbackUrl, { headers: { Cookie: flowCookie } }));
   assert.equal(callback.status, 302);
   assert.equal(callback.headers.get("location"), "/admin/clients.html");
@@ -430,6 +441,151 @@ test("Google OIDC uses PKCE, consumes state once, provisions configured owner, a
   assert.equal(replay.status, 302);
   assert.match(replay.headers.get("location"), /error=invalid_oidc_state/);
   assert.equal(exchanges, 1);
+});
+
+const validGoogleClaims = {
+  iss: "https://accounts.google.com",
+  aud: "test-client-id.apps.googleusercontent.com",
+  sub: "safe-test-subject",
+  email: "owner@studio.example",
+  email_verified: true,
+  hd: "studio.example",
+  nonce: "safe-test-nonce",
+  auth_time: Math.floor(fixedNow.getTime() / 1000),
+  amr: ["pwd", "mfa"]
+};
+
+function verifyClaims(payload, overrides = {}) {
+  return verifyGoogleIdToken("opaque-test-id-token", {
+    clientId: "test-client-id.apps.googleusercontent.com",
+    nonce: "safe-test-nonce",
+    hostedDomain: "studio.example",
+    now: () => fixedNow,
+    jwtVerifier: async () => ({ payload }),
+    keySet: {},
+    ...overrides
+  });
+}
+
+async function assertOidcDiagnostic(operation, stage, reason) {
+  await assert.rejects(operation, (error) => {
+    assert.equal(error instanceof AdminOidcDiagnosticError, true);
+    assert.equal(error.stage, stage);
+    assert.equal(error.reason, reason);
+    return true;
+  });
+}
+
+test("Google claim diagnostics isolate issuer, audience, nonce, domain, email, freshness, and MFA failures", async () => {
+  for (const [claim, stage, reason] of [
+    ["iss", "issuer_validation", "invalid_issuer"],
+    ["aud", "audience_validation", "invalid_audience"]
+  ]) {
+    await assertOidcDiagnostic(
+      verifyClaims(validGoogleClaims, {
+        jwtVerifier: async () => {
+          const error = new Error("claim validation failed");
+          error.code = "ERR_JWT_CLAIM_VALIDATION_FAILED";
+          error.claim = claim;
+          throw error;
+        }
+      }),
+      stage,
+      reason
+    );
+  }
+
+  await assertOidcDiagnostic(
+    verifyClaims({ ...validGoogleClaims, nonce: "wrong" }),
+    "nonce_validation",
+    "nonce_mismatch"
+  );
+  await assertOidcDiagnostic(
+    verifyClaims({ ...validGoogleClaims, email_verified: false }),
+    "email_verified",
+    "email_not_verified"
+  );
+  await assertOidcDiagnostic(
+    verifyClaims({ ...validGoogleClaims, hd: "other.example" }),
+    "hosted_domain",
+    "hosted_domain_mismatch"
+  );
+  await assertOidcDiagnostic(
+    verifyClaims({ ...validGoogleClaims, auth_time: undefined }),
+    "auth_time_missing",
+    "claim_missing"
+  );
+  await assertOidcDiagnostic(
+    verifyClaims({
+      ...validGoogleClaims,
+      auth_time: Math.floor(fixedNow.getTime() / 1000) - 601
+    }),
+    "auth_time_stale",
+    "outside_freshness_window"
+  );
+  await assertOidcDiagnostic(
+    verifyClaims({ ...validGoogleClaims, amr: undefined }),
+    "amr_missing",
+    "claim_missing"
+  );
+  await assertOidcDiagnostic(
+    verifyClaims({ ...validGoogleClaims, amr: ["pwd"] }),
+    "amr_insufficient",
+    "mfa_evidence_insufficient"
+  );
+
+  assert.deepEqual(await verifyClaims(validGoogleClaims), validGoogleClaims);
+});
+
+test("OIDC diagnostics log only categorical fields and never exception messages, PII, tokens, or raw claims", () => {
+  const captured = [];
+  const error = new AdminOidcDiagnosticError(
+    "amr_insufficient",
+    "mfa_evidence_insufficient",
+    {
+      facts: {
+        amr_present: true,
+        amr_count: 1,
+        mfa_evidence: "insufficient",
+        email: "must-not-be-logged@example.invalid",
+        raw_claims: "must-not-be-logged"
+      },
+      cause: new Error("authorization-code id-token client-secret password")
+    }
+  );
+  logAdminOidcError((...arguments_) => captured.push(arguments_), error);
+  logAdminOidcError(
+    (...arguments_) => captured.push(arguments_),
+    new Error("owner@example.invalid nonce-value state-value pkce-verifier")
+  );
+
+  assert.deepEqual(captured, [
+    ["admin_oidc_error", {
+      stage: "amr_insufficient",
+      reason: "mfa_evidence_insufficient",
+      amr_present: true,
+      amr_count: 1,
+      mfa_evidence: "insufficient"
+    }],
+    ["admin_oidc_error", {
+      stage: "unknown",
+      reason: "unexpected_error"
+    }]
+  ]);
+  const serialized = JSON.stringify(captured);
+  for (const prohibited of [
+    "must-not-be-logged",
+    "authorization-code",
+    "id-token",
+    "client-secret",
+    "password",
+    "owner@example.invalid",
+    "nonce-value",
+    "state-value",
+    "pkce-verifier"
+  ]) {
+    assert.equal(serialized.includes(prohibited), false, prohibited);
+  }
 });
 
 test("MFA policy accepts multifactor/passkey evidence and rejects password-only or SMS-only", () => {
