@@ -46,10 +46,68 @@ const optionalTextFields = [
   "organization_project",
   "collaboration_type"
 ];
+const sharedPublicFields = [
+  "form_type",
+  "client_name",
+  "client_email",
+  "message",
+  "request_id",
+  "turnstile_token"
+];
+const allowedPublicFieldsByFormType = new Map([
+  ["contact", new Set(sharedPublicFields)],
+  ["artwork_inquiry", new Set([
+    ...sharedPublicFields,
+    "client_phone",
+    "artwork_title",
+    "shipping_location",
+    "preferred_contact_method"
+  ])],
+  ["commission_request", new Set([
+    ...sharedPublicFields,
+    "client_phone",
+    "artwork_subject",
+    "artwork_size",
+    "budget_range",
+    "estimated_date",
+    "occasion",
+    "shipping_location",
+    "reference_notes"
+  ])],
+  ["collaboration", new Set([
+    ...sharedPublicFields,
+    "client_phone",
+    "organization_project",
+    "collaboration_type",
+    "estimated_date",
+    "occasion"
+  ])]
+]);
+const inquiryFieldLengthLimits = Object.freeze({
+  form_type: 18,
+  client_name: 100,
+  client_email: 254,
+  client_phone: 32,
+  artwork_title: 200,
+  artwork_subject: 500,
+  artwork_size: 100,
+  budget_range: 100,
+  estimated_date: 15,
+  occasion: 19,
+  shipping_location: 300,
+  preferred_contact_method: 50,
+  reference_notes: 3000,
+  organization_project: 300,
+  collaboration_type: 100,
+  message: 5000,
+  request_id: 36,
+  turnstile_token: 2048
+});
+// Covers all bounded text fields at worst-case UTF-8 size while capping buffering well below 1 MB.
+const maxRequestBodyBytes = 48 * 1024;
+const maxRequestObjectKeys = 20;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const clientNameControlCharacterPattern = /[\u0000-\u001f\u007f-\u009f]/u;
-const maxClientNameLength = 100;
-const maxTurnstileTokenLength = 2048;
 const turnstileAction = "sylva_public_inquiry";
 const turnstileVerificationUrl = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const defaultPublicSendLimit = 20;
@@ -60,23 +118,137 @@ function jsonResponse(statusCode, body, headers = {}) {
   return Response.json(body, { status: statusCode, headers });
 }
 
-async function parseJsonBody(request) {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-}
-
 function hasText(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function toSnakeCase(value) {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .replace(/-/g, "_")
-    .toLowerCase();
+function validationError(code, message) {
+  return { code, message };
+}
+
+function skipWhitespace(text, start) {
+  let index = start;
+  while (/\s/u.test(text[index] || "")) index += 1;
+  return index;
+}
+
+function scanJsonString(text, start) {
+  let escaped = false;
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (escaped) {
+      escaped = false;
+    } else if (text[index] === "\\") {
+      escaped = true;
+    } else if (text[index] === "\"") {
+      return index + 1;
+    }
+  }
+  return text.length;
+}
+
+function skipJsonValue(text, start) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === "\"") inString = false;
+      continue;
+    }
+    if (character === "\"") {
+      inString = true;
+    } else if (character === "{" || character === "[") {
+      depth += 1;
+    } else if (character === "}" || character === "]") {
+      if (depth === 0) return index;
+      depth -= 1;
+    } else if (character === "," && depth === 0) {
+      return index;
+    }
+  }
+  return text.length;
+}
+
+function hasDuplicateTopLevelKeys(text) {
+  let index = skipWhitespace(text, 0);
+  if (text[index] !== "{") return false;
+  index += 1;
+  const keys = new Set();
+
+  while (index < text.length) {
+    index = skipWhitespace(text, index);
+    if (text[index] === "}") return false;
+
+    const keyStart = index;
+    const keyEnd = scanJsonString(text, keyStart);
+    const key = JSON.parse(text.slice(keyStart, keyEnd));
+    if (keys.has(key)) return true;
+    keys.add(key);
+
+    index = skipWhitespace(text, keyEnd);
+    index = skipWhitespace(text, index + 1);
+    index = skipJsonValue(text, index);
+    index = skipWhitespace(text, index);
+    if (text[index] === ",") index += 1;
+    else return false;
+  }
+
+  return false;
+}
+
+async function readLimitedJsonBody(request) {
+  const contentLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxRequestBodyBytes) {
+    return { outcome: "too_large" };
+  }
+  if (!request.body) {
+    return { outcome: "invalid_json" };
+  }
+
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxRequestBodyBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The request is already rejected; cancellation failure must not change the 413 result.
+        }
+        return { outcome: "too_large" };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { outcome: "invalid_json" };
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const data = JSON.parse(text);
+    if (hasDuplicateTopLevelKeys(text)) {
+      return { outcome: "duplicate_fields" };
+    }
+    return { outcome: "success", data };
+  } catch {
+    return { outcome: "invalid_json" };
+  }
 }
 
 function normalizeRequiredText(value) {
@@ -106,35 +278,25 @@ function normalizeClientName(value) {
     return { value: "", error: "Missing required field: client_name." };
   }
 
-  if (Array.from(normalized).length > maxClientNameLength) {
-    return { value: "", error: `client_name must be ${maxClientNameLength} characters or fewer.` };
-  }
-
   return { value: normalized, error: "" };
 }
 
 function normalizePayload(data) {
-  const source = {};
-
-  for (const [key, value] of Object.entries(data)) {
-    source[toSnakeCase(key)] = value;
-  }
-
-  const clientName = normalizeClientName(source.client_name);
+  const clientName = normalizeClientName(data.client_name);
   const payload = {
-    form_type: normalizeRequiredText(source.form_type),
+    form_type: normalizeRequiredText(data.form_type),
     client_name: clientName.value,
     client_name_error: clientName.error,
-    client_email: normalizeRequiredText(source.client_email),
-    message: normalizeRequiredText(source.message),
-    request_id: normalizeOptionalText(source.request_id),
-    turnstile_token: normalizeOptionalText(source.turnstile_token),
-    estimated_date: normalizeOptionalText(source.estimated_date),
-    occasion: normalizeOptionalText(source.occasion)
+    client_email: normalizeRequiredText(data.client_email),
+    message: normalizeRequiredText(data.message),
+    request_id: normalizeOptionalText(data.request_id),
+    turnstile_token: normalizeOptionalText(data.turnstile_token),
+    estimated_date: normalizeOptionalText(data.estimated_date),
+    occasion: normalizeOptionalText(data.occasion)
   };
 
   for (const field of optionalTextFields) {
-    payload[field] = normalizeOptionalText(source[field]);
+    payload[field] = normalizeOptionalText(data[field]);
   }
 
   if (payload.occasion === "none") {
@@ -144,47 +306,126 @@ function normalizePayload(data) {
   return payload;
 }
 
-function validateRequest(data) {
+function validatePayloadStructure(data) {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return "Request body must be valid JSON.";
+    return validationError(
+      "inquiry_invalid_structure",
+      "Request body must be a JSON object."
+    );
   }
+  const entries = Object.entries(data);
+  if (entries.length > maxRequestObjectKeys) {
+    return validationError(
+      "inquiry_invalid_structure",
+      "Request body contains too many fields."
+    );
+  }
+  if (entries.some(([, value]) => typeof value !== "string")) {
+    return validationError(
+      "inquiry_invalid_structure",
+      "Inquiry fields must contain only text values."
+    );
+  }
+  return null;
+}
+
+function validateAllowedFields(data) {
+  if (
+    typeof data.form_type === "string"
+    && Array.from(data.form_type.trim()).length > inquiryFieldLengthLimits.form_type
+  ) {
+    return validationError(
+      "inquiry_field_too_long",
+      "form_type is longer than the supported limit."
+    );
+  }
+  if (!hasText(data.form_type) || !allowedFormTypes.has(data.form_type.trim())) {
+    return validationError("inquiry_invalid_fields", "Unsupported form_type.");
+  }
+  const allowedFields = allowedPublicFieldsByFormType.get(data.form_type.trim());
+  const unsupportedFields = Object.keys(data).filter((field) => !allowedFields.has(field));
+  if (unsupportedFields.length > 0) {
+    return validationError(
+      "inquiry_invalid_fields",
+      "Request contains unsupported fields for this form type."
+    );
+  }
+  return null;
+}
+
+function validateFieldLengths(data) {
+  for (const [field, limit] of Object.entries(inquiryFieldLengthLimits)) {
+    const value = data[field];
+    if (value !== null && value !== undefined && Array.from(value).length > limit) {
+      return validationError(
+        "inquiry_field_too_long",
+        `${field} is longer than the supported limit.`
+      );
+    }
+  }
+  return null;
+}
+
+function isValidEmail(value) {
+  if (
+    !hasText(value)
+    || /\s/u.test(value)
+    || clientNameControlCharacterPattern.test(value)
+    || /[()<>\[\]:;,\\"]/u.test(value)
+  ) return false;
+  const firstAt = value.indexOf("@");
+  if (firstAt <= 0 || firstAt !== value.lastIndexOf("@")) return false;
+  const localPart = value.slice(0, firstAt);
+  const domain = value.slice(firstAt + 1);
+  if (!domain || Array.from(localPart).length > 64 || Array.from(domain).length > 253) {
+    return false;
+  }
+  if (localPart.startsWith(".") || localPart.endsWith(".") || localPart.includes("..")) {
+    return false;
+  }
+  return domain.split(".").every((label) => (
+    label.length > 0
+    && Array.from(label).length <= 63
+    && !label.startsWith("-")
+    && !label.endsWith("-")
+  ));
+}
+
+function validateRequest(data) {
+  const lengthError = validateFieldLengths(data);
+  if (lengthError) return lengthError;
 
   if (!hasText(data.form_type)) {
-    return "Missing required field: form_type.";
+    return validationError("inquiry_invalid_fields", "Missing required field: form_type.");
   }
-
   if (!allowedFormTypes.has(data.form_type)) {
-    return "Unsupported form_type.";
+    return validationError("inquiry_invalid_fields", "Unsupported form_type.");
   }
-
   if (data.client_name_error) {
-    return data.client_name_error;
+    return validationError("inquiry_invalid_fields", data.client_name_error);
   }
-
   if (!hasText(data.client_email)) {
-    return "Missing required field: client_email.";
+    return validationError("inquiry_invalid_fields", "Missing required field: client_email.");
   }
-
+  if (!isValidEmail(data.client_email)) {
+    return validationError("inquiry_invalid_fields", "client_email is invalid.");
+  }
   if (!hasText(data.message)) {
-    return "Missing required field: message.";
+    return validationError("inquiry_invalid_fields", "Missing required field: message.");
   }
-
   if (data.request_id !== null && !uuidPattern.test(data.request_id)) {
-    return "Unsupported request_id.";
+    return validationError("inquiry_invalid_fields", "Unsupported request_id.");
   }
-
   if (
     data.estimated_date !== null &&
     !allowedEstimatedDates.has(data.estimated_date)
   ) {
-    return "Unsupported estimated_date.";
+    return validationError("inquiry_invalid_fields", "Unsupported estimated_date.");
   }
-
   if (data.occasion !== null && !allowedOccasions.has(data.occasion)) {
-    return "Unsupported occasion.";
+    return validationError("inquiry_invalid_fields", "Unsupported occasion.");
   }
-
-  return "";
+  return null;
 }
 
 function readEnvironmentVariable(name) {
@@ -210,7 +451,7 @@ async function verifyTurnstileProof({
   requestId,
   fetchImplementation
 }) {
-  if (!hasText(token) || token.length > maxTurnstileTokenLength) {
+  if (!hasText(token) || Array.from(token).length > inquiryFieldLengthLimits.turnstile_token) {
     return { outcome: "invalid" };
   }
 
@@ -492,16 +733,46 @@ function createHandler(options = getDatabase) {
       });
     }
 
-    const rawData = await parseJsonBody(request);
-    const data = rawData && typeof rawData === "object" && !Array.isArray(rawData)
-      ? normalizePayload(rawData)
-      : rawData;
+    const parsedBody = await readLimitedJsonBody(request);
+    if (parsedBody.outcome === "too_large") {
+      return jsonResponse(413, {
+        success: false,
+        code: "inquiry_payload_too_large",
+        message: "Inquiry payload is too large."
+      });
+    }
+    if (parsedBody.outcome === "invalid_json") {
+      return jsonResponse(400, {
+        success: false,
+        code: "inquiry_invalid_json",
+        message: "Request body must contain valid JSON."
+      });
+    }
+    if (parsedBody.outcome === "duplicate_fields") {
+      return jsonResponse(400, {
+        success: false,
+        code: "inquiry_invalid_fields",
+        message: "Request contains duplicate fields."
+      });
+    }
+
+    const rawData = parsedBody.data;
+    const structureError = validatePayloadStructure(rawData);
+    if (structureError) {
+      return jsonResponse(400, { success: false, ...structureError });
+    }
+    const allowedFieldsError = validateAllowedFields(rawData);
+    if (allowedFieldsError) {
+      return jsonResponse(400, { success: false, ...allowedFieldsError });
+    }
+
+    const data = normalizePayload(rawData);
     const validationError = validateRequest(data);
 
     if (validationError) {
       return jsonResponse(400, {
         success: false,
-        message: validationError
+        ...validationError
       });
     }
 
@@ -587,7 +858,12 @@ function createHandler(options = getDatabase) {
   };
 }
 
-export { createHandler, insertInquiry };
+export {
+  createHandler,
+  inquiryFieldLengthLimits,
+  insertInquiry,
+  maxRequestBodyBytes
+};
 export default createHandler();
 
 export const config = {
