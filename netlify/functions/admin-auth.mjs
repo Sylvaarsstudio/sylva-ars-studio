@@ -183,14 +183,6 @@ async function verifyGoogleIdToken(idToken, {
       }
     });
   }
-  if (currentTime - payload.auth_time > 10 * 60) {
-    throw new AdminOidcDiagnosticError("auth_time_stale", "outside_freshness_window", {
-      facts: {
-        auth_time_present: true,
-        auth_time_age_bucket: "stale"
-      }
-    });
-  }
   if (!Array.isArray(payload.amr)) {
     throw new AdminOidcDiagnosticError("amr_missing", "claim_missing", {
       facts: {
@@ -364,7 +356,6 @@ function createHandler({
         scope: "openid email profile",
         access_type: "online",
         prompt: "select_account",
-        max_age: "600",
         hd: hostedDomain,
         state,
         nonce,
