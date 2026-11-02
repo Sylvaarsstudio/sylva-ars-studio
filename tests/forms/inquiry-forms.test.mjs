@@ -39,7 +39,11 @@ function createForm({ hasFormType }) {
     reportValidity: () => true,
     reset() {},
     append(element) {
-      this.statusElement = element;
+      if (element.className?.startsWith("form-status")) {
+        this.statusElement = element;
+      } else {
+        this.verificationElement = element;
+      }
     },
     querySelector(selector) {
       if (selector === 'input[name="form_type"]') {
@@ -89,7 +93,21 @@ test("initializes production forms without data-netlify", async () => {
   const fetch = async (url, options) => {
     fetchCalls.push({ url, options });
 
-    if (url === "/.netlify/functions/create-request") {
+    if (url === "/api/inquiries" && options.method === "GET") {
+      return {
+        ok: true,
+        async json() {
+          return {
+            success: true,
+            provider: "turnstile",
+            site_key: "test-site-key",
+            action: "sylva_public_inquiry"
+          };
+        }
+      };
+    }
+
+    if (url === "/api/inquiries" && options.method === "POST") {
       return {
         ok: true,
         async json() {
@@ -114,9 +132,18 @@ test("initializes production forms without data-netlify", async () => {
       location: {
         pathname: "/contact",
         search: ""
+      },
+      turnstile: {
+        render(_container, options) {
+          options.callback("test-turnstile-token");
+          return "test-widget";
+        },
+        reset() {}
       }
     }
   });
+
+  await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(selectedFormsWith, "form.contact-form");
   assert.equal(initializedForm.listeners.has("submit"), true);
@@ -130,7 +157,13 @@ test("initializes production forms without data-netlify", async () => {
   });
 
   assert.equal(defaultPrevented, true);
-  assert.equal(fetchCalls[0].url, "/.netlify/functions/create-request");
-  assert.equal(fetchCalls[0].options.method, "POST");
-  assert.equal(fetchCalls[1].url, "/contact");
+  assert.equal(fetchCalls[0].url, "/api/inquiries");
+  assert.equal(fetchCalls[0].options.method, "GET");
+  assert.equal(fetchCalls[1].url, "/api/inquiries");
+  assert.equal(fetchCalls[1].options.method, "POST");
+  assert.equal(
+    JSON.parse(fetchCalls[1].options.body).turnstile_token,
+    "test-turnstile-token"
+  );
+  assert.equal(fetchCalls[2].url, "/contact");
 });

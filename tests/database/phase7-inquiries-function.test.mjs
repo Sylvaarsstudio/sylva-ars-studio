@@ -7,7 +7,7 @@ import createRequestHandler, {
   createHandler
 } from "../../netlify/functions/create-request.mjs";
 
-const functionUrl = "http://localhost/.netlify/functions/create-request";
+const functionUrl = "http://localhost/api/inquiries";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -16,13 +16,24 @@ let database;
 let db;
 let handler;
 
+function environmentReader(name) {
+  return {
+    TURNSTILE_SITE_KEY: "test-site-key",
+    TURNSTILE_SECRET_KEY: "test-secret-key"
+  }[name];
+}
+
 before(async () => {
   database = new NetlifyDB({ logger: () => {} });
   const connectionString = await database.start();
   await database.applyMigrations("./netlify/database/migrations");
 
   db = getDatabase({ connectionString });
-  handler = createHandler(() => db);
+  handler = createHandler({
+    databaseFactory: () => db,
+    environmentReader,
+    turnstileVerifier: async () => ({ outcome: "valid" })
+  });
 });
 
 afterEach(async () => {
@@ -51,6 +62,7 @@ function validPayload(overrides = {}) {
     client_name: "Test Client",
     client_email: "inquiry-function@sylvaarsstudio.invalid",
     message: "A valid inquiry message.",
+    turnstile_token: "test-turnstile-token",
     ...overrides
   };
 }
@@ -232,15 +244,18 @@ test("phase 7 rejects an invalid occasion", async () => {
   assert.equal(body.message, "Unsupported occasion.");
 });
 
-test("phase 7 modern function rejects GET with a JSON Response", async () => {
+test("phase 7 exposes only the public Turnstile configuration on GET", async () => {
   const response = await handler(new Request(functionUrl));
   const body = await response.json();
 
   assert.equal(response instanceof Response, true);
-  assert.equal(response.status, 405);
+  assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "application/json");
   assert.deepEqual(body, {
-    success: false,
-    message: "Method not allowed. Use POST."
+    success: true,
+    provider: "turnstile",
+    site_key: "test-site-key",
+    action: "sylva_public_inquiry"
   });
+  assert.equal(JSON.stringify(body).includes("test-secret-key"), false);
 });

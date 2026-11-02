@@ -47,9 +47,17 @@ const optionalTextFields = [
   "collaboration_type"
 ];
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const clientNameControlCharacterPattern = /[\u0000-\u001f\u007f-\u009f]/u;
+const maxClientNameLength = 100;
+const maxTurnstileTokenLength = 2048;
+const turnstileAction = "sylva_public_inquiry";
+const turnstileVerificationUrl = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const defaultPublicSendLimit = 20;
+const defaultPublicSendWindowMs = 60 * 60 * 1000;
+const publicSendCeilingLock = "sylva-public-inquiry-send-ceiling";
 
-function jsonResponse(statusCode, body) {
-  return Response.json(body, { status: statusCode });
+function jsonResponse(statusCode, body, headers = {}) {
+  return Response.json(body, { status: statusCode, headers });
 }
 
 async function parseJsonBody(request) {
@@ -84,6 +92,27 @@ function normalizeOptionalText(value) {
   return normalized || null;
 }
 
+function normalizeClientName(value) {
+  if (typeof value !== "string") {
+    return { value: "", error: "Missing required field: client_name." };
+  }
+
+  if (clientNameControlCharacterPattern.test(value)) {
+    return { value: "", error: "client_name contains unsupported control characters." };
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return { value: "", error: "Missing required field: client_name." };
+  }
+
+  if (Array.from(normalized).length > maxClientNameLength) {
+    return { value: "", error: `client_name must be ${maxClientNameLength} characters or fewer.` };
+  }
+
+  return { value: normalized, error: "" };
+}
+
 function normalizePayload(data) {
   const source = {};
 
@@ -91,12 +120,15 @@ function normalizePayload(data) {
     source[toSnakeCase(key)] = value;
   }
 
+  const clientName = normalizeClientName(source.client_name);
   const payload = {
     form_type: normalizeRequiredText(source.form_type),
-    client_name: normalizeRequiredText(source.client_name),
+    client_name: clientName.value,
+    client_name_error: clientName.error,
     client_email: normalizeRequiredText(source.client_email),
     message: normalizeRequiredText(source.message),
     request_id: normalizeOptionalText(source.request_id),
+    turnstile_token: normalizeOptionalText(source.turnstile_token),
     estimated_date: normalizeOptionalText(source.estimated_date),
     occasion: normalizeOptionalText(source.occasion)
   };
@@ -125,8 +157,8 @@ function validateRequest(data) {
     return "Unsupported form_type.";
   }
 
-  if (!hasText(data.client_name)) {
-    return "Missing required field: client_name.";
+  if (data.client_name_error) {
+    return data.client_name_error;
   }
 
   if (!hasText(data.client_email)) {
@@ -159,6 +191,69 @@ function readEnvironmentVariable(name) {
   return globalThis.Netlify?.env?.get?.(name) ?? process.env[name];
 }
 
+function readTurnstileConfiguration(environmentReader) {
+  const siteKey = environmentReader("TURNSTILE_SITE_KEY");
+  const secretKey = environmentReader("TURNSTILE_SECRET_KEY");
+
+  if (!hasText(siteKey) || !hasText(secretKey)) {
+    return null;
+  }
+
+  return { siteKey: siteKey.trim(), secretKey: secretKey.trim() };
+}
+
+async function verifyTurnstileProof({
+  token,
+  secretKey,
+  request,
+  context,
+  requestId,
+  fetchImplementation
+}) {
+  if (!hasText(token) || token.length > maxTurnstileTokenLength) {
+    return { outcome: "invalid" };
+  }
+
+  if (typeof fetchImplementation !== "function") {
+    return { outcome: "unavailable" };
+  }
+
+  const verificationRequest = {
+    secret: secretKey,
+    response: token,
+    idempotency_key: requestId
+  };
+  if (hasText(context?.ip)) {
+    verificationRequest.remoteip = context.ip;
+  }
+
+  try {
+    const response = await fetchImplementation(turnstileVerificationUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(verificationRequest),
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!response.ok) {
+      return { outcome: "unavailable" };
+    }
+
+    const result = await response.json();
+    const expectedHostname = new URL(request.url).hostname;
+    if (
+      result?.success !== true
+      || result.action !== turnstileAction
+      || result.hostname !== expectedHostname
+    ) {
+      return { outcome: "invalid" };
+    }
+
+    return { outcome: "valid" };
+  } catch {
+    return { outcome: "unavailable" };
+  }
+}
+
 function sameInquiryIntent(existing, data) {
   return existing.form_type === data.form_type
     && existing.client_name === data.client_name
@@ -180,14 +275,74 @@ function prepareInquiryConfirmationAutomation() {
   return { policy, template, rendered };
 }
 
-async function insertInquiry(db, data, now = () => new Date()) {
+async function findExistingInquiryResult(client, data) {
+  const existing = (await client.query(
+    "SELECT * FROM inquiries WHERE source_submission_id = $1",
+    [data.request_id]
+  )).rows[0];
+  if (!existing) {
+    return null;
+  }
+
+  const communication = (await client.query(
+    "SELECT id FROM communications WHERE automation_source_key = $1",
+    [`inquiry-received:${existing.id}`]
+  )).rows[0];
+  if (!communication) {
+    throw new Error("Inquiry confirmation outbox was not persisted.");
+  }
+
+  if (!sameInquiryIntent(existing, data)) {
+    return { outcome: "request_conflict" };
+  }
+  return {
+    outcome: "success",
+    created: false,
+    inquiry: existing,
+    communication_id: communication.id
+  };
+}
+
+async function insertInquiry(db, data, now = () => new Date(), options = {}) {
+  const {
+    sendLimit = defaultPublicSendLimit,
+    sendWindowMs = defaultPublicSendWindowMs
+  } = options;
   const prepared = prepareInquiryConfirmationAutomation();
-  const result = await db.pool.query(
-    `WITH request_lock AS MATERIALIZED (
-       SELECT pg_advisory_xact_lock(hashtext($1))
-     ),
-     canonical_inquiry AS (
-       INSERT INTO inquiries (
+  const submittedAt = now();
+  const windowStart = new Date(submittedAt.getTime() - sendWindowMs);
+  const client = await db.pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [publicSendCeilingLock]);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [data.request_id]);
+
+    const existingResult = await findExistingInquiryResult(client, data);
+    if (existingResult) {
+      await client.query("COMMIT");
+      return existingResult;
+    }
+
+    const recentSendCount = (await client.query(
+      `SELECT count(*)::integer AS count
+       FROM communications
+       WHERE automation_key = $1
+         AND ready_at >= $2`,
+      [prepared.policy.key, windowStart]
+    )).rows[0]?.count || 0;
+    if (recentSendCount >= sendLimit) {
+      const retryResult = await findExistingInquiryResult(client, data);
+      if (retryResult) {
+        await client.query("COMMIT");
+        return retryResult;
+      }
+      await client.query("ROLLBACK");
+      return { outcome: "send_ceiling_reached" };
+    }
+
+    const inquiry = (await client.query(
+      `INSERT INTO inquiries (
        source_submission_id,
        form_type,
        client_name,
@@ -205,106 +360,93 @@ async function insertInquiry(db, data, now = () => new Date()) {
        organization_project,
        collaboration_type,
        message
-       )
-       SELECT
+       ) VALUES (
          $1, $2, $3, $4, $5, $6, $7, $8, $9,
          $10, $11, $12, $13, $14, $15, $16, $17
-       FROM request_lock
-       ON CONFLICT (source_submission_id) DO UPDATE
-         SET source_submission_id = EXCLUDED.source_submission_id
-       RETURNING inquiries.*, (xmax = 0) AS created
-     ),
-     existing_communication AS MATERIALIZED (
-       SELECT c.id, c.automation_source_key
-       FROM communications c
-       JOIN canonical_inquiry i
-         ON c.automation_source_key = 'inquiry-received:' || i.id::text
-     ),
-     inserted_communication AS (
-       INSERT INTO communications (
+       )
+       ON CONFLICT (source_submission_id) DO NOTHING
+       RETURNING *`,
+      [
+        data.request_id,
+        data.form_type,
+        data.client_name,
+        data.client_email,
+        data.client_phone,
+        data.artwork_title,
+        data.artwork_subject,
+        data.artwork_size,
+        data.budget_range,
+        data.estimated_date,
+        data.occasion,
+        data.shipping_location,
+        data.preferred_contact_method,
+        data.reference_notes,
+        data.organization_project,
+        data.collaboration_type,
+        data.message
+      ]
+    )).rows[0];
+
+    if (!inquiry) {
+      const retryResult = await findExistingInquiryResult(client, data);
+      if (!retryResult) {
+        throw new Error("Concurrent Inquiry was not persisted.");
+      }
+      await client.query("COMMIT");
+      return retryResult;
+    }
+
+    const communication = (await client.query(
+      `INSERT INTO communications (
          inquiry_id, channel, communication_type, communication_status,
          recipient, subject, body_snapshot, ready_at,
          template_key, template_version,
          automation_key, automation_mode, automation_source_key
+       ) VALUES (
+         $1, $2, $3, 'ready', $4,
+         replace($5, $7, $8),
+         replace($6, $7, $8),
+         $9::timestamptz, $10, $11, $12, 'auto_send', $13
        )
-       SELECT
-         i.id, $18, $19, 'ready', i.client_email,
-         replace($20, $22, i.client_name),
-         replace($21, $22, i.client_name),
-         $23::timestamptz, $24, $25, $26, 'auto_send',
-         'inquiry-received:' || i.id::text
-       FROM canonical_inquiry i
-       WHERE NOT EXISTS (SELECT 1 FROM existing_communication)
-       ON CONFLICT (automation_source_key)
-         WHERE automation_source_key IS NOT NULL
-       DO NOTHING
-       RETURNING id, automation_source_key
-     ),
-     canonical_communication AS (
-       SELECT id, automation_source_key FROM inserted_communication
-       UNION ALL
-       SELECT id, automation_source_key FROM existing_communication
-       LIMIT 1
-     )
-     SELECT row_to_json(i) AS inquiry, communication.id AS communication_id
-     FROM canonical_inquiry i
-     CROSS JOIN canonical_communication communication`,
-    [
-      data.request_id,
-      data.form_type,
-      data.client_name,
-      data.client_email,
-      data.client_phone,
-      data.artwork_title,
-      data.artwork_subject,
-      data.artwork_size,
-      data.budget_range,
-      data.estimated_date,
-      data.occasion,
-      data.shipping_location,
-      data.preferred_contact_method,
-      data.reference_notes,
-      data.organization_project,
-      data.collaboration_type,
-      data.message,
-      prepared.template.channel,
-      prepared.template.communication_type,
-      prepared.rendered.subject,
-      prepared.rendered.body,
-      inquiryClientNameToken,
-      now(),
-      prepared.template.key,
-      prepared.template.version,
-      prepared.policy.key
-    ]
-  );
-  let row = result.rows[0];
-  if (!row) {
-    const existing = (await db.pool.query(
-      "SELECT * FROM inquiries WHERE source_submission_id = $1",
-      [data.request_id]
+       RETURNING id`,
+      [
+        inquiry.id,
+        prepared.template.channel,
+        prepared.template.communication_type,
+        inquiry.client_email,
+        prepared.rendered.subject,
+        prepared.rendered.body,
+        inquiryClientNameToken,
+        inquiry.client_name,
+        submittedAt,
+        prepared.template.key,
+        prepared.template.version,
+        prepared.policy.key,
+        `inquiry-received:${inquiry.id}`
+      ]
     )).rows[0];
-    const communication = existing
-      ? (await db.pool.query(
-          "SELECT id FROM communications WHERE automation_source_key = $1",
-          [`inquiry-received:${existing.id}`]
-        )).rows[0]
-      : null;
-    if (!existing || !communication) {
-      throw new Error("Inquiry confirmation outbox was not persisted.");
+
+    await client.query("COMMIT");
+    return {
+      outcome: "success",
+      created: true,
+      inquiry,
+      communication_id: communication.id
+    };
+  } catch (error) {
+    const contentionFailedClosed = error?.code === "40001" || error?.code === "40P01";
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the original database error.
     }
-    row = { inquiry: { ...existing, created: false }, communication_id: communication.id };
+    if (contentionFailedClosed) {
+      return { outcome: "send_ceiling_reached" };
+    }
+    throw error;
+  } finally {
+    client.release();
   }
-  const inquiry = row.inquiry;
-  if (!sameInquiryIntent(inquiry, data)) return { outcome: "request_conflict" };
-  const created = Boolean(inquiry.created);
-  delete inquiry.created;
-  return {
-    outcome: "success",
-    created,
-    inquiry,
-    communication_id: row.communication_id
-  };
 }
 
 function createHandler(options = getDatabase) {
@@ -313,6 +455,10 @@ function createHandler(options = getDatabase) {
     environmentReader = readEnvironmentVariable,
     emailProvider = null,
     providerFetch = globalThis.fetch?.bind(globalThis),
+    turnstileFetch = globalThis.fetch?.bind(globalThis),
+    turnstileVerifier = verifyTurnstileProof,
+    publicSendLimit = defaultPublicSendLimit,
+    publicSendWindowMs = defaultPublicSendWindowMs,
     now = () => new Date()
   } = typeof options === "function" ? { databaseFactory: options } : options;
   const sendingProvider = emailProvider || createGmailEmailProvider({
@@ -320,11 +466,29 @@ function createHandler(options = getDatabase) {
     fetchImplementation: providerFetch,
     now
   });
-  return async function handler(request) {
+  return async function handler(request, context = {}) {
+    const turnstileConfiguration = readTurnstileConfiguration(environmentReader);
+
+    if (request.method === "GET") {
+      if (!turnstileConfiguration) {
+        return jsonResponse(503, {
+          success: false,
+          code: "inquiry_verification_unavailable",
+          message: "Inquiry verification is temporarily unavailable."
+        }, { "Cache-Control": "no-store" });
+      }
+      return jsonResponse(200, {
+        success: true,
+        provider: "turnstile",
+        site_key: turnstileConfiguration.siteKey,
+        action: turnstileAction
+      }, { "Cache-Control": "no-store" });
+    }
+
     if (request.method !== "POST") {
       return jsonResponse(405, {
         success: false,
-        message: "Method not allowed. Use POST."
+        message: "Method not allowed. Use GET or POST."
       });
     }
 
@@ -341,12 +505,61 @@ function createHandler(options = getDatabase) {
       });
     }
 
+    if (!turnstileConfiguration) {
+      return jsonResponse(503, {
+        success: false,
+        code: "inquiry_verification_unavailable",
+        message: "Inquiry verification is temporarily unavailable."
+      });
+    }
+
+    if (!hasText(data.turnstile_token)) {
+      return jsonResponse(400, {
+        success: false,
+        code: "inquiry_verification_required",
+        message: "Complete the inquiry verification before submitting."
+      });
+    }
+
     try {
       data.request_id ||= randomUUID();
+      const verification = await turnstileVerifier({
+        token: data.turnstile_token,
+        secretKey: turnstileConfiguration.secretKey,
+        request,
+        context,
+        requestId: data.request_id,
+        fetchImplementation: turnstileFetch
+      });
+      if (verification.outcome === "unavailable") {
+        return jsonResponse(503, {
+          success: false,
+          code: "inquiry_verification_unavailable",
+          message: "Inquiry verification is temporarily unavailable."
+        });
+      }
+      if (verification.outcome !== "valid") {
+        return jsonResponse(403, {
+          success: false,
+          code: "inquiry_verification_failed",
+          message: "Inquiry verification failed. Please try again."
+        });
+      }
+
       const db = databaseFactory();
-      const result = await insertInquiry(db, data, now);
+      const result = await insertInquiry(db, data, now, {
+        sendLimit: publicSendLimit,
+        sendWindowMs: publicSendWindowMs
+      });
       if (result.outcome === "request_conflict") {
         return jsonResponse(409, { success: false, message: "Request id is already in use." });
+      }
+      if (result.outcome === "send_ceiling_reached") {
+        return jsonResponse(429, {
+          success: false,
+          code: "inquiry_rate_limited",
+          message: "Too many inquiries are being processed. Please try again later."
+        });
       }
       await attemptAutomaticCommunicationSend(db, result.communication_id, sendingProvider, now);
       const inquiry = result.inquiry;
@@ -360,7 +573,7 @@ function createHandler(options = getDatabase) {
         created_at: inquiry.created_at
       });
     } catch (error) {
-      console.error("Inquiry database insert failed.", {
+      console.error("Inquiry request failed.", {
         form_type: data.form_type,
         error_type: error?.name || "Error",
         error_code: error?.code || "unknown"
@@ -376,3 +589,13 @@ function createHandler(options = getDatabase) {
 
 export { createHandler, insertInquiry };
 export default createHandler();
+
+export const config = {
+  path: "/api/inquiries",
+  rateLimit: {
+    action: "rate_limit",
+    windowLimit: 10,
+    windowSize: 60,
+    aggregateBy: ["ip", "domain"]
+  }
+};

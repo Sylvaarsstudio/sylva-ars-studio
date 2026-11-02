@@ -5,7 +5,8 @@ const inquiryRoutes = {
   collaboration: "collaboration.html"
 };
 
-const requestEndpoint = "/.netlify/functions/create-request";
+const requestEndpoint = "/api/inquiries";
+let turnstileScriptPromise;
 
 function initInquiryRouter() {
   const router = document.querySelector("#inquiry-router");
@@ -81,7 +82,7 @@ function setFormStatus(form, message, type = "") {
   status.className = `form-status ${type}`.trim();
 }
 
-function setFormLoading(form, isLoading) {
+function setFormLoading(form, isLoading, verificationState = null) {
   const button = form.querySelector('button[type="submit"]');
 
   if (!button) {
@@ -92,16 +93,21 @@ function setFormLoading(form, isLoading) {
     button.dataset.defaultText = button.textContent;
   }
 
-  button.disabled = isLoading;
+  button.disabled = isLoading || (verificationState !== null && !verificationState.token);
   button.textContent = isLoading ? "Sending..." : button.dataset.defaultText;
 }
 
-function buildStructuredRequest(form, requestId = null) {
+function buildStructuredRequest(form, requestId = null, turnstileToken = "") {
   const formData = new FormData(form);
   const request = {};
 
   formData.forEach((value, key) => {
-    if (key === "bot-field" || key === "form-name") {
+    if (
+      key === "bot-field"
+      || key === "form-name"
+      || key === "cf-turnstile-response"
+      || key === "turnstile_token"
+    ) {
       return;
     }
 
@@ -135,8 +141,102 @@ function buildStructuredRequest(form, requestId = null) {
   if (requestId) {
     request.request_id = requestId;
   }
+  request.turnstile_token = turnstileToken;
 
   return request;
+}
+
+async function fetchVerificationConfiguration() {
+  const response = await fetch(requestEndpoint, {
+    method: "GET",
+    headers: { Accept: "application/json" }
+  });
+  const result = await response.json();
+
+  if (
+    !response.ok
+    || !result.success
+    || result.provider !== "turnstile"
+    || !result.site_key
+    || !result.action
+  ) {
+    throw new Error(result.message || "Inquiry verification is unavailable.");
+  }
+
+  return result;
+}
+
+function loadTurnstileScript() {
+  if (window.turnstile?.render) {
+    return Promise.resolve(window.turnstile);
+  }
+
+  if (!turnstileScriptPromise) {
+    turnstileScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      script.onload = () => resolve(window.turnstile);
+      script.onerror = () => reject(new Error("Inquiry verification failed to load."));
+      document.head.append(script);
+    });
+  }
+
+  return turnstileScriptPromise;
+}
+
+async function initializeInquiryVerification(form, state) {
+  setFormLoading(form, false, state);
+
+  try {
+    const configuration = await fetchVerificationConfiguration();
+    const turnstile = await loadTurnstileScript();
+    if (!turnstile?.render) {
+      throw new Error("Inquiry verification failed to load.");
+    }
+
+    const container = document.createElement("div");
+    container.className = "inquiry-verification";
+    container.setAttribute("aria-label", "Inquiry verification");
+    form.append(container);
+
+    state.widgetId = turnstile.render(container, {
+      sitekey: configuration.site_key,
+      action: configuration.action,
+      callback(token) {
+        state.token = token;
+        setFormStatus(form, "");
+        setFormLoading(form, false, state);
+      },
+      "expired-callback"() {
+        state.token = null;
+        setFormStatus(form, "Verification expired. Please complete it again.", "error");
+        setFormLoading(form, false, state);
+      },
+      "error-callback"() {
+        state.token = null;
+        setFormStatus(form, "Inquiry verification failed. Please try again.", "error");
+        setFormLoading(form, false, state);
+      }
+    });
+  } catch (error) {
+    state.token = null;
+    setFormStatus(
+      form,
+      error.message || "Inquiry verification is unavailable.",
+      "error"
+    );
+    setFormLoading(form, false, state);
+  }
+}
+
+function resetInquiryVerification(form, state) {
+  state.token = null;
+  if (state.widgetId !== null) {
+    window.turnstile?.reset?.(state.widgetId);
+  }
+  setFormLoading(form, false, state);
 }
 
 function createRequestId() {
@@ -189,6 +289,9 @@ function initNetlifyRequestBridge() {
       return;
     }
 
+    const verificationState = { token: null, widgetId: null };
+    initializeInquiryVerification(form, verificationState);
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
 
@@ -196,13 +299,26 @@ function initNetlifyRequestBridge() {
         return;
       }
 
-      setFormLoading(form, true);
+      if (!verificationState.token) {
+        setFormStatus(
+          form,
+          "Complete the inquiry verification before submitting.",
+          "error"
+        );
+        return;
+      }
+
+      setFormLoading(form, true, verificationState);
       setFormStatus(form, "Sending your request...");
 
       try {
         const stableRequestId = pendingRequestIds.get(form) || createRequestId();
         pendingRequestIds.set(form, stableRequestId);
-        const requestData = buildStructuredRequest(form, stableRequestId);
+        const requestData = buildStructuredRequest(
+          form,
+          stableRequestId,
+          verificationState.token
+        );
         const result = await submitToRequestFunction(requestData);
         const requestId = result.request_id || result.requestId;
 
@@ -232,7 +348,7 @@ function initNetlifyRequestBridge() {
           "error"
         );
       } finally {
-        setFormLoading(form, false);
+        resetInquiryVerification(form, verificationState);
       }
     });
   });
