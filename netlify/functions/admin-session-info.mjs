@@ -40,6 +40,6 @@ function createHandler({
   };
 }
 
-export const config = { path: API_PATH };
+export const config = { path: "/admin/api/session" };
 export { API_PATH, createHandler };
 export default createHandler();
