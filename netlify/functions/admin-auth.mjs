@@ -24,6 +24,56 @@ const GOOGLE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/oauth2/v3/certs")
 );
 
+const SAFE_DIAGNOSTIC_FACTS = new Set([
+  "auth_time_present",
+  "auth_time_age_bucket",
+  "amr_present",
+  "amr_count",
+  "hosted_domain_match",
+  "email_verified",
+  "mfa_evidence"
+]);
+
+class AdminOidcDiagnosticError extends Error {
+  constructor(stage, reason, {
+    status,
+    facts = {},
+    cause
+  } = {}) {
+    super(`Admin OIDC ${stage} failed.`, cause ? { cause } : undefined);
+    this.name = "AdminOidcDiagnosticError";
+    this.stage = stage;
+    this.reason = reason;
+    if (Number.isInteger(status)) this.status = status;
+    this.facts = Object.fromEntries(
+      Object.entries(facts).filter(([key, value]) => (
+        SAFE_DIAGNOSTIC_FACTS.has(key)
+        && (typeof value === "boolean" || typeof value === "string" || Number.isInteger(value))
+      ))
+    );
+  }
+}
+
+function logAdminOidcError(logger, error, {
+  stage = "unknown",
+  reason = "unexpected_error",
+  status
+} = {}) {
+  const diagnostic = error instanceof AdminOidcDiagnosticError
+    ? {
+        stage: error.stage,
+        reason: error.reason,
+        ...(Number.isInteger(error.status) ? { status: error.status } : {}),
+        ...error.facts
+      }
+    : {
+        stage,
+        reason,
+        ...(Number.isInteger(status) ? { status } : {})
+      };
+  logger("admin_oidc_error", diagnostic);
+}
+
 function redirect(location, headers = {}) {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("Location", location);
@@ -78,25 +128,86 @@ async function verifyGoogleIdToken(idToken, {
   clientId,
   nonce,
   hostedDomain,
-  now = () => new Date()
+  now = () => new Date(),
+  jwtVerifier = jwtVerify,
+  keySet = GOOGLE_JWKS
 }) {
-  const { payload } = await jwtVerify(idToken, GOOGLE_JWKS, {
-    audience: clientId,
-    issuer: ["https://accounts.google.com", "accounts.google.com"]
-  });
+  let payload;
+  try {
+    ({ payload } = await jwtVerifier(idToken, keySet, {
+      audience: clientId,
+      issuer: ["https://accounts.google.com", "accounts.google.com"]
+    }));
+  } catch (error) {
+    if (error?.code === "ERR_JWT_CLAIM_VALIDATION_FAILED" && error?.claim === "iss") {
+      throw new AdminOidcDiagnosticError("issuer_validation", "invalid_issuer", { cause: error });
+    }
+    if (error?.code === "ERR_JWT_CLAIM_VALIDATION_FAILED" && error?.claim === "aud") {
+      throw new AdminOidcDiagnosticError("audience_validation", "invalid_audience", { cause: error });
+    }
+    const reason = typeof error?.code === "string" && error.code.startsWith("ERR_JWKS")
+      ? "jwks_resolution_failed"
+      : "signature_or_token_validation_failed";
+    throw new AdminOidcDiagnosticError("id_token_signature", reason, { cause: error });
+  }
   const currentTime = Math.floor(now().getTime() / 1000);
-  if (
-    payload.nonce !== nonce
-    || payload.email_verified !== true
-    || payload.hd !== hostedDomain
-    || typeof payload.sub !== "string"
-    || typeof payload.email !== "string"
-    || !Number.isInteger(payload.auth_time)
-    || payload.auth_time > currentTime + 60
-    || currentTime - payload.auth_time > 10 * 60
-    || !hasMfaEvidence(payload.amr)
-  ) {
-    throw new Error("Google identity claims did not satisfy the admin policy.");
+  if (payload.nonce !== nonce) {
+    throw new AdminOidcDiagnosticError("nonce_validation", "nonce_mismatch");
+  }
+  if (payload.email_verified !== true) {
+    throw new AdminOidcDiagnosticError("email_verified", "email_not_verified", {
+      facts: { email_verified: payload.email_verified === true }
+    });
+  }
+  if (payload.hd !== hostedDomain) {
+    throw new AdminOidcDiagnosticError("hosted_domain", "hosted_domain_mismatch", {
+      facts: { hosted_domain_match: false }
+    });
+  }
+  if (typeof payload.sub !== "string" || typeof payload.email !== "string") {
+    throw new AdminOidcDiagnosticError("admin_identity_lookup", "required_identity_claim_missing");
+  }
+  if (!Number.isInteger(payload.auth_time)) {
+    throw new AdminOidcDiagnosticError("auth_time_missing", "claim_missing", {
+      facts: {
+        auth_time_present: false,
+        auth_time_age_bucket: "missing"
+      }
+    });
+  }
+  if (payload.auth_time > currentTime + 60) {
+    throw new AdminOidcDiagnosticError("auth_time_stale", "claim_in_future", {
+      facts: {
+        auth_time_present: true,
+        auth_time_age_bucket: "future"
+      }
+    });
+  }
+  if (currentTime - payload.auth_time > 10 * 60) {
+    throw new AdminOidcDiagnosticError("auth_time_stale", "outside_freshness_window", {
+      facts: {
+        auth_time_present: true,
+        auth_time_age_bucket: "stale"
+      }
+    });
+  }
+  if (!Array.isArray(payload.amr)) {
+    throw new AdminOidcDiagnosticError("amr_missing", "claim_missing", {
+      facts: {
+        amr_present: false,
+        amr_count: 0,
+        mfa_evidence: "missing"
+      }
+    });
+  }
+  if (!hasMfaEvidence(payload.amr)) {
+    throw new AdminOidcDiagnosticError("amr_insufficient", "mfa_evidence_insufficient", {
+      facts: {
+        amr_present: true,
+        amr_count: payload.amr.length,
+        mfa_evidence: "insufficient"
+      }
+    });
   }
   return payload;
 }
@@ -106,22 +217,40 @@ async function resolveOrProvisionIdentity(database, claims, environmentReader, n
   const subject = claims.sub;
   const email = claims.email.trim().toLowerCase();
   const displayName = typeof claims.name === "string" ? claims.name.trim() || null : null;
-  const existing = await database.pool.query(
-    `SELECT id, identity_provider, external_subject, email, display_name, role, status
-     FROM admin_users
-     WHERE identity_provider = $1 AND external_subject = $2`,
-    [provider, subject]
-  );
+  let existing;
+  try {
+    existing = await database.pool.query(
+      `SELECT id, identity_provider, external_subject, email, display_name, role, status
+       FROM admin_users
+       WHERE identity_provider = $1 AND external_subject = $2`,
+      [provider, subject]
+    );
+  } catch (error) {
+    throw new AdminOidcDiagnosticError("admin_identity_lookup", "database_lookup_failed", {
+      cause: error
+    });
+  }
 
   if (existing.rows[0]) {
-    if (existing.rows[0].status !== "active") return null;
-    const updated = await database.pool.query(
-      `UPDATE admin_users
-       SET email = $1, display_name = $2, last_login_at = $3, updated_at = $3
-       WHERE id = $4
-       RETURNING id, identity_provider, external_subject, email, display_name, role, status`,
-      [email, displayName, now(), existing.rows[0].id]
-    );
+    if (existing.rows[0].status !== "active") {
+      throw new AdminOidcDiagnosticError("admin_identity_disabled", "identity_disabled", {
+        status: 401
+      });
+    }
+    let updated;
+    try {
+      updated = await database.pool.query(
+        `UPDATE admin_users
+         SET email = $1, display_name = $2, last_login_at = $3, updated_at = $3
+         WHERE id = $4
+         RETURNING id, identity_provider, external_subject, email, display_name, role, status`,
+        [email, displayName, now(), existing.rows[0].id]
+      );
+    } catch (error) {
+      throw new AdminOidcDiagnosticError("admin_identity_lookup", "database_update_failed", {
+        cause: error
+      });
+    }
     return updated.rows[0];
   }
 
@@ -130,20 +259,33 @@ async function resolveOrProvisionIdentity(database, claims, environmentReader, n
   let role = null;
   if (ownerEmail && email === ownerEmail) role = "owner_admin";
   if (viewerEmail && email === viewerEmail) {
-    if (role) throw new Error("Admin bootstrap identities overlap.");
+    if (role) {
+      throw new AdminOidcDiagnosticError("owner_bootstrap", "bootstrap_identity_overlap");
+    }
     role = "viewer";
   }
-  if (!role) return null;
+  if (!role) {
+    throw new AdminOidcDiagnosticError("owner_bootstrap", "identity_not_bootstrapped", {
+      status: 401
+    });
+  }
 
-  const inserted = await database.pool.query(
-    `INSERT INTO admin_users (
-       identity_provider, external_subject, email, display_name, role,
-       status, last_login_at, created_at, updated_at
-     )
-     VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $6)
-     RETURNING id, identity_provider, external_subject, email, display_name, role, status`,
-    [provider, subject, email, displayName, role, now()]
-  );
+  let inserted;
+  try {
+    inserted = await database.pool.query(
+      `INSERT INTO admin_users (
+         identity_provider, external_subject, email, display_name, role,
+         status, last_login_at, created_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $6)
+       RETURNING id, identity_provider, external_subject, email, display_name, role, status`,
+      [provider, subject, email, displayName, role, now()]
+    );
+  } catch (error) {
+    throw new AdminOidcDiagnosticError("owner_bootstrap", "database_insert_failed", {
+      cause: error
+    });
+  }
   return inserted.rows[0];
 }
 
@@ -152,7 +294,8 @@ function createHandler({
   environmentReader = readEnvironmentVariable,
   fetchImplementation = globalThis.fetch?.bind(globalThis),
   idTokenVerifier = verifyGoogleIdToken,
-  now = () => new Date()
+  now = () => new Date(),
+  logger = (...arguments_) => console.error(...arguments_)
 } = {}) {
   return async function handler(request) {
     const url = new URL(request.url);
@@ -207,9 +350,9 @@ function createHandler({
           [await sha256Base64Url(state), new Date(now().getTime() + 10 * 60 * 1000)]
         );
       } catch (error) {
-        console.error("Admin OIDC flow initialization failed.", {
-          error_type: error?.name || "Error",
-          error_code: error?.code || "unknown"
+        logAdminOidcError(logger, error, {
+          stage: "oidc_flow_lookup",
+          reason: "flow_initialization_failed"
         });
         return loginError("oidc_flow_failed");
       }
@@ -248,7 +391,18 @@ function createHandler({
     }
 
     const clearFlowHeader = { "Set-Cookie": clearOidcFlowCookie() };
-    if (!sessionSecret || url.searchParams.get("error")) {
+    if (!sessionSecret) {
+      logAdminOidcError(logger, null, {
+        stage: "session_creation",
+        reason: "session_secret_missing"
+      });
+      return loginError("oidc_denied", clearFlowHeader);
+    }
+    if (url.searchParams.get("error")) {
+      logAdminOidcError(logger, null, {
+        stage: "state_validation",
+        reason: "provider_denied"
+      });
       return loginError("oidc_denied", clearFlowHeader);
     }
     const flow = await verifyOidcFlowToken(
@@ -256,7 +410,18 @@ function createHandler({
       sessionSecret,
       { now }
     );
-    if (!flow || !await timingSafeTextEqual(url.searchParams.get("state") || "", flow.state)) {
+    if (!flow) {
+      logAdminOidcError(logger, null, {
+        stage: "flow_expired",
+        reason: "flow_cookie_invalid_or_expired"
+      });
+      return loginError("invalid_oidc_state", clearFlowHeader);
+    }
+    if (!await timingSafeTextEqual(url.searchParams.get("state") || "", flow.state)) {
+      logAdminOidcError(logger, null, {
+        stage: "state_validation",
+        reason: "state_mismatch"
+      });
       return loginError("invalid_oidc_state", clearFlowHeader);
     }
 
@@ -269,40 +434,72 @@ function createHandler({
        RETURNING state_hash`,
       [now(), await sha256Base64Url(flow.state)]
     ).catch((error) => {
-      console.error("Admin OIDC replay check failed.", {
-        error_type: error?.name || "Error",
-        error_code: error?.code || "unknown"
+      logAdminOidcError(logger, error, {
+        stage: "oidc_flow_lookup",
+        reason: "replay_check_failed"
       });
       return { rows: [] };
     });
-    if (!consumed.rows[0]) return loginError("invalid_oidc_state", clearFlowHeader);
+    if (!consumed.rows[0]) {
+      logAdminOidcError(logger, null, {
+        stage: "flow_replayed",
+        reason: "flow_missing_expired_or_consumed"
+      });
+      return loginError("invalid_oidc_state", clearFlowHeader);
+    }
 
     const code = url.searchParams.get("code");
     const clientId = environmentReader("ADMIN_OIDC_CLIENT_ID");
     const clientSecret = environmentReader("ADMIN_OIDC_CLIENT_SECRET");
     const hostedDomain = environmentReader("ADMIN_OIDC_HOSTED_DOMAIN");
     if (!code || !clientId || !clientSecret || !hostedDomain || !fetchImplementation) {
+      logAdminOidcError(logger, null, {
+        stage: "token_exchange",
+        reason: code ? "oidc_configuration_missing" : "authorization_code_missing"
+      });
       return loginError("oidc_not_configured", clearFlowHeader);
     }
 
     try {
       const redirectUri = environmentReader("ADMIN_OIDC_REDIRECT_URI")
         || `${url.origin}/admin-auth/callback`;
-      const tokenResponse = await fetchImplementation(GOOGLE_TOKEN_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code,
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: redirectUri,
-          grant_type: "authorization_code",
-          code_verifier: flow.code_verifier
-        })
-      });
-      const tokenResult = await tokenResponse.json().catch(() => ({}));
-      if (!tokenResponse.ok || typeof tokenResult.id_token !== "string") {
-        return loginError("oidc_exchange_failed", clearFlowHeader);
+      let tokenResponse;
+      try {
+        tokenResponse = await fetchImplementation(GOOGLE_TOKEN_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            code,
+            client_id: clientId,
+            client_secret: clientSecret,
+            redirect_uri: redirectUri,
+            grant_type: "authorization_code",
+            code_verifier: flow.code_verifier
+          })
+        });
+      } catch (error) {
+        throw new AdminOidcDiagnosticError("token_exchange", "request_failed", {
+          cause: error
+        });
+      }
+      let tokenResult;
+      try {
+        tokenResult = await tokenResponse.json();
+      } catch (error) {
+        throw new AdminOidcDiagnosticError("token_exchange", "invalid_json_response", {
+          status: tokenResponse.status,
+          cause: error
+        });
+      }
+      if (!tokenResponse.ok) {
+        throw new AdminOidcDiagnosticError("token_exchange", "http_error", {
+          status: tokenResponse.status
+        });
+      }
+      if (typeof tokenResult.id_token !== "string") {
+        throw new AdminOidcDiagnosticError("token_exchange", "id_token_missing", {
+          status: tokenResponse.status
+        });
       }
       const claims = await idTokenVerifier(tokenResult.id_token, {
         clientId,
@@ -314,19 +511,36 @@ function createHandler({
         databaseFactory(), claims, environmentReader, now
       );
       if (!identity) return loginError("admin_not_authorized", clearFlowHeader);
-      const sessionToken = await createAdminSessionToken({
-        provider: identity.identity_provider,
-        externalSubject: identity.external_subject
-      }, sessionSecret, { now });
+      let sessionToken;
+      try {
+        sessionToken = await createAdminSessionToken({
+          provider: identity.identity_provider,
+          externalSubject: identity.external_subject
+        }, sessionSecret, { now });
+      } catch (error) {
+        throw new AdminOidcDiagnosticError("session_creation", "session_signing_failed", {
+          cause: error
+        });
+      }
       const headers = new Headers(clearFlowHeader);
-      headers.append("Set-Cookie", buildSessionCookie(sessionToken));
+      try {
+        headers.append("Set-Cookie", buildSessionCookie(sessionToken));
+      } catch (error) {
+        throw new AdminOidcDiagnosticError("cookie_creation", "session_cookie_failed", {
+          cause: error
+        });
+      }
       return redirect(flow.redirect_to, headers);
     } catch (error) {
-      console.error("Admin OIDC callback failed.", {
-        error_type: error?.name || "Error",
-        error_code: error?.code || "unknown"
-      });
-      return loginError("oidc_verification_failed", clearFlowHeader);
+      logAdminOidcError(logger, error);
+      const loginCode = error instanceof AdminOidcDiagnosticError
+        && error.stage === "token_exchange"
+        ? "oidc_exchange_failed"
+        : error instanceof AdminOidcDiagnosticError
+          && error.status === 401
+          ? "admin_not_authorized"
+          : "oidc_verification_failed";
+      return loginError(loginCode, clearFlowHeader);
     }
   };
 }
@@ -337,8 +551,10 @@ export const config = {
 };
 
 export {
+  AdminOidcDiagnosticError,
   createHandler,
   hasMfaEvidence,
+  logAdminOidcError,
   resolveOrProvisionIdentity,
   safeAdminRedirect,
   verifyGoogleIdToken
