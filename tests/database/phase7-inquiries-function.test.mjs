@@ -165,36 +165,44 @@ test("phase 7 stores collaboration fields", async () => {
 });
 
 test("phase 7 converts none and empty optional fields to NULL", async () => {
-  const response = await submit(validPayload({
-    client_phone: "",
-    artwork_title: "  ",
-    artwork_subject: "",
-    artwork_size: "",
-    budget_range: "",
-    estimated_date: "",
-    occasion: "none",
-    shipping_location: "",
-    preferred_contact_method: "",
-    reference_notes: "",
-    organization_project: "",
-    collaboration_type: ""
-  }));
-  const body = await response.json();
+  const scenarios = [
+    {
+      form_type: "artwork_inquiry",
+      client_phone: "",
+      artwork_title: "  ",
+      shipping_location: "",
+      preferred_contact_method: ""
+    },
+    {
+      form_type: "commission_request",
+      client_phone: "",
+      artwork_subject: "",
+      artwork_size: "",
+      budget_range: "",
+      estimated_date: "",
+      occasion: "none",
+      shipping_location: "",
+      reference_notes: ""
+    },
+    {
+      form_type: "collaboration",
+      client_phone: "",
+      organization_project: "",
+      collaboration_type: "",
+      estimated_date: "",
+      occasion: "none"
+    }
+  ];
 
-  assert.equal(response.status, 200);
-  const inquiry = await getInquiry(body.id);
-  assert.equal(inquiry.client_phone, null);
-  assert.equal(inquiry.artwork_title, null);
-  assert.equal(inquiry.artwork_subject, null);
-  assert.equal(inquiry.artwork_size, null);
-  assert.equal(inquiry.budget_range, null);
-  assert.equal(inquiry.estimated_date, null);
-  assert.equal(inquiry.occasion, null);
-  assert.equal(inquiry.shipping_location, null);
-  assert.equal(inquiry.preferred_contact_method, null);
-  assert.equal(inquiry.reference_notes, null);
-  assert.equal(inquiry.organization_project, null);
-  assert.equal(inquiry.collaboration_type, null);
+  for (const scenario of scenarios) {
+    const response = await submit(validPayload(scenario));
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    const inquiry = await getInquiry(body.id);
+    for (const field of Object.keys(scenario).filter((field) => field !== "form_type")) {
+      assert.equal(inquiry[field], null, `${scenario.form_type}.${field}`);
+    }
+  }
 });
 
 for (const [field, value] of [
@@ -227,7 +235,10 @@ test("phase 7 rejects an invalid form type", async () => {
 });
 
 test("phase 7 rejects an invalid estimated date", async () => {
-  const response = await submit(validPayload({ estimated_date: "next_week" }));
+  const response = await submit(validPayload({
+    form_type: "commission_request",
+    estimated_date: "next_week"
+  }));
   const body = await response.json();
 
   assert.equal(response.status, 400);
@@ -236,7 +247,10 @@ test("phase 7 rejects an invalid estimated date", async () => {
 });
 
 test("phase 7 rejects an invalid occasion", async () => {
-  const response = await submit(validPayload({ occasion: "anniversary" }));
+  const response = await submit(validPayload({
+    form_type: "commission_request",
+    occasion: "anniversary"
+  }));
   const body = await response.json();
 
   assert.equal(response.status, 400);

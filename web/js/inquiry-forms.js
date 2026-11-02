@@ -6,6 +6,18 @@ const inquiryRoutes = {
 };
 
 const requestEndpoint = "/api/inquiries";
+const inquiryFieldMaxLengths = {
+  client_name: 100,
+  client_email: 254,
+  client_phone: 32,
+  artwork_title: 200,
+  artwork_subject: 500,
+  artwork_size: 100,
+  shipping_location: 300,
+  reference_notes: 3000,
+  organization_project: 300,
+  message: 5000
+};
 let turnstileScriptPromise;
 
 function initInquiryRouter() {
@@ -61,6 +73,10 @@ function getFieldValue(formData, ...names) {
   return "";
 }
 
+function hasFormField(formData, ...names) {
+  return names.some((name) => formData.get(name) !== null);
+}
+
 function createStatusElement(form) {
   const existingStatus = form.querySelector(".form-status");
 
@@ -95,6 +111,13 @@ function setFormLoading(form, isLoading, verificationState = null) {
 
   button.disabled = isLoading || (verificationState !== null && !verificationState.token);
   button.textContent = isLoading ? "Sending..." : button.dataset.defaultText;
+}
+
+function applyInquiryFieldLimits(form) {
+  for (const field of form.querySelectorAll("input[name], textarea[name]")) {
+    const limit = inquiryFieldMaxLengths[field.name];
+    if (limit) field.maxLength = limit;
+  }
 }
 
 function buildStructuredRequest(form, requestId = null, turnstileToken = "") {
@@ -132,12 +155,14 @@ function buildStructuredRequest(form, requestId = null, turnstileToken = "") {
     "client-email",
     "email"
   );
-  request.client_phone = getFieldValue(
-    formData,
-    "client_phone",
-    "client-phone",
-    "phone"
-  );
+  if (hasFormField(formData, "client_phone", "client-phone", "phone")) {
+    request.client_phone = getFieldValue(
+      formData,
+      "client_phone",
+      "client-phone",
+      "phone"
+    );
+  }
   if (requestId) {
     request.request_id = requestId;
   }
@@ -290,6 +315,7 @@ function initNetlifyRequestBridge() {
     }
 
     const verificationState = { token: null, widgetId: null };
+    applyInquiryFieldLimits(form);
     initializeInquiryVerification(form, verificationState);
 
     form.addEventListener("submit", async (event) => {

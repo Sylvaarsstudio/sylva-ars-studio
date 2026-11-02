@@ -26,6 +26,11 @@ class FakeFormData {
 function createForm({ hasFormType }) {
   const listeners = new Map();
   const button = { dataset: {}, disabled: false, textContent: "Send Inquiry" };
+  const controls = [
+    { name: "client_name", maxLength: -1 },
+    { name: "client_email", maxLength: -1 },
+    { name: "message", maxLength: -1 }
+  ];
 
   return {
     fields: {
@@ -35,6 +40,7 @@ function createForm({ hasFormType }) {
       client_email: "test@example.invalid",
       message: "Test message"
     },
+    controls,
     listeners,
     reportValidity: () => true,
     reset() {},
@@ -59,6 +65,9 @@ function createForm({ hasFormType }) {
       }
 
       return null;
+    },
+    querySelectorAll(selector) {
+      return selector === "input[name], textarea[name]" ? controls : [];
     },
     addEventListener(type, listener) {
       listeners.set(type, listener);
@@ -148,6 +157,10 @@ test("initializes production forms without data-netlify", async () => {
   assert.equal(selectedFormsWith, "form.contact-form");
   assert.equal(initializedForm.listeners.has("submit"), true);
   assert.equal(ignoredForm.listeners.has("submit"), false);
+  assert.deepEqual(
+    initializedForm.controls.map(({ name, maxLength }) => [name, maxLength]),
+    [["client_name", 100], ["client_email", 254], ["message", 5000]]
+  );
 
   let defaultPrevented = false;
   await initializedForm.listeners.get("submit")({
@@ -164,6 +177,10 @@ test("initializes production forms without data-netlify", async () => {
   assert.equal(
     JSON.parse(fetchCalls[1].options.body).turnstile_token,
     "test-turnstile-token"
+  );
+  assert.equal(
+    Object.hasOwn(JSON.parse(fetchCalls[1].options.body), "client_phone"),
+    false
   );
   assert.equal(fetchCalls[2].url, "/contact");
 });
