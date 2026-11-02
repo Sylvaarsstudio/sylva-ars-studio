@@ -60,8 +60,15 @@ after(async () => {
 });
 
 function environmentReader(name) {
-  return { ADMIN_PASSWORD: password, ADMIN_SESSION_SECRET: secret }[name];
+  return {
+    ADMIN_PASSWORD: password,
+    ADMIN_SESSION_SECRET: secret,
+    TURNSTILE_SITE_KEY: "test-site-key",
+    TURNSTILE_SECRET_KEY: "test-secret-key"
+  }[name];
 }
+
+const validTurnstileVerifier = async () => ({ outcome: "valid" });
 
 function adminRequest(handler, path, method = "GET", body) {
   return handler(new Request(`http://localhost${path}`, {
@@ -75,10 +82,10 @@ function adminRequest(handler, path, method = "GET", body) {
 }
 
 function publicInquiryRequest(handler, body) {
-  return handler(new Request("http://localhost/.netlify/functions/create-request", {
+  return handler(new Request("http://localhost/api/inquiries", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ turnstile_token: "test-turnstile-token", ...body })
   }));
 }
 
@@ -169,6 +176,8 @@ test("automation policy exposes exactly four safe auto-send rules and keeps sens
 test("Inquiry creation persists one neutral ready confirmation and retries remain idempotent", async () => {
   const handler = createInquiryHandler({
     databaseFactory: () => db,
+    environmentReader,
+    turnstileVerifier: validTurnstileVerifier,
     emailProvider: unconfiguredProvider,
     now: () => new Date(now)
   });
@@ -217,6 +226,8 @@ test("Inquiry provider failure never rolls back the Inquiry or duplicates a send
   };
   const handler = createInquiryHandler({
     databaseFactory: () => db,
+    environmentReader,
+    turnstileVerifier: validTurnstileVerifier,
     emailProvider: provider,
     now: () => new Date(now)
   });
@@ -239,11 +250,15 @@ test("concurrent Inquiry submission retries create one Inquiry and one confirmat
   const secondDb = getDatabase({ connectionString });
   const firstHandler = createInquiryHandler({
     databaseFactory: () => db,
+    environmentReader,
+    turnstileVerifier: validTurnstileVerifier,
     emailProvider: unconfiguredProvider,
     now: () => new Date(now)
   });
   const secondHandler = createInquiryHandler({
     databaseFactory: () => secondDb,
+    environmentReader,
+    turnstileVerifier: validTurnstileVerifier,
     emailProvider: unconfiguredProvider,
     now: () => new Date(now)
   });
@@ -284,6 +299,8 @@ test("Inquiry and its automatic outbox roll back together on an outbox database 
   `);
   const handler = createInquiryHandler({
     databaseFactory: () => db,
+    environmentReader,
+    turnstileVerifier: validTurnstileVerifier,
     emailProvider: unconfiguredProvider,
     now: () => new Date(now)
   });
@@ -420,6 +437,8 @@ test("automatic provider invocation starts only after the Inquiry and outbox are
   };
   const handler = createInquiryHandler({
     databaseFactory: () => db,
+    environmentReader,
+    turnstileVerifier: validTurnstileVerifier,
     emailProvider: provider,
     now: () => new Date(now)
   });
