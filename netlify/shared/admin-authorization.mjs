@@ -6,6 +6,7 @@ import {
   hasValidAdminSession,
   verifyAdminSessionToken
 } from "./admin-session.mjs";
+import { resolveStoredAdminSession } from "./admin-session-store.mjs";
 
 const ADMIN_ROLES = Object.freeze({
   OWNER: "owner_admin",
@@ -86,18 +87,28 @@ async function resolveAdminIdentity(request, {
   const payload = await verifyAdminSessionToken(token, sessionSecret, { now });
 
   if (payload?.provider === "google") {
-    const identity = await findActiveAdminIdentity(
+    const resolved = await resolveStoredAdminSession(
       databaseFactory(),
-      payload.provider,
-      payload.sub
+      {
+        sessionIdentifier: payload.sid,
+        provider: payload.provider,
+        externalSubject: payload.sub,
+        now: now()
+      }
     );
-    if (identity?.status === "active") return { identity, session: payload };
+    if (resolved?.identity?.status === "active") {
+      return {
+        identity: resolved.identity,
+        session: payload,
+        sessionRecord: resolved.session
+      };
+    }
     return { error: jsonResponse(401, "admin_unauthorized", "Unauthorized.") };
   }
 
   const legacyEnabled = isLegacyAdminEnabled(environmentReader);
   if (payload?.provider === "legacy" && legacyEnabled) {
-    return { identity: legacyIdentity(), session: payload };
+    return { identity: legacyIdentity(), session: payload, sessionRecord: null };
   }
 
   const adminPassword = environmentReader("ADMIN_PASSWORD");
@@ -106,7 +117,7 @@ async function resolveAdminIdentity(request, {
     && adminPassword
     && await hasValidAdminSession(request, adminPassword, sessionSecret)
   ) {
-    return { identity: legacyIdentity(), session: null };
+    return { identity: legacyIdentity(), session: null, sessionRecord: null };
   }
 
   return { error: jsonResponse(401, "admin_unauthorized", "Unauthorized.") };
@@ -146,7 +157,12 @@ async function authorizeAdminRequest(request, options = {}) {
     };
   }
 
-  return { ok: true, identity: resolved.identity, session: resolved.session };
+  return {
+    ok: true,
+    identity: resolved.identity,
+    session: resolved.session,
+    sessionRecord: resolved.sessionRecord || null
+  };
 }
 
 export {

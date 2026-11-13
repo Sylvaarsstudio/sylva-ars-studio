@@ -4,6 +4,10 @@ const SESSION_LENGTH_SECONDS = 60 * 60 * 8;
 const OIDC_FLOW_LENGTH_SECONDS = 60 * 10;
 const tokenVersion = 1;
 
+// Emergency global invalidation: rotating ADMIN_SESSION_SECRET immediately
+// invalidates every signed Admin session cookie. Routine revocation uses the
+// server-side admin_sessions inventory and does not require secret rotation.
+
 function encodeBase64Url(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -76,16 +80,31 @@ function randomToken(bytes = 32) {
   return encodeBase64Url(value);
 }
 
-async function createAdminSessionToken({ provider, externalSubject }, secret, {
+async function hashAdminSessionIdentifier(identifier) {
+  if (typeof identifier !== "string" || identifier.length < 20) {
+    throw new Error("Admin session identifier is invalid.");
+  }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(identifier)
+  );
+  return encodeBase64Url(new Uint8Array(digest));
+}
+
+async function createAdminSessionToken({ provider, externalSubject, sessionId }, secret, {
   now = () => new Date()
 } = {}) {
   if (!provider || !externalSubject) {
     throw new Error("Admin identity provider and subject are required.");
   }
   const issuedAt = Math.floor(now().getTime() / 1000);
+  const identifier = sessionId || randomToken(24);
+  if (typeof identifier !== "string" || identifier.length < 20) {
+    throw new Error("Admin session identifier is invalid.");
+  }
   return createSignedPayloadToken({
     v: tokenVersion,
-    sid: randomToken(24),
+    sid: identifier,
     provider,
     sub: externalSubject,
     iat: issuedAt,
@@ -232,6 +251,7 @@ export {
   createOidcFlowToken,
   createSessionToken,
   getCookie,
+  hashAdminSessionIdentifier,
   hasValidAdminSession,
   randomToken,
   verifyAdminSessionToken,

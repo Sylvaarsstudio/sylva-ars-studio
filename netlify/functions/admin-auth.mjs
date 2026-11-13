@@ -6,13 +6,21 @@ import {
   buildSessionCookie,
   clearOidcFlowCookie,
   clearSessionCookie,
+  COOKIE_NAME,
   createAdminSessionToken,
   createOidcFlowToken,
   getCookie,
   OIDC_FLOW_COOKIE_NAME,
   randomToken,
+  SESSION_LENGTH_SECONDS,
+  verifyAdminSessionToken,
   verifyOidcFlowToken
 } from "../shared/admin-session.mjs";
+import {
+  cleanupAdminSessions,
+  createStoredAdminSession,
+  revokeStoredSessionByIdentifier
+} from "../shared/admin-session-store.mjs";
 import {
   isLegacyAdminEnabled,
   readEnvironmentVariable
@@ -291,6 +299,31 @@ function createHandler({
     const sessionSecret = environmentReader("ADMIN_SESSION_SECRET");
 
     if (url.pathname === "/admin-logout") {
+      return redirect("/admin/logout");
+    }
+
+    if (url.pathname === "/admin/logout") {
+      const sessionToken = getCookie(request, COOKIE_NAME);
+      const payload = await verifyAdminSessionToken(sessionToken, sessionSecret, { now });
+      if (payload?.provider === "google") {
+        try {
+          await revokeStoredSessionByIdentifier(databaseFactory(), {
+            sessionIdentifier: payload.sid,
+            now: now(),
+            reason: "logout"
+          });
+        } catch {
+          logger("admin_session_error", {
+            stage: "logout_revocation",
+            reason: "database_update_failed"
+          });
+          return Response.json({
+            success: false,
+            code: "admin_logout_failed",
+            message: "Unable to sign out safely."
+          }, { status: 500, headers: { "Cache-Control": "no-store" } });
+        }
+      }
       return redirect("/admin-login.html", { "Set-Cookie": clearSessionCookie() });
     }
 
@@ -501,12 +534,25 @@ function createHandler({
       if (!identity) return loginError("admin_not_authorized", clearFlowHeader);
       let sessionToken;
       try {
+        const sessionIdentifier = randomToken(24);
+        const createdAt = now();
         sessionToken = await createAdminSessionToken({
           provider: identity.identity_provider,
-          externalSubject: identity.external_subject
+          externalSubject: identity.external_subject,
+          sessionId: sessionIdentifier
         }, sessionSecret, { now });
+        await cleanupAdminSessions(databaseFactory(), createdAt);
+        await createStoredAdminSession(databaseFactory(), {
+          adminUserId: identity.id,
+          sessionIdentifier,
+          createdAt,
+          expiresAt: new Date(
+            createdAt.getTime() + SESSION_LENGTH_SECONDS * 1000
+          ),
+          userAgent: request.headers.get("user-agent")
+        });
       } catch (error) {
-        throw new AdminOidcDiagnosticError("session_creation", "session_signing_failed", {
+        throw new AdminOidcDiagnosticError("session_creation", "session_persistence_failed", {
           cause: error
         });
       }
@@ -534,7 +580,7 @@ function createHandler({
 }
 
 export const config = {
-  path: ["/admin-login", "/admin-auth/callback", "/admin-logout"],
+  path: ["/admin-login", "/admin-auth/callback", "/admin-logout", "/admin/logout"],
   rateLimit: { windowLimit: 20, windowSize: 180, aggregateBy: ["ip"] }
 };
 

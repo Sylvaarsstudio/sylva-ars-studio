@@ -16,6 +16,7 @@ test("Admin Dashboard preserves the canonical navigation order and Commission la
     "Communications",
     "Documents",
     "Glossary",
+    "Security",
     "View Collection"
   ]);
   assert.match(html, /Review and manage active studio commissions\./);

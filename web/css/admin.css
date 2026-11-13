@@ -1061,3 +1061,90 @@ body {
 .admin-role-viewer .admin-write-control {
   display: none !important;
 }
+
+.admin-role-viewer [data-owner-only] {
+  display: none !important;
+}
+
+.admin-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+  padding: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: white;
+}
+
+.admin-session-actions p,
+.admin-session-help {
+  margin: 0;
+  line-height: 1.6;
+  opacity: 0.72;
+}
+
+.admin-security-page #sign-out-other-sessions[hidden] {
+  display: none;
+}
+
+.admin-session-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 22px;
+}
+
+.admin-session-card {
+  padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: white;
+}
+
+.admin-session-card.is-current {
+  border-color: #3e5a41;
+}
+
+.admin-session-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-session-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: normal;
+}
+
+.admin-session-current {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: #e7efe5;
+  color: #29412d;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.admin-session-details {
+  margin: 20px 0;
+}
+
+.admin-session-details > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.admin-session-details dt,
+.admin-session-details dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.admin-session-details dt {
+  opacity: 0.62;
+}

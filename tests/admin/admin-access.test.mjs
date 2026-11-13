@@ -26,7 +26,7 @@ test("every admin page loads the common identity and viewer UX", async () => {
     "calendar", "clients", "commissions", "communications", "contract",
     "create-client", "create-contract", "dashboard", "documents",
     "generate-documents", "glossary", "inquiries", "invoice",
-    "payment-receipt", "quotation", "quotations"
+    "payment-receipt", "quotation", "quotations", "security"
   ];
   for (const page of pages) {
     const html = await readFile(`web/admin/${page}.html`, "utf8");

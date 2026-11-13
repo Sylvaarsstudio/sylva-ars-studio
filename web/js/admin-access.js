@@ -59,6 +59,10 @@
 
     if (identity.role !== "viewer") return;
     documentObject.body.classList.add("admin-role-viewer");
+    for (const ownerOnly of documentObject.querySelectorAll?.("[data-owner-only]") || []) {
+      ownerOnly.hidden = true;
+      ownerOnly.setAttribute("aria-hidden", "true");
+    }
     const notice = documentObject.createElement("p");
     notice.className = "admin-viewer-notice";
     notice.textContent = "Read-only access. Changes, sends, and workflow actions are unavailable.";

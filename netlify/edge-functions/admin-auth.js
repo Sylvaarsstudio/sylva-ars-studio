@@ -1,9 +1,9 @@
+import { getDatabase } from "@netlify/database";
+
 import {
-  COOKIE_NAME,
-  createSessionToken,
-  getCookie,
-  verifyAdminSessionToken
-} from "../shared/admin-session.mjs";
+  readEnvironmentVariable,
+  resolveAdminIdentity
+} from "../shared/admin-authorization.mjs";
 
 function redirect(location, headers = {}) {
   return new Response(null, {
@@ -15,39 +15,51 @@ function redirect(location, headers = {}) {
   });
 }
 
-function readEnvironmentVariable(name) {
-  if (globalThis.Netlify?.env?.get) return globalThis.Netlify.env.get(name);
-  if (globalThis.Deno?.env?.get) return globalThis.Deno.env.get(name);
-  return globalThis.process?.env?.[name];
+function apiUnauthorized() {
+  return Response.json({
+    success: false,
+    code: "admin_unauthorized",
+    message: "Unauthorized."
+  }, { status: 401, headers: { "Cache-Control": "no-store" } });
 }
 
-function isLegacyAdminEnabled(environmentReader) {
-  const configured = environmentReader("ADMIN_LEGACY_LOGIN_ENABLED");
-  if (configured === "true") return true;
-  if (configured === "false") return false;
-  return !environmentReader("ADMIN_OIDC_CLIENT_ID");
-}
-
-function createHandler({ environmentReader = readEnvironmentVariable } = {}) {
+function createHandler({
+  databaseFactory = getDatabase,
+  environmentReader = readEnvironmentVariable,
+  now = () => new Date()
+} = {}) {
   return async function adminAuth(request, context) {
     const url = new URL(request.url);
-    const sessionSecret = environmentReader("ADMIN_SESSION_SECRET");
-    if (!sessionSecret) {
-      return new Response("Admin authentication is not configured.", { status: 500 });
+    if (url.pathname === "/admin/logout") return context.next();
+
+    let resolved;
+    try {
+      resolved = await resolveAdminIdentity(request, {
+        databaseFactory,
+        environmentReader,
+        now
+      });
+    } catch {
+      return new Response("Admin authorization could not be completed.", {
+        status: 500,
+        headers: { "Cache-Control": "no-store" }
+      });
     }
 
-    const sessionToken = getCookie(request, COOKIE_NAME);
-    const signedSession = await verifyAdminSessionToken(sessionToken, sessionSecret);
-    if (signedSession?.provider === "google") return context.next();
-
-    if (isLegacyAdminEnabled(environmentReader)) {
-      if (signedSession?.provider === "legacy") return context.next();
-      const adminPassword = environmentReader("ADMIN_PASSWORD");
-      if (adminPassword) {
-        const oldToken = await createSessionToken(adminPassword, sessionSecret);
-        if (sessionToken === oldToken) return context.next();
+    if (!resolved.error) {
+      if (
+        resolved.identity.role === "viewer"
+        && /^\/admin\/security(?:\.html)?\/?$/.test(url.pathname)
+      ) {
+        return new Response("Forbidden.", {
+          status: 403,
+          headers: { "Cache-Control": "no-store" }
+        });
       }
+      return context.next();
     }
+
+    if (url.pathname.startsWith("/admin/api/")) return apiUnauthorized();
 
     const requestedPath = `${url.pathname}${url.search}`;
     return redirect(`/admin-login.html?redirect=${encodeURIComponent(requestedPath)}`);

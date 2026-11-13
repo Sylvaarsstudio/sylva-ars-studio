@@ -21,8 +21,11 @@ import { authorizeAdminRequest } from "../../netlify/shared/admin-authorization.
 import {
   COOKIE_NAME,
   createAdminSessionToken,
-  createSessionToken
+  createSessionToken,
+  randomToken,
+  SESSION_LENGTH_SECONDS
 } from "../../netlify/shared/admin-session.mjs";
+import { createStoredAdminSession } from "../../netlify/shared/admin-session-store.mjs";
 
 const sessionSecret = "sas003-test-session-secret-with-sufficient-entropy";
 const fixedNow = new Date("2026-11-01T16:00:00.000Z");
@@ -51,11 +54,27 @@ function environment(overrides = {}) {
   return (name) => values[name];
 }
 
-async function sessionCookie(subject, options = {}) {
+async function storedSessionToken(subject, options = {}) {
+  const clock = options.now || (() => fixedNow);
+  const createdAt = clock();
+  const sessionId = randomToken(24);
   const token = await createAdminSessionToken({
     provider: "google",
-    externalSubject: subject
-  }, sessionSecret, { now: options.now || (() => fixedNow) });
+    externalSubject: subject,
+    sessionId
+  }, sessionSecret, { now: clock });
+  await createStoredAdminSession(db, {
+    adminUserId: identities[subject].id,
+    sessionIdentifier: sessionId,
+    createdAt,
+    expiresAt: new Date(createdAt.getTime() + SESSION_LENGTH_SECONDS * 1000),
+    userAgent: options.userAgent || "Test Browser"
+  });
+  return token;
+}
+
+async function sessionCookie(subject, options = {}) {
+  const token = await storedSessionToken(subject, options);
   return `${COOKIE_NAME}=${token}`;
 }
 
@@ -126,8 +145,8 @@ test("SAS-003 migration stores stable external identities and no credential mate
 });
 
 test("SAS-003 sessions are unique, signed, expiring, and contain no role", async () => {
-  const first = await createAdminSessionToken({ provider: "google", externalSubject: "owner-subject" }, sessionSecret, { now: () => fixedNow });
-  const second = await createAdminSessionToken({ provider: "google", externalSubject: "owner-subject" }, sessionSecret, { now: () => fixedNow });
+  const first = await storedSessionToken("owner-subject");
+  const second = await storedSessionToken("owner-subject");
   assert.notEqual(first, second);
   assert.equal(first.includes("owner_admin"), false);
 
@@ -300,8 +319,12 @@ test("temporary legacy access is explicit and automatically closes once OIDC is 
   assert.equal(enabled.identity.legacy, true);
 });
 
-test("edge gate accepts signed Google sessions and rejects legacy after cutover", async () => {
-  const edge = createEdgeHandler({ environmentReader: environment() });
+test("edge gate accepts stored Google sessions and rejects legacy after cutover", async () => {
+  const edge = createEdgeHandler({
+    databaseFactory: () => db,
+    environmentReader: environment(),
+    now: () => new Date()
+  });
   let nextCalls = 0;
   const context = { next: () => { nextCalls += 1; return new Response("ok"); } };
   const accepted = await edge(request(

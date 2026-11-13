@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Active Sessions | Sylva Ars Studio Admin</title>
+  <link rel="stylesheet" href="../css/admin.css">
+</head>
+
+<body>
+  <main class="admin-page admin-security-page">
+    <header class="admin-header admin-inquiries-header">
+      <div>
+        <h1>Active Sessions</h1>
+        <p>Review and revoke signed-in Admin sessions.</p>
+      </div>
+      <nav class="admin-header-actions" aria-label="Admin navigation">
+        <a href="dashboard.html" class="admin-link">Dashboard</a>
+        <a href="/admin-logout" class="admin-link">Log out</a>
+      </nav>
+    </header>
+
+    <section class="admin-session-actions" aria-label="Session actions">
+      <p>Only coarse browser and device information is retained.</p>
+      <button type="button" class="admin-button" id="sign-out-other-sessions" hidden>
+        Sign out all other sessions
+      </button>
+    </section>
+
+    <p class="admin-notice" id="session-status" aria-live="polite"></p>
+    <section class="admin-session-list" id="session-list" aria-label="Active sessions"></section>
+  </main>
+
+  <script src="../js/admin-access.js"></script>
+  <script src="../js/admin-security.js"></script>
+</body>
+</html>
