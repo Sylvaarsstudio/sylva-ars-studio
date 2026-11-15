@@ -15,16 +15,6 @@ const documentDefinitions = Object.freeze([
     filename: "commission-agreement.html",
     mainClass: "document",
     notice: "Draft — Under legal review and approval — Not currently effective."
-  }),
-  Object.freeze({
-    filename: "invoice-template.html",
-    mainClass: "invoice",
-    notice: "Sample document — Under review — Not an issued document."
-  }),
-  Object.freeze({
-    filename: "coa-template.html",
-    mainClass: "coa",
-    notice: "Sample document — Under review — Not an issued document."
   })
 ]);
 

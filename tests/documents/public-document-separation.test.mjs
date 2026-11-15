@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   mkdtempSync,
   mkdirSync,
+  existsSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -38,15 +39,19 @@ const publicDirectory = "web/documents";
 const expectedSessionMessage =
   "Your Admin session expired. Sign in again before loading or creating this document.";
 
-// These hashes pin the clean public templates before migration at baseline
-// 961bc9977949b0ba12561d7e4006529e1822fc00. A future legal change must
-// deliberately update this baseline.
+// These hashes pin the clean protected templates before public/private
+// separation at baseline 961bc9977949b0ba12561d7e4006529e1822fc00.
+// A future document change must deliberately update this baseline.
 const cleanTemplateBaselineHashes = Object.freeze({
   "artwork-sales-agreement.html": "51ab9b8e950a49b86a4a5db259489169e13455533db5d6c682c050df59571037",
   "commission-agreement.html": "7ab7a7b095f32c1582484ca80d8ed6566244add37e6b0eec3ab6db09abab7582",
   "invoice-template.html": "9845edfb14b6b76c9977ce6f763596a5770ce27e0aab88fda5441e9f55384b30",
   "coa-template.html": "b6e8b03eb07f7925fafdfd44b9f0b421705148a82b30e5ef16dd59b62d986bf9"
 });
+const operationalTemplateFilenames = Object.freeze([
+  "invoice-template.html",
+  "coa-template.html"
+]);
 
 function read(filename) {
   return readFileSync(filename, "utf8");
@@ -89,14 +94,12 @@ function removeRootBaseInsertion(source, filename) {
   return `${source.slice(0, insertion.index)}${source.slice(insertion.index + insertion[0].length)}`;
 }
 
-test("the four exact protected-to-public mappings exist", () => {
+test("only the two agreements map from protected templates to public views", () => {
   assert.deepEqual(
     documentDefinitions.map(({ filename }) => filename),
     [
       "artwork-sales-agreement.html",
-      "commission-agreement.html",
-      "invoice-template.html",
-      "coa-template.html"
+      "commission-agreement.html"
     ]
   );
 
@@ -104,10 +107,15 @@ test("the four exact protected-to-public mappings exist", () => {
     assert.ok(read(path.join(protectedDirectory, filename)));
     assert.ok(read(path.join(publicDirectory, filename)));
   }
+
+  for (const filename of operationalTemplateFilenames) {
+    assert.ok(read(path.join(protectedDirectory, filename)));
+    assert.equal(existsSync(path.join(publicDirectory, filename)), false, filename);
+  }
 });
 
 test("protected templates differ from the previous clean sources only by one root base", () => {
-  for (const { filename } of documentDefinitions) {
+  for (const filename of Object.keys(cleanTemplateBaselineHashes)) {
     const current = read(path.join(protectedDirectory, filename));
     const normalized = removeRootBaseInsertion(current, filename);
     assert.equal(
@@ -162,7 +170,7 @@ test("public notices are exact, accessible, outside main, and immediately before
 });
 
 test("protected templates contain no public notice or public status stylesheet", () => {
-  for (const { filename } of documentDefinitions) {
+  for (const filename of Object.keys(cleanTemplateBaselineHashes)) {
     const html = read(path.join(protectedDirectory, filename));
     assert.doesNotMatch(html, /public-document-status|Document status|Under legal review|Not an issued document/);
   }

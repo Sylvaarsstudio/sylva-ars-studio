@@ -30,9 +30,7 @@ const directoryPolicyLinks = Object.freeze([
 
 const directoryDocumentLinks = Object.freeze([
   ["/documents/artwork-sales-agreement.html", "Artwork Sales Agreement", "Draft"],
-  ["/documents/commission-agreement.html", "Commission Agreement", "Draft"],
-  ["/documents/invoice-template.html", "Invoice", "Sample"],
-  ["/documents/coa-template.html", "Certificate of Authenticity", "Sample"]
+  ["/documents/commission-agreement.html", "Commission Agreement", "Draft"]
 ]);
 
 function read(path) {
@@ -78,13 +76,13 @@ test("the directory has its exact title, introduction, and review notice", () =>
   const html = read(directoryPath);
   assert.match(html, /<h1>Legal &amp; Policies<\/h1>/);
   assert.equal((html.match(/<h1\b/g) || []).length, 1);
-  assert.match(html, /A directory of policy pages and public studio document references\./);
+  assert.match(html, /A directory of public agreements and studio policies\./);
   assert.match(html, new RegExp(escapeRegExp(directoryNotice)));
 });
 
 test("the directory contains the three exact category headings", () => {
   const html = read(directoryPath);
-  for (const heading of ["Privacy &amp; access", "Use &amp; rights", "Studio documents"]) {
+  for (const heading of ["Privacy &amp; access", "Use &amp; rights", "Agreements"]) {
     assert.match(html, new RegExp(`<h2[^>]*>${escapeRegExp(heading)}<\\/h2>`));
   }
   assert.equal((html.match(/<h2\b/g) || []).length, 3);
@@ -104,7 +102,7 @@ test("the directory contains each approved policy link exactly once", () => {
   }
 });
 
-test("the four public document links have exact visible Draft and Sample states", () => {
+test("the two public agreement links have exact visible Draft states", () => {
   const html = read(directoryPath);
   for (const [href, label, status] of directoryDocumentLinks) {
     const link = new RegExp(
@@ -114,7 +112,9 @@ test("the four public document links have exact visible Draft and Sample states"
     assert.match(html, link, href);
   }
   assert.equal((html.match(/>Draft<\/span>/g) || []).length, 2);
-  assert.equal((html.match(/>Sample<\/span>/g) || []).length, 2);
+  assert.doesNotMatch(html, />Sample<\/span>/);
+  assert.doesNotMatch(html, /\/documents\/(?:invoice-template|coa-template)\.html/);
+  assert.doesNotMatch(html, /<span>(?:Invoice|Certificate of Authenticity)<\/span>/);
 });
 
 test("the six provisional pages use their exact titles", () => {
