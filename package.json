@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test:database": "node --test tests/database/*.test.mjs",
+    "test:security": "node --test tests/security/*.test.mjs",
     "test:studio-notes": "node --test tests/studio-notes/*.test.js"
   },
   "dependencies": {

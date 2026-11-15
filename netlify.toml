@@ -3,5 +3,9 @@
   functions = "netlify/functions"
 
 [[edge_functions]]
+  path = "/*"
+  function = "security-headers"
+
+[[edge_functions]]
   path = "/admin/*"
   function = "admin-auth"
