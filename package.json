@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "import:legal-templates:lt2": "node scripts/import-legacy-legal-templates.mjs",
     "test:database": "node --test tests/database/*.test.mjs",
     "test:security": "node --test tests/security/*.test.mjs",
     "test:studio-notes": "node --test tests/studio-notes/*.test.js"

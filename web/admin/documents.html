@@ -26,51 +26,118 @@
       </nav>
     </header>
 
-    <section class="inquiry-toolbar" aria-label="Document filters">
-      <p class="inquiry-count"><strong id="document-count">0</strong> documents</p>
-      <label>
-        Commission
-        <select name="commission_id" id="document-commission-filter">
-          <option value="">All Commissions</option>
-        </select>
-      </label>
+    <nav class="document-tabs" aria-label="Document sections">
+      <button type="button" class="document-tab" id="issued-documents-tab"
+              aria-controls="issued-documents-view" aria-selected="true">
+        Issued Documents
+      </button>
+      <button type="button" class="document-tab" id="legal-templates-tab"
+              aria-controls="legal-templates-view" aria-selected="false">
+        Legal Templates
+      </button>
+    </nav>
 
-      <label>
-        Document Type
-        <select name="document_type" id="document-type-filter">
-          <option value="">All Types</option>
-          <option value="receipt">Receipt</option>
-          <option value="invoice">Invoice</option>
-          <option value="contract">Contract</option>
-          <option value="quotation">Quotation</option>
-          <option value="coa">COA</option>
-        </select>
-      </label>
-      <a href="/admin/create-contract.html" class="admin-button">Prepare Contract</a>
-      <a href="/admin/generate-documents.html" class="admin-link">Legacy Generator</a>
+    <section id="issued-documents-view" aria-labelledby="issued-documents-tab">
+      <section class="inquiry-toolbar" aria-label="Document filters">
+        <p class="inquiry-count"><strong id="document-count">0</strong> documents</p>
+        <label>
+          Commission
+          <select name="commission_id" id="document-commission-filter">
+            <option value="">All Commissions</option>
+          </select>
+        </label>
+
+        <label>
+          Document Type
+          <select name="document_type" id="document-type-filter">
+            <option value="">All Types</option>
+            <option value="receipt">Receipt</option>
+            <option value="invoice">Invoice</option>
+            <option value="contract">Contract</option>
+            <option value="quotation">Quotation</option>
+            <option value="coa">COA</option>
+          </select>
+        </label>
+        <a href="/admin/create-contract.html" class="admin-button">Prepare Contract</a>
+        <a href="/admin/generate-documents.html" class="admin-link">Legacy Generator</a>
+      </section>
+
+      <p class="admin-notice">Contract terms are still under review. Contract issuance is not yet enabled.</p>
+      <p class="admin-notice" id="document-list-status" aria-live="polite"></p>
+
+      <div class="inquiry-table-wrap">
+        <table class="inquiry-table">
+          <thead>
+            <tr>
+              <th scope="col">Document Number</th>
+              <th scope="col">Type</th>
+              <th scope="col">Description</th>
+              <th scope="col">Version</th>
+              <th scope="col">Commission</th>
+              <th scope="col">Client</th>
+              <th scope="col">Created</th>
+              <th scope="col">Payment</th>
+              <th scope="col">View</th>
+            </tr>
+          </thead>
+          <tbody id="document-list"></tbody>
+        </table>
+      </div>
     </section>
 
-    <p class="admin-notice">Contract terms are still under review. Contract issuance is not yet enabled.</p>
-    <p class="admin-notice" id="document-list-status" aria-live="polite"></p>
+    <section id="legal-templates-view" aria-labelledby="legal-templates-tab" hidden>
+      <div class="legal-template-heading">
+        <div>
+          <h2>Legal Templates</h2>
+          <p>Read-only registry of governed families and inventoried legacy sources.</p>
+        </div>
+        <p class="inquiry-count"><strong id="legal-template-count">0</strong> template families</p>
+      </div>
 
-    <div class="inquiry-table-wrap">
-      <table class="inquiry-table">
-        <thead>
-          <tr>
-            <th scope="col">Document Number</th>
-            <th scope="col">Type</th>
-            <th scope="col">Description</th>
-            <th scope="col">Version</th>
-            <th scope="col">Commission</th>
-            <th scope="col">Client</th>
-            <th scope="col">Created</th>
-            <th scope="col">Payment</th>
-            <th scope="col">View</th>
-          </tr>
-        </thead>
-        <tbody id="document-list"></tbody>
-      </table>
-    </div>
+      <p class="admin-notice" id="legal-template-list-status" aria-live="polite"></p>
+      <div class="inquiry-table-wrap">
+        <table class="inquiry-table legal-template-table">
+          <thead>
+            <tr>
+              <th scope="col">Template</th>
+              <th scope="col">Kind</th>
+              <th scope="col">Effective</th>
+              <th scope="col">Latest Draft / Candidate</th>
+              <th scope="col">Versions</th>
+              <th scope="col">Publication</th>
+              <th scope="col">Status</th>
+              <th scope="col">Inspect</th>
+            </tr>
+          </thead>
+          <tbody id="legal-template-list"></tbody>
+        </table>
+      </div>
+
+      <article class="legal-template-panel" id="legal-template-detail" hidden aria-live="polite">
+        <p class="admin-notice" id="legal-template-detail-status"></p>
+        <div id="legal-template-detail-content"></div>
+      </article>
+
+      <section class="legal-template-panel" aria-labelledby="operational-source-heading">
+        <h3 id="operational-source-heading">Operational sources outside Legal Templates</h3>
+        <p>Inventory only. These private operational sources are not governed Legal Template families.</p>
+        <p class="admin-notice" id="legacy-inventory-status" aria-live="polite"></p>
+        <div class="inquiry-table-wrap">
+          <table class="inquiry-table">
+            <thead>
+              <tr>
+                <th scope="col">Source</th>
+                <th scope="col">Type</th>
+                <th scope="col">Path</th>
+                <th scope="col">Hash</th>
+                <th scope="col">Treatment</th>
+              </tr>
+            </thead>
+            <tbody id="legacy-inventory-list"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
 
   </main>
 
