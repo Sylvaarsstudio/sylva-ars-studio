@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   mkdtempSync,
   mkdirSync,
@@ -10,7 +11,6 @@ import {
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 
 import { createHandler as createAdminEdgeHandler } from "../../netlify/edge-functions/admin-auth.js";
@@ -38,6 +38,16 @@ const publicDirectory = "web/documents";
 const expectedSessionMessage =
   "Your Admin session expired. Sign in again before loading or creating this document.";
 
+// These hashes pin the clean public templates before migration at baseline
+// 961bc9977949b0ba12561d7e4006529e1822fc00. A future legal change must
+// deliberately update this baseline.
+const cleanTemplateBaselineHashes = Object.freeze({
+  "artwork-sales-agreement.html": "51ab9b8e950a49b86a4a5db259489169e13455533db5d6c682c050df59571037",
+  "commission-agreement.html": "7ab7a7b095f32c1582484ca80d8ed6566244add37e6b0eec3ab6db09abab7582",
+  "invoice-template.html": "9845edfb14b6b76c9977ce6f763596a5770ce27e0aab88fda5441e9f55384b30",
+  "coa-template.html": "b6e8b03eb07f7925fafdfd44b9f0b421705148a82b30e5ef16dd59b62d986bf9"
+});
+
 function read(filename) {
   return readFileSync(filename, "utf8");
 }
@@ -52,6 +62,31 @@ function extractMain(html) {
 
 function dataFields(html) {
   return Array.from(html.matchAll(/\bdata-field=["']([^"']+)["']/g), (match) => match[1]);
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function removeRootBaseInsertion(source, filename) {
+  const baseElements = source.match(/<base\b[^>]*>/gi) || [];
+  assert.deepEqual(
+    baseElements,
+    ['<base href="/">'],
+    `${filename} must contain exactly one unmodified root base element`
+  );
+
+  const insertionLines = Array.from(
+    source.matchAll(/^[ \t]*<base href="\/">[ \t]*\r?\n/gm)
+  );
+  assert.equal(
+    insertionLines.length,
+    1,
+    `${filename} root base must be the only content on its inserted line`
+  );
+
+  const insertion = insertionLines[0];
+  return `${source.slice(0, insertion.index)}${source.slice(insertion.index + insertion[0].length)}`;
 }
 
 test("the four exact protected-to-public mappings exist", () => {
@@ -73,16 +108,31 @@ test("the four exact protected-to-public mappings exist", () => {
 
 test("protected templates differ from the previous clean sources only by one root base", () => {
   for (const { filename } of documentDefinitions) {
-    const previous = execFileSync("git", ["show", `HEAD:web/documents/${filename}`], {
-      encoding: "utf8"
-    });
     const current = read(path.join(protectedDirectory, filename));
-    const baseElements = current.match(/<base\s+href=["']\/["']\s*>/gi) || [];
-    assert.equal(baseElements.length, 1, `${filename} must contain one root base`);
+    const normalized = removeRootBaseInsertion(current, filename);
     assert.equal(
-      current.replace(/^[ \t]*<base\s+href=["']\/["']\s*>[ \t]*\r?\n/im, ""),
-      previous,
+      sha256(normalized),
+      cleanTemplateBaselineHashes[filename],
       `${filename} changed beyond route normalization`
+    );
+
+    assert.throws(
+      () => removeRootBaseInsertion(current.replace('<base href="/">', ""), filename),
+      /exactly one unmodified root base element/
+    );
+    assert.throws(
+      () => removeRootBaseInsertion(
+        current.replace('<base href="/">', '<base href="/">\n  <base href="/">'),
+        filename
+      ),
+      /exactly one unmodified root base element/
+    );
+    assert.throws(
+      () => removeRootBaseInsertion(
+        current.replace('<base href="/">', '<base href="/"><span>unexpected</span>'),
+        filename
+      ),
+      /only content on its inserted line/
     );
   }
 });
