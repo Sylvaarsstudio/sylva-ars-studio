@@ -1,0 +1,32 @@
+.public-document-status {
+  box-sizing: border-box;
+  width: min(calc(100% - 2rem), 8.5in);
+  margin: 1.25rem auto 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid #9d835d;
+  border-left-width: 0.3rem;
+  background: #f7f2e9;
+  color: #2c241b;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.public-document-status p {
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .public-document-status {
+    width: calc(100% - 1rem);
+    margin-top: 0.5rem;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.875rem;
+  }
+}
+
+@media print {
+  .public-document-status {
+    display: none !important;
+  }
+}

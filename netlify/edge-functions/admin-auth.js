@@ -30,6 +30,8 @@ function createHandler({
 } = {}) {
   return async function adminAuth(request, context) {
     const url = new URL(request.url);
+    const isDocumentTemplate = url.pathname.startsWith("/admin/document-templates/");
+    const templateCacheHeaders = { "Cache-Control": "private, no-store" };
     if (url.pathname === "/admin/logout") return context.next();
 
     let resolved;
@@ -56,13 +58,25 @@ function createHandler({
           headers: { "Cache-Control": "no-store" }
         });
       }
-      return context.next();
+      const response = await context.next();
+      if (!isDocumentTemplate) return response;
+
+      const headers = new Headers(response.headers);
+      headers.set("Cache-Control", "private, no-store");
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+      });
     }
 
     if (url.pathname.startsWith("/admin/api/")) return apiUnauthorized();
 
     const requestedPath = `${url.pathname}${url.search}`;
-    return redirect(`/admin-login.html?redirect=${encodeURIComponent(requestedPath)}`);
+    return redirect(
+      `/admin-login.html?redirect=${encodeURIComponent(requestedPath)}`,
+      isDocumentTemplate ? templateCacheHeaders : {}
+    );
   };
 }
 

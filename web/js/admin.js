@@ -1,17 +1,45 @@
-const form = document.querySelector("#document-form");
+const documentObject = typeof document === "undefined" ? null : document;
+const form = documentObject?.querySelector("#document-form");
 const documentSelect = form?.querySelector('select[name="document-type"]');
 const artworkSelect = form?.querySelector('select[name="artworkSlug"]');
-const documentFrame = document.querySelector("#document-frame");
-const loadButton = document.querySelector("#load-document");
-const printButton = document.querySelector("#print-document");
-const exportStatus = document.querySelector("#export-status");
-const invoiceFields = document.querySelector("#invoice-fields");
-const paymentList = document.querySelector("#payment-list");
-const addPaymentButton = document.querySelector("#add-payment");
+const documentFrame = documentObject?.querySelector("#document-frame");
+const loadButton = documentObject?.querySelector("#load-document");
+const printButton = documentObject?.querySelector("#print-document");
+const exportStatus = documentObject?.querySelector("#export-status");
+const invoiceFields = documentObject?.querySelector("#invoice-fields");
+const paymentList = documentObject?.querySelector("#payment-list");
+const addPaymentButton = documentObject?.querySelector("#add-payment");
 
-const documentsPath = "../documents/";
+const documentsPath = "/admin/document-templates/";
 const artworksPath = "../data/artworks.json";
 const artworkOverridesKey = "sylvaArsDocumentArtworkOverrides";
+const sessionExpiredMessage =
+  "Your Admin session expired. Sign in again before loading or creating this document.";
+const templateDefinitions = Object.freeze({
+  "invoice-template.html": Object.freeze({
+    title: "Invoice | Sylva Ars Studio",
+    mainSelector: "main.invoice"
+  }),
+  "coa-template.html": Object.freeze({
+    title: "Certificate of Authenticity",
+    mainSelector: "main.coa"
+  }),
+  "artwork-sales-agreement.html": Object.freeze({
+    title: "Artwork Sales Agreement | Sylva Ars Studio",
+    mainSelector: "main.document"
+  }),
+  "commission-agreement.html": Object.freeze({
+    title: "Commission Agreement | Sylva Ars Studio",
+    mainSelector: "main.document"
+  })
+});
+
+class AdminSessionExpiredError extends Error {
+  constructor() {
+    super(sessionExpiredMessage);
+    this.name = "AdminSessionExpiredError";
+  }
+}
 
 const fields = [
   "artworkSlug",
@@ -410,6 +438,86 @@ function renderPaymentHistory(targetDocument, payments = []) {
   });
 }
 
+function getProtectedTemplateUrl(template, baseUrl = window.location.href) {
+  if (!templateDefinitions[template]) {
+    throw new AdminSessionExpiredError();
+  }
+
+  return new URL(`${documentsPath}${template}`, baseUrl);
+}
+
+function isExpectedTemplateUrl(urlValue, template, baseUrl = window.location.href) {
+  try {
+    const expectedUrl = getProtectedTemplateUrl(template, baseUrl);
+    const actualUrl = new URL(urlValue, baseUrl);
+    return actualUrl.origin === expectedUrl.origin
+      && actualUrl.pathname === expectedUrl.pathname
+      && actualUrl.search === "";
+  } catch {
+    return false;
+  }
+}
+
+function isExpectedTemplateDocument(targetDocument, template) {
+  const definition = templateDefinitions[template];
+  if (!definition || !targetDocument?.documentElement || !targetDocument.head || !targetDocument.body) {
+    return false;
+  }
+
+  if (targetDocument.title.trim() !== definition.title) {
+    return false;
+  }
+
+  if (targetDocument.querySelectorAll(definition.mainSelector).length !== 1) {
+    return false;
+  }
+
+  if (
+    targetDocument.querySelector('.public-document-status, [aria-label="Document status"]')
+    || targetDocument.querySelector('form[action*="admin-login"], input[name="password"]')
+    || /admin login|sign in/i.test(targetDocument.title)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+async function fetchProtectedTemplateDocument(template) {
+  const templateUrl = getProtectedTemplateUrl(template);
+  let response;
+
+  try {
+    response = await fetch(templateUrl.href, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      redirect: "follow",
+      headers: { Accept: "text/html" }
+    });
+  } catch {
+    throw new AdminSessionExpiredError();
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (
+    !response.ok
+    || response.redirected
+    || !isExpectedTemplateUrl(response.url, template)
+    || !contentType.toLowerCase().includes("text/html")
+  ) {
+    throw new AdminSessionExpiredError();
+  }
+
+  const templateHtml = await response.text();
+  const parsedDocument = new DOMParser().parseFromString(templateHtml, "text/html");
+  if (!isExpectedTemplateDocument(parsedDocument, template)) {
+    throw new AdminSessionExpiredError();
+  }
+
+  return parsedDocument;
+}
+
 function applyValuesToDocument(targetDocument, values = getFormValues()) {
   targetDocument.querySelectorAll("[data-field]").forEach((element) => {
     const field = element.dataset.field;
@@ -466,8 +574,9 @@ function applyValuesToDocument(targetDocument, values = getFormValues()) {
 
 function injectValues() {
   const previewDocument = getPreviewDocument();
+  const template = documentSelect?.value;
 
-  if (!previewDocument) {
+  if (!previewDocument || !isExpectedTemplateDocument(previewDocument, template)) {
     return;
   }
 
@@ -475,48 +584,66 @@ function injectValues() {
 }
 
 function loadSelectedDocument() {
-  const template = documentSelect.value;
+  const template = documentSelect?.value;
+  if (!template || !documentFrame) return;
+
   updateInvoiceFieldsVisibility();
-  documentFrame.src = `${documentsPath}${template}`;
+  documentFrame.dataset.templateReady = "false";
+  documentFrame.src = getProtectedTemplateUrl(template).href;
 }
 
 function getPreviewDocument() {
-  return documentFrame.contentDocument || documentFrame.contentWindow?.document || null;
+  return documentFrame?.contentDocument || documentFrame?.contentWindow?.document || null;
+}
+
+function validateAndPopulatePreview() {
+  const template = documentSelect?.value;
+  const previewDocument = getPreviewDocument();
+  let frameUrl = "";
+
+  try {
+    frameUrl = documentFrame?.contentWindow?.location?.href || documentFrame?.src || "";
+  } catch {
+    frameUrl = "";
+  }
+
+  if (
+    !template
+    || !isExpectedTemplateUrl(frameUrl, template)
+    || !isExpectedTemplateDocument(previewDocument, template)
+  ) {
+    if (documentFrame) documentFrame.dataset.templateReady = "false";
+    setExportStatus(sessionExpiredMessage);
+    return false;
+  }
+
+  documentFrame.dataset.templateReady = "true";
+  setExportStatus("");
+  injectValues();
+  return true;
 }
 
 async function getPrintableDocumentHtml() {
-  const previewDocument = getPreviewDocument();
-  let clonedDocument = null;
+  const template = documentSelect?.value;
+  if (!template) throw new AdminSessionExpiredError();
 
-  if (previewDocument?.documentElement) {
-    clonedDocument = previewDocument.documentElement.cloneNode(true);
-  } else {
-    const response = await fetch(documentFrame.src);
+  const parsedDocument = await fetchProtectedTemplateDocument(template);
+  applyValuesToDocument(parsedDocument);
 
-    if (!response.ok) {
-      throw new Error(`Unable to load printable document: ${documentFrame.src}`);
-    }
-
-    const templateHtml = await response.text();
-    const parsedDocument = new DOMParser().parseFromString(templateHtml, "text/html");
-    applyValuesToDocument(parsedDocument);
-    clonedDocument = parsedDocument.documentElement;
+  if (!isExpectedTemplateDocument(parsedDocument, template)) {
+    throw new AdminSessionExpiredError();
   }
 
-  if (!clonedDocument) {
-    return "";
-  }
-
-  const base = clonedDocument.ownerDocument.createElement("base");
-  base.href = new URL(documentsPath, window.location.href).href;
-
-  clonedDocument.querySelectorAll("[data-default-value]").forEach((element) => {
+  parsedDocument.querySelectorAll("[data-default-value]").forEach((element) => {
     delete element.dataset.defaultValue;
   });
 
-  clonedDocument.querySelector("head")?.prepend(base);
+  parsedDocument.querySelectorAll("base").forEach((element) => element.remove());
+  const base = parsedDocument.createElement("base");
+  base.href = new URL("/", window.location.origin).href;
+  parsedDocument.head.prepend(base);
 
-  return `<!DOCTYPE html>\n${clonedDocument.outerHTML}`;
+  return `<!DOCTYPE html>\n${parsedDocument.documentElement.outerHTML}`;
 }
 
 function setExportStatus(message, options = {}) {
@@ -538,11 +665,14 @@ async function createPdfFromCurrentDocument() {
   let printableHtml = "";
 
   try {
-    injectValues();
     printableHtml = await getPrintableDocumentHtml();
   } catch (error) {
     console.error(error);
-    setExportStatus("The document could not be prepared. Check the preview and try again.");
+    setExportStatus(
+      error instanceof AdminSessionExpiredError
+        ? sessionExpiredMessage
+        : "The document could not be prepared. Check the preview and try again."
+    );
     return;
   }
 
@@ -618,33 +748,48 @@ async function createPdfFromCurrentDocument() {
   window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
 }
 
-window.createPdfFromCurrentDocument = createPdfFromCurrentDocument;
+if (typeof window !== "undefined") {
+  window.createPdfFromCurrentDocument = createPdfFromCurrentDocument;
+}
 
-addPaymentButton?.addEventListener("click", () => {
+if (form && documentSelect && documentFrame && loadButton && printButton) {
+  addPaymentButton?.addEventListener("click", () => {
+    createPaymentEntry();
+  });
+
+  documentFrame.addEventListener("load", validateAndPopulatePreview);
+
+  form.addEventListener("input", injectValues);
+
+  form.elements.artworkDescription?.addEventListener("input", () => {
+    saveArtworkDescriptionOverride(artworkSelect?.value, form.elements.artworkDescription.value.trim());
+  });
+
+  documentSelect.addEventListener("change", loadSelectedDocument);
+
+  artworkSelect?.addEventListener("change", loadSelectedArtwork);
+
+  loadButton.addEventListener("click", () => {
+    loadSelectedDocument();
+  });
+
+  printButton.addEventListener("click", () => {
+    createPdfFromCurrentDocument();
+  });
+
+  loadArtworks();
   createPaymentEntry();
-});
+  updateInvoiceFieldsVisibility();
+}
 
-documentFrame.addEventListener("load", injectValues);
-
-form.addEventListener("input", injectValues);
-
-form.elements.artworkDescription?.addEventListener("input", () => {
-  saveArtworkDescriptionOverride(artworkSelect?.value, form.elements.artworkDescription.value.trim());
-});
-
-documentSelect.addEventListener("change", loadSelectedDocument);
-
-artworkSelect?.addEventListener("change", loadSelectedArtwork);
-
-loadButton.addEventListener("click", () => {
-  loadSelectedDocument();
-  injectValues();
-});
-
-printButton.addEventListener("click", () => {
-  createPdfFromCurrentDocument();
-});
-
-loadArtworks();
-createPaymentEntry();
-updateInvoiceFieldsVisibility();
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    AdminSessionExpiredError,
+    documentsPath,
+    getProtectedTemplateUrl,
+    isExpectedTemplateDocument,
+    isExpectedTemplateUrl,
+    sessionExpiredMessage,
+    templateDefinitions
+  };
+}
