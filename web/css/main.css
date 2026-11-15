@@ -1437,6 +1437,11 @@ button[disabled] {
     margin: 15px auto 0;
     text-align: center;
   }
+
+  .home-page .contact .button {
+    box-sizing: border-box;
+    max-width: 362px;
+  }
 }
 
 @media (max-width: 520px) {
