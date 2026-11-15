@@ -7,8 +7,9 @@ const require = createRequire(import.meta.url);
 const {
   ELIGIBILITY_API_PATH,
   PREPARE_API_PATH,
-  PREVIEW_STORAGE_KEY,
   applyDocumentFields,
+  buildPreviewUrl,
+  consumePreviewFields,
   createApp,
   getNewYorkDate,
   renderCommissionOptions,
@@ -66,9 +67,11 @@ function element() {
     innerHTML: "",
     textContent: "",
     value: "",
+    href: "",
     hidden: false,
     classList: { add() {}, remove() {} },
     addEventListener(type, listener) { listeners.set(type, listener); },
+    removeAttribute(name) { if (name === "href") this.href = ""; },
     listeners
   };
 }
@@ -113,6 +116,7 @@ test("Prepare Contract page is explicit that issuance is disabled", () => {
   assert.match(html, /Contract terms are under review and issuance is not enabled\./);
   assert.match(html, /data-glossary-key="contract_issuance"/);
   assert.match(html, />Prepare Preview</);
+  assert.match(html, /id="prepare-contract-form"[^>]*autocomplete="off"/);
   assert.doesNotMatch(html, />Issue Contract</);
 });
 
@@ -166,7 +170,7 @@ test("commission loading checks canonical eligibility and preselects an eligible
       return response({ eligible: true, message: "Contract draft preparation is available." });
     }
     throw new Error("Unexpected request");
-  }, { setItem() {} }, { search: "?commission_id=7" });
+  }, { search: "?commission_id=7" });
   await app.loadCommissions();
   assert.deepEqual(calls, ["/admin/api/commissions", `${ELIGIBILITY_API_PATH}?commission_id=7`]);
   assert.equal(documentObject.inputs.commission_id.value, "7");
@@ -183,7 +187,7 @@ test("accepted Quotation deep link loads canonical pre-Commission eligibility", 
       message: "Contract draft preparation is available.",
       quotation: { id: "9", quotation_number: "SAS-QUO-2026-0001", version: 1 }
     });
-  }, { setItem() {} }, { search: "?quotation_id=9" });
+  }, { search: "?quotation_id=9" });
   await app.loadCommissions();
   assert.deepEqual(calls, [`${ELIGIBILITY_API_PATH}?quotation_id=9`]);
   assert.equal(documentObject.inputs.quotation_id.value, "9");
@@ -199,13 +203,8 @@ test("pre-Commission summary does not render a fabricated Commission number", ()
   assert.doesNotMatch(markup, /SAS-COM-/);
 });
 
-test("prepare flow calls only the preparation endpoint and stores a draft snapshot", async () => {
+test("prepare flow keeps only a non-sensitive preview descriptor in memory", async () => {
   const documentObject = documentHarness();
-  const stored = new Map();
-  const storage = {
-    setItem(key, value) { stored.set(key, value); },
-    getItem(key) { return stored.get(key); }
-  };
   const calls = [];
   const app = createApp(documentObject, async (url) => {
     calls.push(url);
@@ -213,13 +212,86 @@ test("prepare flow calls only the preparation endpoint and stores a draft snapsh
       return response({ commissions: [] });
     }
     return response({ snapshot, message: "Contract terms are still under review." });
-  }, storage);
+  }, { search: "" });
   documentObject.inputs.commission_id.value = "7";
   documentObject.inputs.contract_date.value = "2026-10-09";
   documentObject.inputs.optional_message.value = "Review message";
   await app.prepare({ preventDefault() {} });
 
   assert.equal(calls[0], `${PREPARE_API_PATH}?commission_id=7&contract_date=2026-10-09`);
-  assert.equal(JSON.parse(storage.getItem(PREVIEW_STORAGE_KEY)).contract.status, "draft");
   assert.equal(documentObject.elements["#open-contract-preview"].hidden, false);
+  assert.equal(
+    documentObject.elements["#open-contract-preview"].href,
+    "/admin/contract.html?preview=1&commission_id=7&contract_date=2026-10-09"
+  );
+});
+
+test("preview URL contains only an opaque source id, date, and one-time reference", () => {
+  const url = buildPreviewUrl({
+    quotationId: "9",
+    contractDate: "2026-10-09",
+    previewReference: "00000000-0000-4000-8000-000000000009",
+    optional_message: "Never put this in the URL",
+    delivery_notes: "Or this"
+  });
+  assert.equal(
+    url,
+    "/admin/contract.html?preview=1&quotation_id=9&contract_date=2026-10-09&draft_ref=00000000-0000-4000-8000-000000000009"
+  );
+  assert.doesNotMatch(url, /Never|Or this|optional|delivery/);
+});
+
+test("unsaved document fields are handed off once in memory and then cleared", async () => {
+  const documentObject = documentHarness();
+  const opened = [];
+  const app = createApp(documentObject, async () => response({
+    snapshot,
+    message: "Contract terms are still under review."
+  }), { search: "" }, (url, target) => {
+    opened.push({ url, target });
+    return {};
+  });
+  documentObject.inputs.quotation_id.value = "9";
+  documentObject.inputs.contract_date.value = "2026-10-09";
+  documentObject.inputs.optional_message.value = "Review message";
+  documentObject.inputs.delivery_notes.value = "Pickup details";
+  await app.prepare({ preventDefault() {} });
+
+  const openedPreview = app.openPreview({ preventDefault() {} });
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].target, "_blank");
+  assert.doesNotMatch(opened[0].url, /Review message|Pickup details/);
+  assert.deepEqual(consumePreviewFields(openedPreview.reference), {
+    optional_message: "Review message",
+    delivery_notes: "Pickup details"
+  });
+  assert.equal(consumePreviewFields(openedPreview.reference), null);
+  assert.equal(documentObject.inputs.optional_message.value, "");
+  assert.equal(documentObject.inputs.delivery_notes.value, "");
+  assert.equal(documentObject.elements["#open-contract-preview"].hidden, true);
+});
+
+test("navigation cleanup discards an unused one-time preview handoff", async () => {
+  const documentObject = documentHarness();
+  const lifecycleListeners = new Map();
+  const lifecycle = {
+    addEventListener(type, listener) { lifecycleListeners.set(type, listener); }
+  };
+  const app = createApp(documentObject, async () => response({ snapshot, message: "Prepared." }),
+    { search: "" }, () => ({}), lifecycle);
+  app.bindEvents();
+  documentObject.inputs.commission_id.value = "7";
+  documentObject.inputs.contract_date.value = "2026-10-09";
+  documentObject.inputs.optional_message.value = "Temporary";
+  await app.prepare({ preventDefault() {} });
+  const openedPreview = app.openPreview({ preventDefault() {} });
+
+  lifecycleListeners.get("pagehide")();
+  assert.equal(consumePreviewFields(openedPreview.reference), null);
+  assert.equal(documentObject.inputs.optional_message.value, "");
+});
+
+test("contract preparation scripts never write browser storage", () => {
+  const source = readFileSync("web/js/admin-create-contract.js", "utf8");
+  assert.doesNotMatch(source, /sessionStorage|localStorage|indexedDB|\.setItem\s*\(/);
 });

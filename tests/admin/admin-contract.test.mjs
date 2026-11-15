@@ -5,9 +5,9 @@ import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
 const {
-  PREVIEW_STORAGE_KEY,
+  PREPARE_API_PATH,
   createApp,
-  readPreview,
+  parsePreviewRequest,
   renderContractMarkup
 } = require("../../web/js/admin-contract.js");
 
@@ -98,6 +98,25 @@ function element() {
   };
 }
 
+function response(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    async json() { return body; }
+  };
+}
+
+function documentHarness() {
+  const elements = {
+    "#contract-preview-status": element(),
+    "#contract-preview": element(),
+    "#print-contract": element()
+  };
+  return {
+    elements,
+    querySelector(selector) { return elements[selector]; }
+  };
+}
+
 test("draft renderer prominently marks the contract as not issued", () => {
   const markup = renderContractMarkup(snapshot);
   assert.match(markup, /DRAFT — NOT ISSUED — TERMS UNDER REVIEW/);
@@ -150,18 +169,112 @@ test("signature structure contains only artist and client manual signatures", ()
   assert.doesNotMatch(markup, /Authorized Signature|Date of Issue/);
 });
 
-test("renderer reads the prepared snapshot from session storage", () => {
-  const storage = { getItem(key) { return key === PREVIEW_STORAGE_KEY ? JSON.stringify(snapshot) : null; } };
-  assert.deepEqual(readPreview(storage), snapshot);
+test("preview request accepts only opaque source metadata", () => {
+  const parsed = parsePreviewRequest(
+    "?preview=1&quotation_id=9&contract_date=2026-10-09&draft_ref=00000000-0000-4000-8000-000000000009"
+  );
+  assert.deepEqual(parsed, {
+    apiUrl: `${PREPARE_API_PATH}?quotation_id=9&contract_date=2026-10-09`,
+    commissionId: null,
+    quotationId: "9",
+    contractDate: "2026-10-09",
+    previewReference: "00000000-0000-4000-8000-000000000009"
+  });
+  assert.equal(parsePreviewRequest("?preview=1&contract_date=2026-10-09"), null);
+  assert.equal(parsePreviewRequest("?preview=1&commission_id=7&quotation_id=9&contract_date=2026-10-09"), null);
+  assert.equal(parsePreviewRequest("?preview=1&quotation_id=9&contract_date=2026-10-09&client_email=client%40example.invalid"), null);
 });
 
-test("renderer rejects non-draft snapshots", () => {
-  const storage = {
-    getItem() {
-      return JSON.stringify({ ...snapshot, contract: { ...snapshot.contract, status: "issued" } });
-    }
+test("preview refetches the canonical snapshot and consumes document fields once", async () => {
+  const documentObject = documentHarness();
+  const calls = [];
+  const historyCalls = [];
+  const consumed = [];
+  const reference = "00000000-0000-4000-8000-000000000009";
+  const locationObject = {
+    pathname: "/admin/contract.html",
+    search: `?preview=1&quotation_id=9&contract_date=2026-10-09&draft_ref=${reference}`
   };
-  assert.equal(readPreview(storage), null);
+  const app = createApp(documentObject, async (url) => {
+    calls.push(url);
+    return response({ snapshot });
+  }, locationObject, {
+    replaceState(_state, _title, url) { historyCalls.push(url); }
+  }, {
+    AdminCreateContract: {
+      consumePreviewFields(value) {
+        consumed.push(value);
+        return { optional_message: "One-time message", delivery_notes: "One-time pickup" };
+      }
+    }
+  }, () => {});
+
+  const prepared = await app.load();
+  assert.deepEqual(calls, [`${PREPARE_API_PATH}?quotation_id=9&contract_date=2026-10-09`]);
+  assert.deepEqual(consumed, [reference]);
+  assert.equal(prepared.document_fields.optional_message, "One-time message");
+  assert.match(documentObject.elements["#contract-preview"].innerHTML, /One-time message/);
+  assert.deepEqual(historyCalls, [
+    "/admin/contract.html?preview=1&quotation_id=9&contract_date=2026-10-09"
+  ]);
+});
+
+test("refresh without a one-time reference uses only a fresh server response", async () => {
+  const documentObject = documentHarness();
+  const app = createApp(documentObject, async () => response({
+    snapshot: {
+      ...snapshot,
+      document_fields: { optional_message: "Unexpected cached value", delivery_notes: "Unexpected" }
+    }
+  }), {
+    pathname: "/admin/contract.html",
+    search: "?preview=1&commission_id=7&contract_date=2026-10-09"
+  }, {}, null, () => {});
+  const prepared = await app.load();
+  assert.deepEqual(prepared.document_fields, { optional_message: "", delivery_notes: "" });
+  assert.doesNotMatch(documentObject.elements["#contract-preview"].innerHTML, /Unexpected/);
+});
+
+test("invalid or stale preview requests clear their one-time context", async () => {
+  const documentObject = documentHarness();
+  const discarded = [];
+  let fetchCalls = 0;
+  const reference = "00000000-0000-4000-8000-000000000009";
+  const app = createApp(documentObject, async () => {
+    fetchCalls += 1;
+    return response({ snapshot });
+  }, {
+    pathname: "/admin/contract.html",
+    search: `?preview=1&quotation_id=9&contract_date=2026-10-09&draft_ref=${reference}&client_name=PII`
+  }, { replaceState() {} }, {
+    AdminCreateContract: { discardPreviewFields(value) { discarded.push(value); } }
+  }, () => {});
+  assert.equal(await app.load(), null);
+  assert.equal(fetchCalls, 0);
+  assert.deepEqual(discarded, [reference]);
+});
+
+test("server rejection discards the one-time context and reference", async () => {
+  const documentObject = documentHarness();
+  const discarded = [];
+  const historyCalls = [];
+  const reference = "00000000-0000-4000-8000-000000000009";
+  const app = createApp(documentObject, async () => response({
+    message: "Contract unavailable — the accepted quotation is no longer valid."
+  }, 409), {
+    pathname: "/admin/contract.html",
+    search: `?preview=1&quotation_id=9&contract_date=2026-10-09&draft_ref=${reference}`
+  }, {
+    replaceState(_state, _title, url) { historyCalls.push(url); }
+  }, {
+    AdminCreateContract: { discardPreviewFields(value) { discarded.push(value); } }
+  }, () => {});
+
+  assert.equal(await app.load(), null);
+  assert.deepEqual(discarded, [reference]);
+  assert.deepEqual(historyCalls, [
+    "/admin/contract.html?preview=1&quotation_id=9&contract_date=2026-10-09"
+  ]);
 });
 
 test("contract page supports print without any issue action", () => {
@@ -171,19 +284,19 @@ test("contract page supports print without any issue action", () => {
 });
 
 test("Print button calls window.print", () => {
-  const elements = {
-    "#contract-preview-status": element(),
-    "#contract-preview": element(),
-    "#print-contract": element()
-  };
-  const documentObject = { querySelector(selector) { return elements[selector]; } };
-  const storage = { getItem() { return JSON.stringify(snapshot); } };
+  const documentObject = documentHarness();
   let calls = 0;
-  const app = createApp(documentObject, storage, () => { calls += 1; });
+  const app = createApp(documentObject, async () => response({ snapshot }), {
+    search: "?preview=1&commission_id=7&contract_date=2026-10-09"
+  }, {}, null, () => { calls += 1; });
   app.bindEvents();
-  app.load();
-  elements["#print-contract"].listeners.get("click")();
+  documentObject.elements["#print-contract"].listeners.get("click")();
   assert.equal(calls, 1);
+});
+
+test("contract preview script never reads or writes browser storage", () => {
+  const source = readFileSync("web/js/admin-contract.js", "utf8");
+  assert.doesNotMatch(source, /sessionStorage|localStorage|indexedDB|\.(getItem|setItem)\s*\(/);
 });
 
 test("print CSS preserves draft marking while hiding controls", () => {

@@ -4,6 +4,19 @@ import { test } from "node:test";
 
 import access from "../../web/js/admin-access.js";
 
+test("common admin bootstrap purges the legacy contract PII preview key", () => {
+  const removed = [];
+  const storage = { removeItem(key) { removed.push(key); } };
+  assert.equal(access.clearLegacyContractPreviewStorage(storage), true);
+  assert.deepEqual(removed, [access.LEGACY_CONTRACT_PREVIEW_STORAGE_KEY]);
+  assert.equal(access.LEGACY_CONTRACT_PREVIEW_STORAGE_KEY, "sylvaArsDraftContractPreview");
+});
+
+test("legacy preview cleanup tolerates unavailable browser storage", () => {
+  const storage = { removeItem() { throw new Error("blocked"); } };
+  assert.equal(access.clearLegacyContractPreviewStorage(storage), false);
+});
+
 test("admin role labels distinguish owner, viewer, and temporary legacy access", () => {
   assert.equal(access.identityLabel({ role: "owner_admin", display_name: "Owner" }), "Owner · Owner Admin");
   assert.equal(access.identityLabel({ role: "viewer", email: "viewer@example.invalid" }), "viewer@example.invalid · Viewer · read only");

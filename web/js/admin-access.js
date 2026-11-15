@@ -1,6 +1,7 @@
 (function initializeAdminAccess(globalObject) {
   "use strict";
 
+  const LEGACY_CONTRACT_PREVIEW_STORAGE_KEY = "sylvaArsDraftContractPreview";
   const writeSelectors = [
     "#new-client", "#client-create", "#client-create-form", "#edit-client",
     "main.admin-page > form.admin-form",
@@ -26,6 +27,24 @@
     "a.admin-button[href='/admin/create-contract.html']"
   ];
   const selector = writeSelectors.join(",");
+
+  function clearLegacyContractPreviewStorage(storage) {
+    try {
+      storage?.removeItem?.(LEGACY_CONTRACT_PREVIEW_STORAGE_KEY);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function bindLegacyContractPreviewCleanup(documentObject, storage) {
+    clearLegacyContractPreviewStorage(storage);
+    for (const logoutLink of documentObject?.querySelectorAll?.(
+      'a[href="/admin-logout"], a[href="/admin/logout"]'
+    ) || []) {
+      logoutLink.addEventListener("click", () => clearLegacyContractPreviewStorage(storage));
+    }
+  }
 
   function markWriteControls(root) {
     const controls = [];
@@ -93,9 +112,22 @@
     return result.identity;
   }
 
-  const api = { identityLabel, loadIdentity, markWriteControls, renderIdentity, writeSelectors };
+  const api = {
+    LEGACY_CONTRACT_PREVIEW_STORAGE_KEY,
+    bindLegacyContractPreviewCleanup,
+    clearLegacyContractPreviewStorage,
+    identityLabel,
+    loadIdentity,
+    markWriteControls,
+    renderIdentity,
+    writeSelectors
+  };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   globalObject.SylvaAdminAccess = api;
+
+  if (globalObject.document) {
+    bindLegacyContractPreviewCleanup(globalObject.document, globalObject.sessionStorage);
+  }
 
   if (globalObject.document && globalObject.fetch) {
     loadIdentity(

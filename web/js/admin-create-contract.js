@@ -2,7 +2,52 @@
   const COMMISSIONS_API_PATH = "/admin/api/commissions";
   const PREPARE_API_PATH = "/admin/api/contracts/prepare";
   const ELIGIBILITY_API_PATH = "/admin/api/contracts/eligibility";
-  const PREVIEW_STORAGE_KEY = "sylvaArsDraftContractPreview";
+  const PREVIEW_PATH = "/admin/contract.html";
+  const previewReferencePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const transientPreviewFields = new Map();
+
+  function normalizeDocumentFields(fields = {}) {
+    return {
+      optional_message: String(fields.optional_message || "").trim(),
+      delivery_notes: String(fields.delivery_notes || "").trim()
+    };
+  }
+
+  function createPreviewReference(cryptoObject = globalObject.crypto) {
+    const reference = cryptoObject?.randomUUID?.();
+    if (!previewReferencePattern.test(reference || "")) {
+      throw new Error("A secure preview reference could not be created.");
+    }
+    return reference.toLowerCase();
+  }
+
+  function buildPreviewUrl({ commissionId, quotationId, contractDate, previewReference } = {}) {
+    const params = new URLSearchParams({ preview: "1" });
+    if (quotationId) params.set("quotation_id", String(quotationId));
+    else if (commissionId) params.set("commission_id", String(commissionId));
+    if (contractDate) params.set("contract_date", String(contractDate));
+    if (previewReference) params.set("draft_ref", String(previewReference));
+    return `${PREVIEW_PATH}?${params}`;
+  }
+
+  function consumePreviewFields(reference) {
+    if (!previewReferencePattern.test(reference || "")) return null;
+    const context = transientPreviewFields.get(reference);
+    if (!context) return null;
+    transientPreviewFields.delete(reference);
+    const fields = normalizeDocumentFields(context.fields);
+    context.cleanup?.();
+    return fields;
+  }
+
+  function discardPreviewFields(reference) {
+    if (!previewReferencePattern.test(reference || "")) return false;
+    const context = transientPreviewFields.get(reference);
+    if (!context) return false;
+    transientPreviewFields.delete(reference);
+    context.cleanup?.();
+    return true;
+  }
 
   function escapeHtml(value) {
     return String(value)
@@ -47,10 +92,7 @@
     const prepared = typeof structuredClone === "function"
       ? structuredClone(snapshot)
       : JSON.parse(JSON.stringify(snapshot));
-    prepared.document_fields = {
-      optional_message: String(fields.optional_message || "").trim(),
-      delivery_notes: String(fields.delivery_notes || "").trim()
-    };
+    prepared.document_fields = normalizeDocumentFields(fields);
     return prepared;
   }
 
@@ -98,7 +140,13 @@
     return body;
   }
 
-  function createApp(documentObject, fetchImplementation, storage, locationObject = globalObject.location) {
+  function createApp(
+    documentObject,
+    fetchImplementation,
+    locationObject = globalObject.location,
+    openWindow = globalObject.open?.bind(globalObject),
+    lifecycleObject = globalObject
+  ) {
     const elements = {
       form: documentObject.querySelector("#prepare-contract-form"),
       status: documentObject.querySelector("#contract-preparation-status"),
@@ -110,6 +158,24 @@
     };
     const inputs = elements.form.elements;
     const eligibilityById = new Map();
+    const activeReferences = new Set();
+    let preparedContext = null;
+
+    function clearPreparedContext({ clearFields = false } = {}) {
+      for (const reference of activeReferences) transientPreviewFields.delete(reference);
+      activeReferences.clear();
+      preparedContext = null;
+      elements.preview.hidden = true;
+      elements.preview.removeAttribute?.("href");
+      if (clearFields) {
+        inputs.namedItem("optional_message").value = "";
+        inputs.namedItem("delivery_notes").value = "";
+      }
+    }
+
+    function markPreparedContextConsumed() {
+      clearPreparedContext({ clearFields: true });
+    }
 
     async function loadCommissions() {
       const params = new URLSearchParams(locationObject?.search || "");
@@ -166,6 +232,7 @@
 
     async function prepare(event) {
       event?.preventDefault?.();
+      clearPreparedContext();
       elements.status.textContent = "Preparing draft preview…";
       elements.status.classList?.remove("is-error");
       elements.preview.hidden = true;
@@ -179,11 +246,18 @@
 
       try {
         const body = await fetchJson(fetchImplementation, url);
-        const snapshot = applyDocumentFields(body.snapshot, {
+        const documentFields = normalizeDocumentFields({
           optional_message: inputs.namedItem("optional_message").value,
           delivery_notes: inputs.namedItem("delivery_notes").value
         });
-        storage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(snapshot));
+        const snapshot = applyDocumentFields(body.snapshot, documentFields);
+        preparedContext = {
+          commissionId: commissionId || null,
+          quotationId: quotationId || null,
+          contractDate,
+          documentFields
+        };
+        elements.preview.href = buildPreviewUrl(preparedContext);
         elements.summary.innerHTML = renderPreparationSummary(snapshot);
         elements.status.textContent = body.message;
         elements.preview.hidden = false;
@@ -196,26 +270,77 @@
       }
     }
 
+    function openPreview(event) {
+      event?.preventDefault?.();
+      if (!preparedContext) return null;
+
+      let reference;
+      try {
+        reference = createPreviewReference();
+      } catch (error) {
+        elements.status.textContent = error.message;
+        elements.status.classList?.add("is-error");
+        return null;
+      }
+
+      activeReferences.add(reference);
+      transientPreviewFields.set(reference, {
+        fields: preparedContext.documentFields,
+        cleanup: markPreparedContextConsumed
+      });
+      const previewUrl = buildPreviewUrl({
+        ...preparedContext,
+        previewReference: reference
+      });
+      const openedWindow = openWindow?.(previewUrl, "_blank");
+      if (!openedWindow) {
+        transientPreviewFields.delete(reference);
+        activeReferences.delete(reference);
+        elements.status.textContent = "The draft preview window was blocked. Allow pop-ups and try again.";
+        elements.status.classList?.add("is-error");
+        return null;
+      }
+      return { previewUrl, reference };
+    }
+
     function bindEvents() {
       elements.form.addEventListener("submit", prepare);
+      elements.form.addEventListener("input", () => {
+        if (preparedContext) clearPreparedContext();
+      });
+      elements.preview.addEventListener("click", openPreview);
       inputs.namedItem("commission_id").addEventListener("change", () => {
         const eligibility = eligibilityById.get(String(inputs.namedItem("commission_id").value || ""));
         elements.eligibilityStatus.textContent = eligibility?.message || "An accepted Quotation is required.";
       });
+      lifecycleObject?.addEventListener?.("pagehide", () => {
+        clearPreparedContext({ clearFields: true });
+      });
+      for (const logoutLink of documentObject.querySelectorAll?.(
+        'a[href="/admin-logout"], a[href="/admin/logout"]'
+      ) || []) {
+        logoutLink.addEventListener("click", () => {
+          clearPreparedContext({ clearFields: true });
+        });
+      }
     }
 
     inputs.namedItem("contract_date").value = getNewYorkDate();
-    return { bindEvents, loadCommissions, prepare };
+    return { bindEvents, clearPreparedContext, loadCommissions, openPreview, prepare };
   }
 
   const api = {
     COMMISSIONS_API_PATH,
     ELIGIBILITY_API_PATH,
     PREPARE_API_PATH,
-    PREVIEW_STORAGE_KEY,
     applyDocumentFields,
+    buildPreviewUrl,
+    consumePreviewFields,
     createApp,
+    createPreviewReference,
+    discardPreviewFields,
     getNewYorkDate,
+    normalizeDocumentFields,
     renderCommissionOptions,
     renderPreparationSummary
   };
@@ -228,8 +353,7 @@
   if (globalObject.document) {
     const app = createApp(
       globalObject.document,
-      globalObject.fetch.bind(globalObject),
-      globalObject.sessionStorage
+      globalObject.fetch.bind(globalObject)
     );
     app.bindEvents();
     app.loadCommissions();

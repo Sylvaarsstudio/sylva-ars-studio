@@ -1,5 +1,8 @@
 (function initializeAdminContract(globalObject) {
-  const PREVIEW_STORAGE_KEY = "sylvaArsDraftContractPreview";
+  const PREPARE_API_PATH = "/admin/api/contracts/prepare";
+  const numericIdPattern = /^[1-9][0-9]*$/;
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const previewReferencePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   function escapeHtml(value) {
     return String(value)
@@ -12,6 +15,60 @@
 
   function hasContent(value) {
     return value !== null && value !== undefined && String(value).trim() !== "";
+  }
+
+  function normalizeDocumentFields(fields = {}) {
+    return {
+      optional_message: String(fields.optional_message || "").trim(),
+      delivery_notes: String(fields.delivery_notes || "").trim()
+    };
+  }
+
+  function applyDocumentFields(snapshot, fields = {}) {
+    const prepared = typeof structuredClone === "function"
+      ? structuredClone(snapshot)
+      : JSON.parse(JSON.stringify(snapshot));
+    prepared.document_fields = normalizeDocumentFields(fields);
+    return prepared;
+  }
+
+  function isValidDate(value) {
+    if (!datePattern.test(value || "")) return false;
+    const date = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }
+
+  function parsePreviewRequest(search = "") {
+    const params = new URLSearchParams(search);
+    const allowedParams = new Set([
+      "preview", "commission_id", "quotation_id", "contract_date", "draft_ref"
+    ]);
+    if ([...params.keys()].some((key) => !allowedParams.has(key))) return null;
+    if (params.get("preview") !== "1") return null;
+    for (const key of allowedParams) {
+      if (params.getAll(key).length > 1) return null;
+    }
+    const commissionId = params.get("commission_id") || "";
+    const quotationId = params.get("quotation_id") || "";
+    const contractDate = params.get("contract_date") || "";
+    const previewReference = params.get("draft_ref") || null;
+
+    if (Boolean(commissionId) === Boolean(quotationId)) return null;
+    if (commissionId && !numericIdPattern.test(commissionId)) return null;
+    if (quotationId && !numericIdPattern.test(quotationId)) return null;
+    if (!isValidDate(contractDate)) return null;
+    if (previewReference && !previewReferencePattern.test(previewReference)) return null;
+
+    const sourceQuery = quotationId
+      ? `quotation_id=${encodeURIComponent(quotationId)}`
+      : `commission_id=${encodeURIComponent(commissionId)}`;
+    return {
+      apiUrl: `${PREPARE_API_PATH}?${sourceQuery}&contract_date=${encodeURIComponent(contractDate)}`,
+      commissionId: commissionId || null,
+      quotationId: quotationId || null,
+      contractDate,
+      previewReference
+    };
   }
 
   function formatCurrency(value) {
@@ -126,35 +183,100 @@
       <footer><p>DRAFT — NOT ISSUED — Contract terms are under review.</p></footer>`;
   }
 
-  function readPreview(storage) {
-    const serialized = storage.getItem(PREVIEW_STORAGE_KEY);
-    if (!serialized) return null;
+  async function fetchJson(fetchImplementation, url) {
+    const response = await fetchImplementation(url);
+    let body;
     try {
-      const snapshot = JSON.parse(serialized);
-      return snapshot.contract?.status === "draft" ? snapshot : null;
+      body = await response.json();
     } catch {
-      return null;
+      body = null;
+    }
+    if (!response.ok) {
+      throw new Error(body?.message || "The draft preview could not be prepared.");
+    }
+    return body;
+  }
+
+  function getPreviewReference(search = "") {
+    const reference = new URLSearchParams(search).get("draft_ref") || null;
+    return previewReferencePattern.test(reference || "") ? reference : null;
+  }
+
+  function consumeTransientFields(openerObject, reference) {
+    if (!reference) return normalizeDocumentFields();
+    try {
+      return normalizeDocumentFields(
+        openerObject?.AdminCreateContract?.consumePreviewFields?.(reference) || {}
+      );
+    } catch {
+      return normalizeDocumentFields();
     }
   }
 
-  function createApp(documentObject, storage, printFunction) {
+  function discardTransientFields(openerObject, reference) {
+    if (!reference) return;
+    try {
+      openerObject?.AdminCreateContract?.discardPreviewFields?.(reference);
+    } catch {
+      // The opener may have navigated away or become inaccessible.
+    }
+  }
+
+  function removePreviewReference(historyObject, locationObject) {
+    const params = new URLSearchParams(locationObject?.search || "");
+    if (!params.has("draft_ref")) return;
+    params.delete("draft_ref");
+    const query = params.toString();
+    const path = locationObject?.pathname || "/admin/contract.html";
+    historyObject?.replaceState?.(null, "", `${path}${query ? `?${query}` : ""}`);
+  }
+
+  function createApp(
+    documentObject,
+    fetchImplementation,
+    locationObject = globalObject.location,
+    historyObject = globalObject.history,
+    openerObject = globalObject.opener,
+    printFunction = globalObject.print?.bind(globalObject)
+  ) {
     const elements = {
       status: documentObject.querySelector("#contract-preview-status"),
       preview: documentObject.querySelector("#contract-preview"),
       print: documentObject.querySelector("#print-contract")
     };
 
-    function load() {
-      const snapshot = readPreview(storage);
-      if (!snapshot) {
-        elements.status.textContent = "No prepared draft contract is available.";
+    async function load() {
+      const previewReference = getPreviewReference(locationObject?.search);
+      const request = parsePreviewRequest(locationObject?.search);
+      if (!request) {
+        discardTransientFields(openerObject, previewReference);
+        removePreviewReference(historyObject, locationObject);
+        elements.status.textContent = "No valid draft preview request is available.";
         elements.status.classList?.add("is-error");
         return null;
       }
-      elements.preview.innerHTML = renderContractMarkup(snapshot);
-      elements.preview.hidden = false;
-      elements.status.textContent = "";
-      return snapshot;
+
+      try {
+        const body = await fetchJson(fetchImplementation, request.apiUrl);
+        if (body.snapshot?.contract?.status !== "draft") {
+          throw new Error("The server did not return a draft contract preview.");
+        }
+        const fields = consumeTransientFields(openerObject, request.previewReference);
+        const snapshot = applyDocumentFields(body.snapshot, fields);
+        elements.preview.innerHTML = renderContractMarkup(snapshot);
+        elements.preview.hidden = false;
+        elements.status.textContent = "";
+        removePreviewReference(historyObject, locationObject);
+        return snapshot;
+      } catch (error) {
+        discardTransientFields(openerObject, request.previewReference);
+        removePreviewReference(historyObject, locationObject);
+        elements.preview.innerHTML = "";
+        elements.preview.hidden = true;
+        elements.status.textContent = error.message;
+        elements.status.classList?.add("is-error");
+        return null;
+      }
     }
 
     function bindEvents() {
@@ -165,9 +287,12 @@
   }
 
   const api = {
-    PREVIEW_STORAGE_KEY,
+    PREPARE_API_PATH,
+    applyDocumentFields,
+    consumeTransientFields,
     createApp,
-    readPreview,
+    parsePreviewRequest,
+    removePreviewReference,
     renderContractMarkup,
     renderTerms
   };
@@ -175,7 +300,10 @@
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   globalObject.AdminContract = api;
   if (globalObject.document) {
-    const app = createApp(globalObject.document, globalObject.sessionStorage, globalObject.print.bind(globalObject));
+    const app = createApp(
+      globalObject.document,
+      globalObject.fetch.bind(globalObject)
+    );
     app.bindEvents();
     app.load();
   }
