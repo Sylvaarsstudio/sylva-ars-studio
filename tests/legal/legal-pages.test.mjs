@@ -92,13 +92,15 @@ test("the directory contains the three exact category headings", () => {
 
 test("the directory contains each approved policy link exactly once", () => {
   const html = read(directoryPath);
+  const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
+  assert.ok(main, "expected one main element");
   for (const [href, label] of directoryPolicyLinks) {
     const encodedLabel = label.replace(/&/g, "&amp;");
     const link = new RegExp(
       `<a href="${escapeRegExp(href)}">${escapeRegExp(encodedLabel)}<\\/a>`,
       "g"
     );
-    assert.equal((html.match(link) || []).length, 1, href);
+    assert.equal((main[1].match(link) || []).length, 1, href);
   }
 });
 
@@ -167,11 +169,20 @@ test("provisional pages contain no policy content beyond the approved notice", (
   }
 });
 
-test("all legal pages use only the two approved local stylesheets and local logo", () => {
+test("all legal pages use only approved local stylesheets and local images", () => {
   const pages = [directoryPath, ...policies.map(({ filename }) => policyPath(filename))];
+  const expectedImages = [
+    "/images/logo.png",
+    "/images/social/whatsapp.svg",
+    "/images/social/instagram.svg",
+    "/images/social/pinterest.svg",
+    "/images/social/youtube.svg",
+    "/images/social/facebook.svg",
+    "/images/social/x-twitter.svg"
+  ];
   for (const page of pages) {
     const html = read(page);
-    assert.deepEqual(attributeValues(html, "src"), ["/images/logo.png"], page);
+    assert.deepEqual(attributeValues(html, "src"), expectedImages, page);
     assert.deepEqual(
       attributeValues(html, "href").filter((value) => value.endsWith(".css")),
       ["/css/main.css", "/css/legal.css"],
@@ -185,7 +196,8 @@ test("legal pages contain no JavaScript, inline handlers, or external resources"
   for (const page of pages) {
     const html = read(page);
     assert.doesNotMatch(html, /<script\b|\son[a-z]+\s*=|<iframe\b/i, page);
-    assert.doesNotMatch(html, /(?:src|href)=["'](?:https?:)?\/\//i, page);
+    assert.doesNotMatch(html, /\bsrc=["'](?:https?:)?\/\//i, page);
+    assert.doesNotMatch(html, /<link\b[^>]*\bhref=["'](?:https?:)?\/\//i, page);
   }
 });
 
@@ -194,6 +206,7 @@ test("all internal links and resources use absolute site paths", () => {
   for (const page of pages) {
     const html = read(page);
     for (const value of [...attributeValues(html, "href"), ...attributeValues(html, "src")]) {
+      if (/^https:\/\//.test(value)) continue;
       assert.ok(value.startsWith("/"), `${page}: ${value}`);
     }
   }

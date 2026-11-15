@@ -95,7 +95,7 @@ test("browser resource origins remain covered without adding server-only provide
     readFile("netlify/shared/easypost-rate-provider.mjs", "utf8")
   ]);
 
-  assert.match(contact, /https:\/\/cdnjs\.cloudflare\.com/);
+  assert.doesNotMatch(contact, /https:\/\/cdnjs\.cloudflare\.com/);
   assert.match(inquiryForms, /https:\/\/challenges\.cloudflare\.com/);
   assert.match(CONTENT_SECURITY_POLICY_REPORT_ONLY, /style-src 'self' https:\/\/cdnjs\.cloudflare\.com/);
   assert.match(CONTENT_SECURITY_POLICY_REPORT_ONLY, /font-src 'self' https:\/\/cdnjs\.cloudflare\.com/);
