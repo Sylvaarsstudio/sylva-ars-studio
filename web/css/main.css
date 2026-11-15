@@ -259,6 +259,95 @@ h2 {
   opacity: 0.65;
 }
 
+.home-studio-videos {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 40px 20px;
+}
+
+.home-studio-videos h2 {
+  margin: 0 0 26px;
+  font-size: 28px;
+  font-weight: normal;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.home-studio-videos-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(18px, 3vw, 30px);
+}
+
+.studio-video-card {
+  display: block;
+  min-width: 0;
+  color: #111;
+  text-decoration: none;
+}
+
+.studio-video-card:focus-visible {
+  outline: 2px solid #111;
+  outline-offset: 6px;
+}
+
+.studio-video-thumbnail {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #e7e6e2;
+}
+
+.studio-video-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.studio-video-play {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(17, 17, 17, 0.72);
+}
+
+.studio-video-play::before {
+  position: absolute;
+  top: 50%;
+  left: 52%;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid white;
+  content: "";
+  transform: translate(-38%, -50%);
+}
+
+.studio-video-title {
+  display: -webkit-box;
+  overflow: hidden;
+  min-height: 44px;
+  margin-top: 11px;
+  font-size: 15px;
+  font-weight: normal;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.studio-video-card:hover .studio-video-title,
+.studio-video-card:focus-visible .studio-video-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .site-footer {
   padding: 0 20px 32px;
   text-align: center;
@@ -1128,6 +1217,17 @@ button[disabled] {
 
   .home-showcase-controls {
     margin-top: 24px;
+  }
+
+  .home-studio-videos {
+    padding: 0 24px 10px;
+  }
+
+  .home-studio-videos-grid {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    max-width: 380px;
+    margin: 0 auto;
   }
 
   .button,
